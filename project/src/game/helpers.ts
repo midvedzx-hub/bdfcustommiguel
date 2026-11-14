@@ -104,3 +104,31 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
   { label: "ร่าย: ทำลายมอนสเตอร์ 1", skill: { trigger: "onCast", effects: [{ type: "destroyOpponentMonster", value: 1 }] } },
   { label: "ร่าย: ฟื้น Life 2", skill: { trigger: "onCast", effects: [{ type: "addLife", value: 2 }] } },
 ];
+
+// คำอธิบายคีย์เวิร์ด/ตัวกระตุ้น ใช้แสดงในหน้าต่างดูการ์ด
+export const KEYWORD_HELP: Record<string, string> = {
+  Penetrate: "ถ้าโจมตีแล้วทำลายมอนสเตอร์ช่องกลางของศัตรูได้ จะทำดาเมจใส่ผู้เล่นเท่า Critical",
+  "Double Attack": "โจมตีได้ 2 ครั้งในเทิร์นเดียว (หลังโจมตีครั้งแรกจะ Stand กลับมา)",
+  "Triple Attack": "โจมตีได้ 3 ครั้งในเทิร์นเดียว",
+  Soulguard: "ถ้าจะถูกทำลาย ให้ถอด Soul 1 ใบลงสุสานแทน (ต้องมี Soul)",
+  Lifelink: "เมื่อทำดาเมจใส่ผู้เล่น จะฟื้น Life เท่าดาเมจนั้น",
+  Move: "ย้ายไปช่องมอนสเตอร์อื่นได้ 1 ครั้งต่อเทิร์นใน Main Phase (ถ้ามีตัวอยู่จะสลับกัน)",
+  Counterattack: "เมื่อถูกโจมตี ถ้า Power ของการ์ดนี้ ≥ Defense ของผู้โจมตี ผู้โจมตีจะถูกทำลาย (ถ้าไม่มี Counterattack ผู้โจมตีจะไม่ถูกทำลายกลับ)",
+  "Ignore Center": "ตีผู้เล่นได้แม้ศัตรูมีมอนสเตอร์ช่องกลาง",
+  "Battle Proof": "ไม่ถูกทำลายจากการต่อสู้",
+};
+
+export const TRIGGER_HELP: Record<string, string> = {
+  onCall: "ทำงานเมื่อการ์ดนี้ลงสนาม/ติดตั้ง",
+  onCast: "ทำงานเมื่อร่ายการ์ดนี้",
+  onAttack: "ทำงานตอนการ์ดนี้ประกาศโจมตี",
+  onDestroyed: "ทำงานเมื่อการ์ดนี้ถูกทำลาย",
+  onDestroyEnemy: "ทำงานเมื่อทำลายมอนสเตอร์ศัตรูได้",
+  onDamage: "ทำงานเมื่อทำดาเมจใส่ผู้เล่นศัตรู",
+  onCounter: "Counter Act: ใช้ได้ตอนศัตรูโจมตี (จากมือ/ช่อง Set/บนสนาม)",
+  onSoulRemoved: "ทำงานเมื่อ Soul ของการ์ดนี้ถูกถอด",
+  onBuddyCall: "ทำงานเมื่อลงสนามด้วย Buddy Call",
+  onTurnStart: "ทำงานต้นเทิร์นของเรา",
+  onFinal: "ทำงานใน Final Phase ของเรา",
+  continuous: "สกิลถาวร ทำงานตลอดที่การ์ดอยู่บนสนาม",
+};

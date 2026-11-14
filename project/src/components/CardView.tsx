@@ -18,6 +18,7 @@ interface Props {
   draggable?: boolean;
   onDragStart?: (e: React.DragEvent) => void;
   onDragEnd?: (e: React.DragEvent) => void;
+  onInspect?: () => void; // คลิกขวา / ดับเบิลคลิก เพื่อดูรายละเอียดการ์ด
   children?: ReactNode;
 }
 
@@ -36,7 +37,7 @@ const TYPE_LABEL: Record<string, string> = {
 // ทุกอย่างใช้หน่วย em และ font-size = ความกว้าง/16 จึงย่อ-ขยายได้ทุกขนาด
 export function CardView({
   card, flag, size = "md", width, stats, faceDown, hideText, onClick, className = "", style,
-  draggable, onDragStart, onDragEnd, children,
+  draggable, onDragStart, onDragEnd, onInspect, children,
 }: Props) {
   const w = width ?? WIDTHS[size];
   const color = getFlagColor(flag);
@@ -47,7 +48,11 @@ export function CardView({
     ...style,
   };
   const common = `relative rounded-[0.7em] overflow-hidden shadow-lg shrink-0 select-none ${onClick ? "cursor-pointer" : ""} ${className}`;
-  const dnd = { draggable, onDragStart, onDragEnd };
+  const dnd = {
+    draggable, onDragStart, onDragEnd,
+    onContextMenu: onInspect ? (e: React.MouseEvent) => { e.preventDefault(); onInspect(); } : undefined,
+    onDoubleClick: onInspect,
+  };
 
   if (faceDown || !card) {
     return (
@@ -75,49 +80,54 @@ export function CardView({
           ? <img src={card.image} alt={card.name} className="absolute inset-0 w-full h-full object-cover" draggable={false} />
           : <div className="absolute inset-0 flex items-center justify-center text-slate-600" style={{ fontSize: "0.9em", background: `linear-gradient(160deg, ${color}55, #0b1220)` }}>No Image</div>}
 
-        {/* Size + type label */}
-        <div className="absolute top-0 left-0 flex flex-col items-center text-center z-10" style={{ width: "4.4em", padding: "0.2em 0 0.5em", background: "linear-gradient(180deg, rgba(8,12,24,.92), rgba(8,12,24,.7))", clipPath: "polygon(0 0, 100% 0, 100% 78%, 78% 100%, 0 100%)" }}>
-          <span className="font-display font-bold text-amber-300 leading-none" style={{ fontSize: "2.5em", ...stroke }}>{card.size}</span>
-          <span className="text-white font-semibold leading-none" style={{ fontSize: "0.58em" }}>{TYPE_LABEL.Monster}</span>
-        </div>
+        {/* โครงสร้าง: พื้นที่บน (flex-1) + แถบล่าง (แท็ก + ชื่อ) เรียงต่อกันแบบ flow จึงไม่มีทางทับกัน */}
+        <div className="absolute inset-0 z-10 flex flex-col">
+          <div className="relative flex-1 min-h-0">
+            {/* Size + type label */}
+            <div className="absolute top-0 left-0 flex flex-col items-center text-center" style={{ width: "4.4em", padding: "0.2em 0 0.5em", background: "linear-gradient(180deg, rgba(8,12,24,.92), rgba(8,12,24,.7))", clipPath: "polygon(0 0, 100% 0, 100% 78%, 78% 100%, 0 100%)" }}>
+              <span className="font-display font-bold text-amber-300 leading-none" style={{ fontSize: "2.5em", ...stroke }}>{card.size}</span>
+              <span className="text-white font-semibold leading-none" style={{ fontSize: "0.58em" }}>{TYPE_LABEL.Monster}</span>
+            </div>
 
-        {/* Power / Critical / Defense แนวตั้ง */}
-        <div className="absolute left-0 flex flex-col items-center justify-between font-display font-bold z-10" style={{ top: "5em", bottom: compact ? "3.4em" : "10.2em", width: "2.3em", background: "linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,0))" }}>
-          <span className="text-sky-300" style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: compact ? "1.3em" : "1.15em", lineHeight: 1, ...stroke }} title="Power">{st.power}</span>
-          <span className="text-white" style={{ fontSize: compact ? "2.2em" : "1.9em", lineHeight: 1, ...stroke }} title="Critical">{st.critical}</span>
-          <span className="text-rose-400" style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: compact ? "1.3em" : "1.15em", lineHeight: 1, ...stroke }} title="Defense">{st.defense}</span>
-        </div>
+            {/* แนวตั้งซ้าย (บน→ล่าง): Defense ฟ้า / Critical ขาว / Attack(Power) แดง */}
+            <div className="absolute left-0 flex flex-col items-center justify-between font-display font-bold" style={{ top: "5em", bottom: "0.4em", width: "2.3em", background: "linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,0))" }}>
+              <span className="text-sky-400" style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: compact ? "1.3em" : "1.15em", lineHeight: 1, ...stroke }} title="Defense">{st.defense}</span>
+              <span className="text-white" style={{ fontSize: compact ? "2.2em" : "1.9em", lineHeight: 1, ...stroke }} title="Critical">{st.critical}</span>
+              <span className="text-red-500" style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: compact ? "1.3em" : "1.15em", lineHeight: 1, ...stroke }} title="Attack (Power)">{st.power}</span>
+            </div>
 
-        {/* Text box */}
-        {!compact && (
-          <div className="absolute z-10 rounded-[0.5em] text-white leading-snug overflow-hidden" style={{ left: "1em", right: "0.7em", bottom: "4.7em", fontSize: "0.62em", background: "rgba(5,8,18,.7)", padding: "0.4em 0.6em", maxHeight: "12.2em", border: "0.08em solid rgba(255,255,255,.18)" }}>
-            {cost && <div><span className="inline-block bg-white/90 text-slate-900 rounded px-1 mr-1 font-bold">Call Cost</span>{cost}</div>}
-            {lines.map((l, i) => <div key={i} className="text-amber-100">▪ {l}</div>)}
-            {card.customText && <div className="text-slate-200">▪ {card.customText}</div>}
-            {badges.length > 0 && (
-              <div className="flex flex-wrap justify-end gap-[0.3em] mt-[0.3em]">
-                {badges.map(b => <span key={b} className="bg-red-600 text-white rounded px-[0.5em] font-bold border border-white/70">{b}</span>)}
+            {/* กล่องข้อความ (ขวาของแถบสถิติ) */}
+            {!compact && (
+              <div className="absolute" style={{ left: "2.7em", right: "0.7em", bottom: "0.4em" }}>
+                <div className="rounded-[0.5em] text-white leading-snug overflow-hidden" style={{ fontSize: "0.62em", background: "rgba(5,8,18,.72)", padding: "0.4em 0.6em", maxHeight: "11.5em", border: "0.08em solid rgba(255,255,255,.18)" }}>
+                  {cost && <div><span className="inline-block bg-white/90 text-slate-900 rounded px-1 mr-1 font-bold">Call Cost</span>{cost}</div>}
+                  {lines.map((l, i) => <div key={i} className="text-amber-100">▪ {l}</div>)}
+                  {card.customText && <div className="text-slate-200">▪ {card.customText}</div>}
+                  {badges.length > 0 && (
+                    <div className="flex flex-wrap justify-end gap-[0.3em] mt-[0.3em]">
+                      {badges.map(b => <span key={b} className="bg-red-600 text-white rounded px-[0.5em] font-bold border border-white/70">{b}</span>)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {compact && badges.length > 0 && (
+              <div className="absolute right-[0.4em] flex gap-[0.2em]" style={{ bottom: "0.4em" }}>
+                <span className="bg-red-600 text-white rounded px-[0.4em] font-bold border border-white/70" style={{ fontSize: "0.6em" }}>{badges.length} KW</span>
               </div>
             )}
           </div>
-        )}
-        {compact && badges.length > 0 && (
-          <div className="absolute z-10 right-[0.4em] flex gap-[0.2em]" style={{ bottom: "3.3em" }}>
-            <span className="bg-red-600 text-white rounded px-[0.4em] font-bold border border-white/70" style={{ fontSize: "0.6em" }}>{badges.length} KW</span>
-          </div>
-        )}
 
-        {/* Tags */}
-        {!compact && (tagA || tagB) && (
-          <div className="absolute z-10 left-[0.9em] right-[0.5em] flex flex-col items-start gap-[0.15em]" style={{ bottom: "2.5em", fontSize: "0.6em" }}>
-            {tagA && <span className="px-[1em] rounded-r-full text-white font-semibold truncate max-w-full" style={{ background: `linear-gradient(90deg, ${color}, ${color}99)`, border: "0.08em solid rgba(255,255,255,.5)" }}>{tagA}</span>}
-            {tagB && <span className="px-[1.4em] rounded-r-full text-white font-semibold truncate max-w-full" style={{ background: "linear-gradient(90deg, #1d4ed8, #3b82f6aa)", border: "0.08em solid rgba(255,255,255,.5)" }}>{tagB}</span>}
+          {/* แถบล่าง: แท็ก (สายพันธุ์ + World) เรียงข้างกันในแถวเดียว แล้วตามด้วยแถบชื่อ */}
+          {!compact && (tagA || tagB) && (
+            <div className="flex flex-wrap items-center" style={{ padding: "0.2em 0.6em 0.3em 0.6em", gap: "0.25em", fontSize: "0.6em" }}>
+              {tagA && <span className="px-[1.1em] rounded-full text-white font-semibold truncate max-w-full" style={{ background: `linear-gradient(90deg, ${color}, ${color}99)`, border: "0.1em solid rgba(255,255,255,.5)", lineHeight: 1.5 }}>{tagA}</span>}
+              {tagB && <span className="px-[1.1em] rounded-full text-white font-semibold truncate max-w-full" style={{ background: "linear-gradient(90deg, #1d4ed8, #3b82f6cc)", border: "0.1em solid rgba(255,255,255,.5)", lineHeight: 1.5 }}>{tagB}</span>}
+            </div>
+          )}
+          <div className="shrink-0 flex items-center justify-center px-[0.5em] text-center" style={{ height: compact ? "2.6em" : "2.3em", background: `linear-gradient(180deg, ${color}cc, #0b1220f2)`, borderTop: "0.1em solid rgba(255,255,255,.5)" }}>
+            <span className="font-display font-bold italic text-white truncate" style={{ fontSize: compact ? "1em" : "1.1em", textShadow: "0 0 0.3em #000" }}>{card.name}</span>
           </div>
-        )}
-
-        {/* Name bar */}
-        <div className="absolute bottom-0 inset-x-0 z-10 flex items-center justify-center px-[0.5em] text-center" style={{ height: compact ? "2.6em" : "2.3em", background: `linear-gradient(180deg, ${color}cc, #0b1220f2)`, borderTop: "0.1em solid rgba(255,255,255,.5)" }}>
-          <span className="font-display font-bold italic text-white truncate" style={{ fontSize: compact ? "1em" : "1.1em", textShadow: "0 0 0.3em #000" }}>{card.name}</span>
         </div>
         {children}
       </div>

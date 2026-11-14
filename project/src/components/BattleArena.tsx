@@ -2,9 +2,10 @@ import { useState, useRef, useEffect } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import {
   Swords, Heart, Zap, Skull, LogOut, Plus, Minus, Hand, Trash2, RotateCw, Crown,
-  Copy, LogIn, Users, RefreshCw, Wrench, X, Shield, Star, AlertTriangle, Link2,
+  Copy, LogIn, Users, RefreshCw, Wrench, X, Shield, Star, AlertTriangle, Link2, Eye,
 } from "lucide-react";
-import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet } from "@/types";
+import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet, FieldCard } from "@/types";
+import { TRIGGER_LABELS } from "@/types";
 import { DEFAULT_RULES } from "@/types";
 import {
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
@@ -15,7 +16,7 @@ import {
   type AttackTarget, type CounterOption, type Result,
 } from "@/game/engine";
 import { getFlags, getCards, getDecks } from "@/storage";
-import { getFlagColor, hasCounter } from "@/game/helpers";
+import { getFlagColor, hasCounter, skillLines, keywordBadges, costText, effectText, KEYWORD_HELP, TRIGGER_HELP } from "@/game/helpers";
 import { mp } from "@/game/multiplayer";
 import { CardView } from "@/components/CardView";
 
@@ -269,6 +270,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const [notice, setNotice] = useState<{ title: string; msg: string } | null>(null);
   const [, setImgTick] = useState(0);
   const dragRef = useRef<Drag>(null);
+  const [inspectMode, setInspectMode] = useState(false);
+  const [inspect, setInspect] = useState<{ card: Card; flagId?: string; fc?: FieldCard | null; note?: string } | null>(null);
 
   const mySide: Side = mode === "multiplayer" ? role : "host";
   const oppSide: Side = mySide === "host" ? "guest" : "host";
@@ -351,7 +354,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     }
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        setAtkSels([]); setHandSel(null); setChargePick(false); setMenuTarget(null); setMoveSel(null); setNotice(null); setLinkMode(false);
+        setAtkSels([]); setHandSel(null); setChargePick(false); setMenuTarget(null); setMoveSel(null); setNotice(null); setLinkMode(false); setInspect(null);
       }
     }
     document.addEventListener("mousedown", handleClick);
@@ -467,6 +470,18 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const flagOf = (id: string) => allFlags.find(f => f.id === id) ?? _remoteFlagCache[id];
   const cardOf = (id: string) => getCard(id);
 
+  // เปิดหน้าต่างดูรายละเอียดการ์ด (คลิกขวา / ดับเบิลคลิก / โหมดดูการ์ด / คลิกการ์ดที่ตอนนี้ใช้ไม่ได้)
+  const openInspect = (card: Card, flagId?: string, fc?: FieldCard | null, note?: string) => setInspect({ card, flagId, fc, note });
+
+  // เหตุผลที่ตอนนี้ยังกระทำกับการ์ดไม่ได้ (แสดงในหน้าต่างดูการ์ด)
+  function whyBlocked(): string | undefined {
+    if (game.winner) return undefined;
+    if (!started) return "ยังเริ่มเกมไม่ได้: รอทั้งสองฝั่งเลือก Mulligan ก่อน";
+    if (game.battle) return iAmDefender ? "กำลังมีการโจมตี: เลือกใช้ Counter Act หรือกด 'ไม่ใช้ Counter' ก่อน" : "กำลังรอฝั่งตรงข้ามตัดสินใจ Counter";
+    if (!isMyTurn) return "ยังไม่ใช่เทิร์นของคุณ จึงสั่งการ์ดไม่ได้";
+    return undefined;
+  }
+
   /* ---------------- Drag & Drop ---------------- */
   function handleDropOnSlot(pos: number) {
     const d = dragRef.current;
@@ -543,19 +558,29 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           glow={glow}
           onDrop={isMine ? () => handleDropOnSlot(pos) : draggingAttack ? () => handleDropAttack({ kind: "monster", position: pos }) : undefined}
           onClick={() => {
+            if (inspectMode && m && card) return openInspect(card, p.flagId, m);
             if (isTarget) return tryAttack({ kind: "monster", position: pos });
             if (callable && handSel !== null) return tryCall(handSel, pos);
             if (moveTarget && moveSel) return tryMove(moveSel, pos);
-            if (m && isMine) {
-              if (canAttackNow && m.state === "stand") {
+            // เลือกผู้โจมตีไว้แล้วแต่กดช่องที่ตีไม่ได้ -> ให้กติกาบอกเหตุผล
+            if (!isMine && atkSels.length > 0) return tryAttack({ kind: "monster", position: pos });
+            if (m && card) {
+              if (isMine && canAttackNow && m.state === "stand") {
                 if (linkMode) return setAtkSels(atkSels.includes(m.uid) ? atkSels.filter(u => u !== m.uid) : [...atkSels, m.uid]);
                 return setAtkSels(atkSels.length === 1 && atkSels[0] === m.uid ? [] : [m.uid]);
               }
-              if (canMoveThis) return setMoveSel(moveSel === m.uid ? null : m.uid);
+              if (isMine && canMoveThis) return setMoveSel(moveSel === m.uid ? null : m.uid);
               if (sandbox) return setMenuTarget({ kind: "field", side, uid: m.uid });
-            } else if (m && sandbox) {
-              return setMenuTarget({ kind: "field", side, uid: m.uid });
+              // ไม่มีการกระทำที่ทำได้ -> เปิดดูการ์ด พร้อมบอกเหตุผล
+              let note = whyBlocked();
+              if (!note && isMine) {
+                if (m.state === "rest") note = `${card.name} อยู่ในสถานะ Rest (โจมตีไปแล้วหรือถูก Rest) จะ Stand ตอนต้นเทิร์นของคุณ`;
+                else if (game.rules.useAttackPhase && game.phase !== "attack") note = `โจมตีได้เฉพาะ Attack Phase (ตอนนี้คือ ${game.phase === "charge" ? "Charge & Draw" : game.phase === "main" ? "Main" : "Final"}) — กดปุ่ม 'ไป Attack Phase'`;
+                else if (game.phase === "final") note = "ผ่านช่วงโจมตีมาแล้ว ตอนนี้เป็น Final Phase";
+              } else if (!note && !isMine && game.phase === attackPhaseName && canAttackNow) note = "เลือกผู้โจมตีของคุณก่อน (คลิกมอนสเตอร์ที่ Stand) แล้วค่อยเลือกเป้าหมาย";
+              return openInspect(card, p.flagId, m, note);
             }
+            if (!m && !isMine && atkSels.length === 0 && canAttackNow) setNotice({ title: "ช่องนี้ว่าง", msg: "ไม่มีมอนสเตอร์ในช่องนี้ให้โจมตี" });
           }}
         >
           {m && card && (
@@ -566,6 +591,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             >
               <CardView
                 card={card} flag={flag} width="var(--cw)" hideText stats={statsOf(m)}
+                onInspect={() => openInspect(card, p.flagId, m)}
                 draggable={isMine && ((canAttackNow && m.state === "stand") || canMoveThis)}
                 onDragStart={() => { dragRef.current = { kind: "unit", uid: m.uid }; if (canAttackNow && !atkSels.includes(m.uid)) setAtkSels([m.uid]); }}
                 onDragEnd={() => { dragRef.current = null; }}
@@ -602,7 +628,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         {/* Life track */}
         <div style={{ ...place(10, 0, 81, 8.5, mirror), background: "linear-gradient(180deg,#7f1d1d,#5b1414)", borderRadius: mirror ? "0 0 10px 10px" : "10px 10px 0 0" }}
           className={`flex items-center gap-[1%] px-[1.2%] ${fighterLegal ? "glow-target cursor-crosshair" : ""}`}
-          onClick={() => fighterLegal && tryAttack({ kind: "fighter" })}
+          onClick={() => !isMine && atkSels.length > 0 && tryAttack({ kind: "fighter" })}
           onDragOver={draggingAttack ? (e) => e.preventDefault() : undefined}
           onDrop={draggingAttack ? (e) => { e.preventDefault(); handleDropAttack({ kind: "fighter" }); } : undefined}>
           <span className="font-display font-bold text-white shrink-0" style={{ fontSize: "calc(var(--mh) * 0.04)" }}>พลังชีวิต</span>
@@ -657,7 +683,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           <div className="flex gap-1 items-center justify-center">
             {p.setZone.map((id, i) => (
               <div key={i} onMouseEnter={() => isMine && cardOf(id) && setHovered({ card: cardOf(id)!, flagId: p.flagId })}>
-                <CardView faceDown width="calc(var(--mh) * 0.17)" />
+                <CardView faceDown width="calc(var(--mh) * 0.17)" onClick={isMine && cardOf(id) ? () => openInspect(cardOf(id)!, p.flagId, null, "การ์ด Set (คว่ำ): ใช้เป็น Counter Act ได้ตอนศัตรูโจมตี") : undefined} />
               </div>
             ))}
           </div>
@@ -670,7 +696,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           <div className="flex items-center justify-around w-full px-2" style={{ flexDirection: mirror ? "row-reverse" : "row" }}>
             {/* Flag */}
             <div className={`relative rounded-md overflow-hidden ${fighterLegal ? "glow-target cursor-crosshair" : ""}`} style={{ width: "calc(var(--mh) * 0.23)", aspectRatio: "63 / 88", border: `3px solid ${color}` }}
-              onClick={() => fighterLegal && tryAttack({ kind: "fighter" })}
+              onClick={() => !isMine && atkSels.length > 0 && tryAttack({ kind: "fighter" })}
               onDragOver={draggingAttack ? (e) => e.preventDefault() : undefined}
               onDrop={draggingAttack ? (e) => { e.preventDefault(); handleDropAttack({ kind: "fighter" }); } : undefined}>
               {flag?.image ? <img src={flag.image} className="w-full h-full object-cover" draggable={false} /> : <div className="w-full h-full" style={{ background: `linear-gradient(160deg, ${color}, #111827)` }} />}
@@ -683,16 +709,21 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               style={{ width: "calc(var(--mh) * 0.23)", aspectRatio: "63 / 88", border: "2px dashed #64748b", borderRadius: 8 }}
               onClick={() => {
                 if (!p.item) return;
+                const itemCard = cardOf(p.item.cardId);
+                if (inspectMode && itemCard) return openInspect(itemCard, p.flagId, p.item);
+                if (!isMine && atkSels.length > 0) return;
                 if (isMine && canAttackNow && p.item.state === "stand") {
                   if (linkMode) return setAtkSels(atkSels.includes(p.item.uid) ? atkSels.filter(u => u !== p.item!.uid) : [...atkSels, p.item.uid]);
                   return setAtkSels(atkSels.length === 1 && atkSels[0] === p.item.uid ? [] : [p.item.uid]);
                 }
-                if (sandbox) setMenuTarget({ kind: "field", side, uid: p.item.uid });
+                if (sandbox) return setMenuTarget({ kind: "field", side, uid: p.item.uid });
+                if (itemCard) openInspect(itemCard, p.flagId, p.item, whyBlocked() ?? (p.item.state === "rest" ? `${itemCard.name} อยู่ในสถานะ Rest จะ Stand ตอนต้นเทิร์นของเจ้าของ` : game.phase !== attackPhaseName ? "ไอเทมโจมตีได้ใน Attack Phase" : undefined));
               }}
             >
               {p.item && cardOf(p.item.cardId) ? (
                 <div className="transition-transform duration-500" style={{ transform: p.item.state === "rest" ? "rotate(90deg)" : "none" }} onMouseEnter={() => setHovered({ card: cardOf(p.item!.cardId)!, flagId: p.flagId, stats: statsOf(p.item!) })}>
                   <CardView card={cardOf(p.item.cardId)!} flag={flag} width="calc(var(--mh) * 0.22)" hideText stats={statsOf(p.item)}
+                    onInspect={() => openInspect(cardOf(p.item!.cardId)!, p.flagId, p.item)}
                     draggable={isMine && canAttackNow && p.item.state === "stand"}
                     onDragStart={() => { dragRef.current = { kind: "unit", uid: p.item!.uid }; if (!atkSels.includes(p.item!.uid)) setAtkSels([p.item!.uid]); }}
                     onDragEnd={() => { dragRef.current = null; }} />
@@ -703,7 +734,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             <div className="flex items-center justify-center" style={{ width: "calc(var(--mh) * 0.23)", aspectRatio: "63 / 88", border: "2px dashed #f59e0b88", borderRadius: 8 }}>
               {buddy ? (
                 <div className={p.buddyCalledThisGame ? "opacity-40" : ""} onMouseEnter={() => setHovered({ card: buddy, flagId: p.flagId })}>
-                  <CardView card={buddy} flag={flag} width="calc(var(--mh) * 0.22)" hideText />
+                  <CardView card={buddy} flag={flag} width="calc(var(--mh) * 0.22)" hideText onClick={() => openInspect(buddy, p.flagId, null, p.buddyCalledThisGame ? "Buddy ตัวนี้ถูก Buddy Call ไปแล้ว (ทำได้ครั้งเดียวต่อเกม)" : "Buddy ของคุณ: ลงสนามด้วยการ Buddy Call จะได้ Buddy Gift (Life +1) ครั้งเดียวต่อเกม")} onInspect={() => openInspect(buddy, p.flagId)} />
                 </div>
               ) : <span className="text-slate-400/50" style={{ fontSize: "calc(var(--mh) * 0.04)" }}>ไม่มี</span>}
             </div>
@@ -741,10 +772,13 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 draggable={canPlayNow || (isMyTurn && game.phase === "final")}
                 onDragStart={() => { dragRef.current = { kind: "hand", index: i }; setHandSel(i); }}
                 onDragEnd={() => { dragRef.current = null; }}
+                onInspect={() => openInspect(card, p.flagId)}
                 onClick={() => {
-                  if (!isMyTurn) return;
+                  if (inspectMode) return openInspect(card, p.flagId);
+                  if (!isMyTurn) return openInspect(card, p.flagId, null, whyBlocked() ?? "ยังไม่ใช่เทิร์นของคุณ");
                   if (game.phase === "charge" && chargePick) return doCharge(i);
-                  if (game.phase === "charge") return;
+                  if (game.phase === "charge") return openInspect(card, p.flagId, null, "ตอนนี้เป็นช่วง Charge & Draw — กดปุ่ม 'Charge & Draw' แล้วเลือกการ์ดเพื่อใส่เกจ หรือกด 'ข้าม' เพื่อเข้า Main Phase ก่อนจึงลงการ์ดได้");
+                  if (game.phase === "final" && card.type !== "Impact") return openInspect(card, p.flagId, null, "ตอนนี้เป็น Final Phase ใช้ได้เฉพาะ Impact (ลงมอนสเตอร์/ร่ายเวทได้เฉพาะ Main Phase)");
                   setHandSel(sel ? null : i);
                 }}
               />
@@ -765,7 +799,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     const btn = "px-3 py-1.5 rounded-lg text-sm font-semibold";
     return (
       <div className="mx-auto max-w-3xl w-full bg-slate-900/95 border border-cyan-600 rounded-xl p-3 flex gap-3 items-start">
-        <CardView card={card} flag={flagOf(me.flagId)} size="md" />
+        <CardView card={card} flag={flagOf(me.flagId)} size="md" onClick={() => openInspect(card, me.flagId)} />
         <div className="flex-1 min-w-0">
           <div className="font-display font-bold text-cyan-300">{card.name}</div>
           <div className="text-xs text-slate-400 mb-2">Cost {card.callCost} {card.callCostType}{card.type === "Monster" ? ` · Size ${card.size}` : ""}{hasCounter(card) ? " · มี Counter Act" : ""} · ลากการ์ดไปวางบนสนามได้</div>
@@ -854,7 +888,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               const on = mullSel.includes(i);
               return (
                 <div key={i} className={`rounded-lg transition ${on ? "ring-4 ring-rose-500 opacity-60 -translate-y-2" : "hover:ring-2 hover:ring-cyan-400"}`}>
-                  <CardView card={c} flag={flagOf(me.flagId)} size="md" onClick={() => setMullSel(on ? mullSel.filter(x => x !== i) : [...mullSel, i])} />
+                  <CardView card={c} flag={flagOf(me.flagId)} size="md" onClick={() => setMullSel(on ? mullSel.filter(x => x !== i) : [...mullSel, i])} onInspect={() => openInspect(c, me.flagId)} />
                 </div>
               );
             })}
@@ -900,7 +934,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               if (!c) return null;
               return (
                 <div key={k} className="flex flex-col items-center gap-1">
-                  <CardView card={c} flag={flagOf(me.flagId)} size="md" onClick={() => doCounter(o)} className="hover:ring-4 hover:ring-sky-400" />
+                  <CardView card={c} flag={flagOf(me.flagId)} size="md" onClick={() => doCounter(o)} onInspect={() => openInspect(c, me.flagId)} className="hover:ring-4 hover:ring-sky-400" />
                   <span className="text-[11px] text-sky-300">{zoneLabel(o)}</span>
                   <button onClick={() => doCounter(o)} className="px-3 py-1 bg-sky-600 hover:bg-sky-500 rounded-lg text-xs font-bold">ใช้ Counter{o.zone === "hand" ? ` (Cost ${c.callCost})` : ""}</button>
                 </div>
@@ -908,6 +942,87 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             })}
           </div>
           <button onClick={doPassCounter} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">ไม่ใช้ Counter — ต่อสู้เลย</button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderInspect() {
+    if (!inspect) return null;
+    const { card, flagId, fc, note } = inspect;
+    const flag = flagOf(flagId ?? card.flagId);
+    const st = fc ? statsOf(fc) : undefined;
+    const lines = skillLines(card);
+    const badges = keywordBadges(card);
+    const cost = costText(card);
+    return (
+      <div className="fixed inset-0 bg-black/75 z-[55] flex items-center justify-center p-4" onClick={() => setInspect(null)}>
+        <div className="bg-slate-900 border-2 border-cyan-500 rounded-2xl p-5 max-w-3xl w-full max-h-[94vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="flex justify-between items-start mb-3">
+            <h3 className="font-display text-xl font-bold text-cyan-300">{card.name}</h3>
+            <button onClick={() => setInspect(null)} className="p-1 hover:bg-slate-800 rounded"><X size={18} /></button>
+          </div>
+          {note && (
+            <div className="mb-3 flex gap-2 items-start bg-amber-900/30 border border-amber-600 text-amber-200 text-sm rounded-lg px-3 py-2">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" /> <span>{note}</span>
+            </div>
+          )}
+          <div className="flex gap-5 flex-wrap md:flex-nowrap">
+            <div className="mx-auto md:mx-0"><CardView card={card} flag={flag} size="xl" stats={st} /></div>
+            <div className="flex-1 min-w-[220px] space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-300">
+                <span>ประเภท: <b className="text-white">{card.type}</b></span>
+                <span>สังกัด: <b className="text-white">{flag?.name ?? "-"}</b></span>
+                <span>Cost: <b className="text-white">{card.callCostType === "Life" ? "Life" : "เกจ"} {card.callCost}</b></span>
+                {card.type === "Monster" && <span>Size: <b className="text-white">{card.size}</b></span>}
+                {(card.type === "Monster" || card.type === "Item" || card.type === "Impact") && (<>
+                  <span>Power: <b className="text-red-400">{st ? st.power : card.power}</b>{st && st.power !== card.power ? <span className="text-slate-500"> (ปกติ {card.power})</span> : null}</span>
+                  <span>Critical: <b className="text-rose-300">{st ? st.critical : card.critical}</b></span>
+                  {card.type === "Monster" && <span>Defense: <b className="text-sky-300">{st ? st.defense : card.defense}</b></span>}
+                </>)}
+                {card.attribute && <span className="col-span-2">สายพันธุ์: <b className="text-white">{card.attribute}</b></span>}
+              </div>
+              {fc && (
+                <div className="text-xs text-slate-400 bg-slate-800/60 rounded-lg px-3 py-2">
+                  สถานะบนสนาม: <b className="text-white">{fc.state === "stand" ? "Stand" : "Rest"}</b>
+                  {" · "}Soul: <b className="text-violet-300">{fc.soul.length}</b>
+                  {maxAttacks(card) > 1 ? <> · โจมตีแล้ว <b className="text-white">{fc.attacks}/{maxAttacks(card)}</b></> : null}
+                </div>
+              )}
+              {cost && <div><div className="text-xs font-bold text-slate-400 mb-1">Call Cost</div><div className="text-slate-200">{cost}</div></div>}
+              {(card.autoSkills.length > 0 || card.customText) ? (
+                <div>
+                  <div className="text-xs font-bold text-slate-400 mb-1">ความสามารถ</div>
+                  <div className="space-y-2">
+                    {card.autoSkills.map((sk, i) => {
+                      const keywordOnly = (sk.trigger === "continuous" || sk.trigger === "onAttack") && keywordBadges({ ...card, autoSkills: [sk] }).length === sk.effects.length;
+                      if (keywordOnly) return null;
+                      return (
+                        <div key={i} className="bg-slate-800/60 rounded-lg px-3 py-2">
+                          <div className="text-amber-200">【{TRIGGER_LABELS.find(t => t.value === sk.trigger)?.label ?? sk.trigger}】{sk.effects.map(effectText).join("、")}</div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">{TRIGGER_HELP[sk.trigger]}</div>
+                        </div>
+                      );
+                    })}
+                    {card.customText && <div className="bg-slate-800/60 rounded-lg px-3 py-2 text-slate-200">{card.customText}</div>}
+                  </div>
+                </div>
+              ) : lines.length === 0 && badges.length === 0 ? <div className="text-slate-500">การ์ดใบนี้ไม่มีความสามารถพิเศษ</div> : null}
+              {badges.length > 0 && (
+                <div>
+                  <div className="text-xs font-bold text-slate-400 mb-1">คีย์เวิร์ด</div>
+                  <div className="space-y-1">
+                    {badges.map(b => (
+                      <div key={b} className="flex gap-2 items-start">
+                        <span className="bg-red-600 text-white rounded px-2 text-xs font-bold shrink-0">{b}</span>
+                        <span className="text-slate-300 text-xs">{KEYWORD_HELP[b]}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -971,7 +1086,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               if (!c) return null;
               return (
                 <div key={i} className="relative group" onMouseEnter={() => setHovered({ card: c, flagId: p.flagId })}>
-                  <CardView card={c} flag={flagOf(c.flagId) ?? flagOf(p.flagId)} size="sm" />
+                  <CardView card={c} flag={flagOf(c.flagId) ?? flagOf(p.flagId)} size="sm" onClick={() => openInspect(c, p.flagId)} />
                   {sandbox && (
                     <button onClick={() => doAction(s => sandboxMoveCard(s, menuTarget.side, "dropZone", "hand", i))} className="absolute -top-1 -right-1 bg-cyan-600 hover:bg-cyan-500 rounded-full p-1"><Hand size={10} /></button>
                   )}
@@ -1033,6 +1148,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               <span className="text-xs text-green-400">● ห้อง {roomId}</span>
               <button onClick={requestSync} title="ซิงค์เกมกับเพื่อนใหม่" className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm flex items-center gap-1"><RefreshCw size={14} /> ซิงค์</button>
             </>)}
+            <button onClick={() => setInspectMode(v => !v)} title="เปิดแล้วคลิกการ์ดใบไหนก็ได้เพื่อดูความสามารถ (หรือคลิกขวา/ดับเบิลคลิกที่การ์ด)" className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 ${inspectMode ? "bg-cyan-600 hover:bg-cyan-500" : "bg-slate-800 hover:bg-slate-700"}`}><Eye size={14} /> ดูการ์ด {inspectMode ? "ON" : "OFF"}</button>
             <button onClick={() => setSandbox(v => !v)} title="เครื่องมือแก้เกมด้วยมือ" className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 ${sandbox ? "bg-fuchsia-700 hover:bg-fuchsia-600" : "bg-slate-800 hover:bg-slate-700"}`}><Wrench size={14} /> Sandbox {sandbox ? "ON" : "OFF"}</button>
           </div>
         </div>
@@ -1071,6 +1187,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       {renderMenus()}
       {renderMulligan()}
       {renderCounterModal()}
+      {renderInspect()}
       {renderNotice()}
 
       {showRoomDialog && (
