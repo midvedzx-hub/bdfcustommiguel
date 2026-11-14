@@ -7,7 +7,9 @@ export type AutoTrigger =
   | "onDestroyed"   // เมื่อถูกทำลาย
   | "onDestroyEnemy"// เมื่อทำลายมอนสเตอร์ศัตรูได้
   | "onDamage"      // เมื่อทำดาเมจใส่ผู้เล่นศัตรู
-  | "onCounter"     // Counter Act: ใช้จากมือตอนศัตรูโจมตี
+  | "onCounter"     // Counter Act: ใช้จากมือ/สนาม/ช่อง Set ตอนศัตรูโจมตี
+  | "onSoulRemoved" // เมื่อโซลของการ์ดนี้ถูกถอดออก
+  | "onBuddyCall"   // เมื่อลงสนามด้วย Buddy Call
   | "onTurnStart"   // ต้นเทิร์นของเรา
   | "onFinal"       // ใน Final Phase ของเรา
   | "continuous";   // สกิลถาวร (คีย์เวิร์ด เช่น Penetrate)
@@ -35,7 +37,11 @@ export type AutoEffectType =
   | "indestructibleBattle"    // ไม่ถูกทำลายจากการต่อสู้
   | "negateAttack"            // (Counter) ยกเลิกการโจมตีนั้น
   | "destroyAttacker"         // (Counter) ทำลายผู้โจมตี
-  | "restAttacker";           // (Counter) Rest ผู้โจมตี
+  | "restAttacker"            // (Counter) Rest ผู้โจมตี
+  | "move"                    // Move: ย้ายมอนสเตอร์ไปช่องอื่นได้ (1 ครั้ง/เทิร์น ใน Main Phase)
+  | "counterattack"           // ถูกโจมตีแล้วตอบโต้: ถ้า Power ≥ Defense ผู้โจมตี ผู้โจมตีจะถูกทำลาย
+  | "addSoul"                 // นำการ์ดบนเด็ค N ใบเข้าโซลของการ์ดนี้
+  | "removeSoul";             // ถอดโซลของการ์ดนี้ N ใบลงสุสาน (ถ้าโซลไม่พอ เอฟเฟกต์ถัดไปของสกิลนี้จะไม่ทำงาน)
 
 export const TRIGGER_LABELS: { value: AutoTrigger; label: string }[] = [
   { value: "onCall", label: "เมื่อลงสนาม / ติดตั้ง" },
@@ -45,6 +51,8 @@ export const TRIGGER_LABELS: { value: AutoTrigger; label: string }[] = [
   { value: "onDamage", label: "เมื่อทำดาเมจใส่ผู้เล่น" },
   { value: "onDestroyed", label: "เมื่อถูกทำลาย" },
   { value: "onCounter", label: "Counter Act (ใช้จากมือตอนศัตรูโจมตี)" },
+  { value: "onSoulRemoved", label: "เมื่อโซลถูกถอด" },
+  { value: "onBuddyCall", label: "เมื่อลงสนามด้วย Buddy Call" },
   { value: "onTurnStart", label: "ต้นเทิร์นของเรา" },
   { value: "onFinal", label: "ใน Final Phase" },
   { value: "continuous", label: "ถาวร (คีย์เวิร์ด)" },
@@ -74,6 +82,10 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "negateAttack", label: "[Counter] ยกเลิกการโจมตี", hint: "ใส่ 1" },
   { value: "destroyAttacker", label: "[Counter] ทำลายผู้โจมตี", hint: "ใส่ 1" },
   { value: "restAttacker", label: "[Counter] Rest ผู้โจมตี", hint: "ใส่ 1" },
+  { value: "move", label: "Move (ย้ายช่องได้)", hint: "ใส่ 1" },
+  { value: "counterattack", label: "Counterattack (ตอบโต้ผู้โจมตี)", hint: "ใส่ 1" },
+  { value: "addSoul", label: "เพิ่ม Soul (เด็ค→โซลการ์ดนี้)", hint: "จำนวนใบ" },
+  { value: "removeSoul", label: "ถอด Soul ลงสุสาน (เป็นค่าใช้จ่าย)", hint: "จำนวนใบ" },
 ];
 
 export interface AutoEffect {
@@ -101,6 +113,7 @@ export interface Card {
   customText: string;
   autoSkills: AutoSkill[];
   attribute?: string; // เช่น "Dragon / Warrior" แสดงใต้ชื่อการ์ด
+  callSoulFromDeck?: number; // Call Cost: นำการ์ดบนเด็ค N ใบเข้าโซลตอนลงสนาม
 }
 
 export interface Flag {
@@ -123,6 +136,8 @@ export interface RuleSet {
   useAttackPhase: boolean;    // แยก Attack Phase ออกจาก Main Phase
   enableCounter: boolean;     // เปิดระบบ Counter Act
   deckOutLose: boolean;       // เด็คหมดแล้วแพ้
+  firstPlayer: "random" | "host" | "guest"; // ใครเริ่มก่อน
+  maxSet: number;             // จำนวนการ์ดที่ Set ได้สูงสุด
 }
 
 export const DEFAULT_RULES: RuleSet = {
@@ -132,13 +147,16 @@ export const DEFAULT_RULES: RuleSet = {
   useAttackPhase: true,
   enableCounter: true,
   deckOutLose: true,
+  firstPlayer: "random",
+  maxSet: 2,
 };
 
 export type AttackTarget = { kind: "monster"; position: number } | { kind: "fighter" };
 
 export interface BattleState {
   attackerSide: "host" | "guest";
-  attackerUid: string;
+  attackerUid: string;     // ตัวนำ
+  linkUids: string[];      // ผู้โจมตีทั้งหมด (รวมตัวนำ) ถ้ามากกว่า 1 = Link Attack
   target: AttackTarget;
   negated: boolean;
 }
@@ -162,6 +180,9 @@ export interface FieldCard {
   tempCritical: number;
   tempDefense: number;
   attacks: number; // จำนวนครั้งที่โจมตีแล้วในเทิร์นนี้
+  soul: string[]; // การ์ดใต้การ์ดนี้ (Soul)
+  movedTurn?: number; // เทิร์นที่ใช้ Move ไปแล้ว
+  counterUsedTurn?: number; // เทิร์นที่ใช้ Counter Act จากสนามไปแล้ว (ใช้ได้ 1 ครั้งต่อเทิร์น)
   guardUsed?: boolean;
 }
 
@@ -172,6 +193,7 @@ export interface PlayerState {
   deck: string[]; // remaining card ids
   hand: string[];
   dropZone: string[];
+  setZone: string[]; // การ์ดที่ Set ไว้ (คว่ำ) ใช้เป็น Counter Act ได้
   monsters: FieldCard[];
   item: FieldCard | null;
   flagId: string;
@@ -184,6 +206,7 @@ export interface GameState {
   currentTurn: "host" | "guest";
   phase: "charge" | "main" | "attack" | "final";
   rules: RuleSet;
+  mulligan: { host: boolean; guest: boolean }; // เลือกเปลี่ยนมือเริ่มต้นเสร็จแล้วหรือยัง
   battle: BattleState | null; // การโจมตีที่กำลังรอ Counter
   firstPlayer: "host" | "guest";
   attacksThisTurn: number; // ใช้จำกัดเทิร์นแรกของผู้เล่นคนแรก

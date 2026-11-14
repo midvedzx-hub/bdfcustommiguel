@@ -16,6 +16,10 @@ const KEYWORDS: Record<string, string> = {
   tripleAttack: "Triple Attack",
   soulguard: "Soulguard",
   lifelink: "Lifelink",
+  move: "Move",
+  counterattack: "Counterattack",
+  ignoreCenter: "Ignore Center",
+  indestructibleBattle: "Battle Proof",
 };
 
 export function effectText(e: AutoEffect): string {
@@ -34,11 +38,11 @@ export function effectText(e: AutoEffect): string {
     case "buffCritical": return `Critical +${v}`;
     case "buffDefense": return `Defense +${v}`;
     case "multiAttack": return `โจมตีได้ ${v} ครั้งต่อเทิร์น`;
-    case "ignoreCenter": return `ตีผู้เล่นได้แม้ศัตรูมีมอนสเตอร์ช่องกลาง`;
-    case "indestructibleBattle": return `ไม่ถูกทำลายจากการต่อสู้`;
     case "negateAttack": return `ยกเลิกการโจมตีนั้น`;
     case "destroyAttacker": return `ทำลายผู้โจมตี`;
     case "restAttacker": return `Rest ผู้โจมตี`;
+    case "addSoul": return `นำการ์ดบนเด็ค ${v} ใบเข้า Soul ของการ์ดนี้`;
+    case "removeSoul": return `ถอด Soul ${v} ใบของการ์ดนี้ลงสุสาน`;
     default: return KEYWORDS[e.type] ?? e.type;
   }
 }
@@ -48,14 +52,29 @@ export function skillLines(card: Card): string[] {
   const lines: string[] = [];
   card.autoSkills?.forEach(sk => {
     const allKeywords = sk.effects.every(e => e.type in KEYWORDS);
-    if ((sk.trigger === "continuous" || sk.trigger === "onAttack") && allKeywords) {
-      lines.push(sk.effects.map(e => `【${KEYWORDS[e.type]}】`).join(""));
-      return;
-    }
+    if ((sk.trigger === "continuous" || sk.trigger === "onAttack") && allKeywords) return; // แสดงเป็นป้ายแดงแทน
     const label = TRIGGER_LABELS.find(t => t.value === sk.trigger)?.label.replace(/ \(.*\)$/, "") ?? sk.trigger;
     lines.push(`【${label}】${sk.effects.map(effectText).join("、")}`);
   });
   return lines;
+}
+
+// ป้ายคีย์เวิร์ดสีแดง (Penetrate, Move, Soulguard ฯลฯ)
+export function keywordBadges(card: Card): string[] {
+  const out: string[] = [];
+  card.autoSkills?.forEach(sk => {
+    if (sk.trigger !== "continuous" && sk.trigger !== "onAttack") return;
+    sk.effects.forEach(e => { const k = KEYWORDS[e.type]; if (k && !out.includes(k)) out.push(k); });
+  });
+  return out;
+}
+
+// ข้อความ Call Cost บนการ์ด
+export function costText(card: Card): string {
+  const parts: string[] = [];
+  if (card.callCost > 0 || card.type === "Monster") parts.push(`จ่าย ${card.callCostType === "Life" ? "Life" : "เกจ"} ${card.callCost}`);
+  if ((card.callSoulFromDeck ?? 0) > 0) parts.push(`นำการ์ดบนเด็ค ${card.callSoulFromDeck} ใบเข้า Soul ของการ์ดนี้`);
+  return parts.join(" และ ");
 }
 
 export function hasCounter(card: Card): boolean {
@@ -67,6 +86,8 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
   { label: "Penetrate", skill: { trigger: "continuous", effects: [{ type: "penetrate", value: 1 }] } },
   { label: "Double Attack", skill: { trigger: "continuous", effects: [{ type: "doubleAttack", value: 1 }] } },
   { label: "Triple Attack", skill: { trigger: "continuous", effects: [{ type: "tripleAttack", value: 1 }] } },
+  { label: "Move", skill: { trigger: "continuous", effects: [{ type: "move", value: 1 }] } },
+  { label: "Counterattack", skill: { trigger: "continuous", effects: [{ type: "counterattack", value: 1 }] } },
   { label: "Soulguard", skill: { trigger: "continuous", effects: [{ type: "soulguard", value: 1 }] } },
   { label: "Lifelink", skill: { trigger: "continuous", effects: [{ type: "lifelink", value: 1 }] } },
   { label: "ลงสนาม: จั่ว 1", skill: { trigger: "onCall", effects: [{ type: "draw", value: 1 }] } },
@@ -74,6 +95,9 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
   { label: "ลงสนาม: ดาเมจ 1", skill: { trigger: "onCall", effects: [{ type: "reduceLife", value: 1 }] } },
   { label: "ถูกทำลาย: จั่ว 1", skill: { trigger: "onDestroyed", effects: [{ type: "draw", value: 1 }] } },
   { label: "โจมตี: Power +5000", skill: { trigger: "onAttack", effects: [{ type: "buffPower", value: 5000 }] } },
+  { label: "ถอด Soul 1 → Counter Stand ตัวเอง", skill: { trigger: "onCounter", effects: [{ type: "removeSoul", value: 1 }, { type: "standSelf", value: 1 }] } },
+  { label: "ถอด Soul → ดาเมจ 1", skill: { trigger: "onSoulRemoved", effects: [{ type: "reduceLife", value: 1 }] } },
+  { label: "Buddy Call: จั่ว 1", skill: { trigger: "onBuddyCall", effects: [{ type: "draw", value: 1 }] } },
   { label: "Counter: ยกเลิกโจมตี", skill: { trigger: "onCounter", effects: [{ type: "negateAttack", value: 1 }] } },
   { label: "Counter: ทำลายผู้โจมตี", skill: { trigger: "onCounter", effects: [{ type: "destroyAttacker", value: 1 }] } },
   { label: "Counter: Def +10000", skill: { trigger: "onCounter", effects: [{ type: "buffDefense", value: 10000 }] } },

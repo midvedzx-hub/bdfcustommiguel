@@ -7,6 +7,10 @@ import { uid } from "@/storage";
 export type Side = "host" | "guest";
 export type { AttackTarget };
 export type Result = { state: GameState; ok: boolean; msg: string };
+export type CounterOption =
+  | { zone: "hand"; index: number }
+  | { zone: "set"; index: number }
+  | { zone: "field"; uid: string };
 
 export const POSITION_NAMES = ["ซ้าย", "กลาง", "ขวา"];
 const other = (s: Side): Side => (s === "host" ? "guest" : "host");
@@ -31,8 +35,6 @@ export function getCard(cardId: string): Card | undefined {
   return _cardCache[cardId];
 }
 
-// เพิ่มการ์ดของเพื่อน (ที่ส่งมาตอนต่อออนไลน์) เข้า cache โดยไม่ทับการ์ดของเรา
-// ถ้า id ชนกันแต่เนื้อหาต่าง (เช่น import ไฟล์เดียวกันแล้วแก้คนละแบบ) ให้ใช้ของเรา
 export function registerCards(cards: Card[]) {
   cards.forEach(c => {
     const existing = _cardCache[c.id];
@@ -58,7 +60,7 @@ export function missingImageIds(ids: string[]): string[] {
 /* Internal mutable helpers (ทำงานบน state ที่ clone มาแล้วเท่านั้น)     */
 /* ------------------------------------------------------------------ */
 function log(g: GameState, msg: string) {
-  g.log = [...g.log, msg].slice(-60);
+  g.log = [...g.log, msg].slice(-80);
 }
 
 function checkWin(g: GameState) {
@@ -92,7 +94,6 @@ function mDraw(g: GameState, side: Side, n: number, canLose = true): number {
   return drawn;
 }
 
-// Charge: การ์ดบนเด็คลงเกจ (คว่ำ)
 function mCharge(g: GameState, side: Side, n: number, canLose = true): number {
   const p = g[side];
   let moved = 0;
@@ -109,7 +110,6 @@ function mCharge(g: GameState, side: Side, n: number, canLose = true): number {
   return moved;
 }
 
-// จ่ายเกจ: การ์ดในเกจถูกย้ายไปสุสาน
 function mPayGauge(g: GameState, side: Side, n: number) {
   const p = g[side];
   for (let i = 0; i < n && p.gaugePile.length > 0; i++) {
@@ -170,29 +170,47 @@ export function maxAttacks(card: Card): number {
 function newFieldCard(cardId: string, position: number): FieldCard {
   return {
     uid: uid(), cardId, position, state: "stand",
-    tempPower: 0, tempCritical: 0, tempDefense: 0, attacks: 0,
+    tempPower: 0, tempCritical: 0, tempDefense: 0, attacks: 0, soul: [],
   };
 }
 
+function findFc(p: PlayerState, fcUid: string): FieldCard | null {
+  return p.monsters.find(m => m.uid === fcUid) ?? (p.item?.uid === fcUid ? p.item : null);
+}
+
 /* ------------------------------------------------------------------ */
-/* Effects                                                             */
+/* Soul / destroy / effects                                            */
 /* ------------------------------------------------------------------ */
+function mRemoveSoul(g: GameState, side: Side, fc: FieldCard, n: number): number {
+  const p = g[side];
+  let moved = 0;
+  for (let i = 0; i < n && fc.soul.length > 0; i++) {
+    p.dropZone.push(fc.soul.pop()!);
+    moved++;
+  }
+  if (moved > 0) {
+    const card = getCard(fc.cardId);
+    log(g, `${card?.name ?? "การ์ด"} ถูกถอด Soul ${moved} ใบลงสุสาน`);
+    if (card) applyEffects(g, side, card, "onSoulRemoved", { fc });
+  }
+  return moved;
+}
+
 function mDestroyMonster(g: GameState, side: Side, monsterUid: string): boolean {
   const p = g[side];
   const m = p.monsters.find(x => x.uid === monsterUid);
   if (!m) return false;
   const card = getCard(m.cardId);
 
-  // Soulguard: จ่ายเกจ 1 เพื่อไม่ถูกทำลาย (ครั้งเดียวต่อเทิร์น)
-  if (card && hasKeyword(card, "soulguard") && !m.guardUsed && p.gaugePile.length >= 1) {
-    mPayGauge(g, side, 1);
-    m.guardUsed = true;
-    log(g, `${card.name} ใช้ Soulguard! จ่ายเกจ 1 เพื่อรอดจากการถูกทำลาย`);
+  // Soulguard: ถอด Soul 1 ใบลงสุสานแทนการถูกทำลาย
+  if (card && hasKeyword(card, "soulguard") && m.soul.length >= 1) {
+    log(g, `${card.name} ใช้ Soulguard! ถอด Soul 1 ใบแทนการถูกทำลาย`);
+    mRemoveSoul(g, side, m, 1);
     return false;
   }
 
   p.monsters = p.monsters.filter(x => x.uid !== monsterUid);
-  p.dropZone.push(m.cardId);
+  p.dropZone.push(m.cardId, ...m.soul);
   log(g, `${card?.name ?? "มอนสเตอร์"} ถูกทำลาย`);
   if (card) applyEffects(g, side, card, "onDestroyed");
   return true;
@@ -208,9 +226,10 @@ function applyEffects(
   const opp = other(side);
   card.autoSkills?.forEach(skill => {
     if (skill.trigger !== trigger) return;
-    skill.effects.forEach(eff => {
+    for (const eff of skill.effects) {
       if (g.winner) return;
       const n = Math.max(0, Math.floor(eff.value));
+      let abort = false;
       switch (eff.type) {
         case "draw": mDraw(g, side, n); break;
         case "addGauge": mCharge(g, side, n); break;
@@ -264,6 +283,20 @@ function applyEffects(
           log(g, `${card.name} ${eff.type === "buffPower" ? "Power" : eff.type === "buffCritical" ? "Critical" : "Defense"} +${eff.value}`);
           break;
         }
+        case "addSoul": {
+          const fc = ctx?.fc;
+          if (!fc) break;
+          let moved = 0;
+          for (let i = 0; i < n && g[side].deck.length > 0; i++) { fc.soul.push(g[side].deck.shift()!); moved++; }
+          if (moved > 0) log(g, `${card.name} ได้รับ Soul +${moved}`);
+          break;
+        }
+        case "removeSoul": {
+          const fc = ctx?.fc;
+          if (!fc || fc.soul.length < n) { abort = true; log(g, `${card.name}: Soul ไม่พอ เอฟเฟกต์ไม่ทำงาน`); break; }
+          mRemoveSoul(g, side, fc, n);
+          break;
+        }
         case "negateAttack":
           if (g.battle) { g.battle.negated = true; log(g, `${card.name} ยกเลิกการโจมตี!`); }
           break;
@@ -279,16 +312,18 @@ function applyEffects(
         case "restAttacker": {
           if (!g.battle) break;
           const atkSide = g.battle.attackerSide;
-          const a = g[atkSide].monsters.find(x => x.uid === g.battle!.attackerUid) ??
-            (g[atkSide].item?.uid === g.battle.attackerUid ? g[atkSide].item : null);
-          if (a) { a.state = "rest"; log(g, `${card.name} Rest ผู้โจมตี`); }
+          g.battle.linkUids.forEach(u => {
+            const a = findFc(g[atkSide], u);
+            if (a) a.state = "rest";
+          });
+          log(g, `${card.name} Rest ผู้โจมตี`);
           break;
         }
         default:
-          // penetrate / doubleAttack / soulguard ฯลฯ เป็นคีย์เวิร์ด ถูกอ่านตอนต่อสู้
-          break;
+          break; // penetrate / doubleAttack / soulguard / counterattack ฯลฯ เป็นคีย์เวิร์ด ถูกอ่านตอนต่อสู้
       }
-    });
+      if (abort) break; // ถ้า "ค่าใช้จ่าย" ไม่ผ่าน เอฟเฟกต์ที่เหลือของสกิลนี้ไม่ทำงาน
+    }
   });
 }
 
@@ -297,7 +332,6 @@ function applyEffects(
 /* ------------------------------------------------------------------ */
 export function createPlayerState(deck: Deck, flag: Flag, _cards: Card[]): PlayerState {
   const allCards = [...deck.cardIds];
-  // Buddy ต้องอยู่ในเด็คเสมอ (ถ้าเลือก Buddy จากรายการของโลกที่ไม่ได้ใส่ในเด็ค ให้เติมเข้าไป)
   if (deck.buddyId && !allCards.includes(deck.buddyId)) allCards.push(deck.buddyId);
   const hand = allCards.splice(0, Math.min(flag.startHand, allCards.length));
   const gaugePile = allCards.splice(0, Math.min(flag.startGauge, allCards.length));
@@ -308,6 +342,7 @@ export function createPlayerState(deck: Deck, flag: Flag, _cards: Card[]): Playe
     deck: allCards,
     hand,
     dropZone: [],
+    setZone: [],
     monsters: [],
     item: null,
     flagId: flag.id,
@@ -319,7 +354,7 @@ export function createPlayerState(deck: Deck, flag: Flag, _cards: Card[]): Playe
 function startTurn(g: GameState, skipDraw: boolean) {
   const side = g.currentTurn;
   const p = g[side];
-  p.monsters.forEach(m => { m.state = "stand"; m.attacks = 0; m.guardUsed = false; });
+  p.monsters.forEach(m => { m.state = "stand"; m.attacks = 0; });
   if (p.item) { p.item.state = "stand"; p.item.attacks = 0; }
   g.attacksThisTurn = 0;
   g.battle = null;
@@ -337,21 +372,24 @@ export function createInitialState(
   hostDeck: Deck, guestDeck: Deck, hostFlag: Flag, guestFlag: Flag, cards: Card[],
   rules: RuleSet = DEFAULT_RULES
 ): GameState {
+  const r = { ...DEFAULT_RULES, ...rules };
+  const first: Side = r.firstPlayer === "host" ? "host" : r.firstPlayer === "guest" ? "guest" : Math.random() < 0.5 ? "host" : "guest";
   const g: GameState = {
     turn: 1,
-    currentTurn: "host",
+    currentTurn: first,
     phase: "charge",
-    rules: { ...DEFAULT_RULES, ...rules },
+    rules: r,
+    mulligan: { host: false, guest: false },
     battle: null,
-    firstPlayer: "host",
+    firstPlayer: first,
     attacksThisTurn: 0,
     rev: 0,
     host: createPlayerState(hostDeck, hostFlag, cards),
     guest: createPlayerState(guestDeck, guestFlag, cards),
-    log: ["เกมเริ่มต้นแล้ว! ผู้สร้างห้องเริ่มก่อน (เทิร์นแรกไม่จั่ว)"],
+    log: [`เกมเริ่มต้นแล้ว! ${nameOf(first)} เริ่มก่อน (เทิร์นแรกไม่จั่ว) — เลือก Mulligan ก่อนเริ่มเล่น`],
     winner: null,
   };
-  startTurn(g, true); // ผู้เล่นคนแรกข้าม Draw ในเทิร์นแรก
+  startTurn(g, true);
   return g;
 }
 
@@ -359,6 +397,30 @@ export function addLog(state: GameState, msg: string): GameState {
   const g = structuredClone(state);
   log(g, msg);
   return g;
+}
+
+export function mulliganDone(state: GameState): boolean {
+  return state.mulligan.host && state.mulligan.guest;
+}
+
+// Mulligan: เอาการ์ดที่เลือกคืนเด็ค สับ แล้วจั่วใหม่เท่าจำนวนเดิม (ทำได้ครั้งเดียว)
+export function mulligan(state: GameState, side: Side, indices: number[]): Result {
+  if (state.mulligan[side]) return { state, ok: false, msg: "เลือก Mulligan ไปแล้ว" };
+  const g = structuredClone(state);
+  const p = g[side];
+  const uniq = [...new Set(indices)].filter(i => i >= 0 && i < p.hand.length).sort((a, b) => b - a);
+  const back = uniq.map(i => p.hand.splice(i, 1)[0]);
+  if (back.length > 0) {
+    p.deck.push(...back);
+    for (let i = p.deck.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [p.deck[i], p.deck[j]] = [p.deck[j], p.deck[i]];
+    }
+    for (let i = 0; i < back.length && p.deck.length > 0; i++) p.hand.push(p.deck.shift()!);
+  }
+  g.mulligan[side] = true;
+  log(g, `${nameOf(side)} ${back.length > 0 ? `Mulligan เปลี่ยนการ์ด ${back.length} ใบ` : "เก็บมือเดิม"}`);
+  return { state: g, ok: true, msg: "Mulligan เสร็จแล้ว" };
 }
 
 /* ------------------------------------------------------------------ */
@@ -389,10 +451,16 @@ export function totalMonsterSize(player: PlayerState): number {
 /* ------------------------------------------------------------------ */
 /* Turn flow                                                           */
 /* ------------------------------------------------------------------ */
-// Charge & Draw: ใส่การ์ดจากมือ 1 ใบลงเกจ แล้วจั่ว 1 ใบ (ทำหรือไม่ก็ได้)
+function baseGuard(state: GameState, side: Side): string | null {
+  if (state.winner) return "เกมจบแล้ว";
+  if (!mulliganDone(state)) return "ต้องรอให้ทั้งสองฝั่งเลือก Mulligan ให้เสร็จก่อน";
+  if (state.currentTurn !== side) return "ยังไม่ใช่เทิร์นของคุณ";
+  return null;
+}
+
 export function chargeAndDraw(state: GameState, side: Side, handIndex: number | null): Result {
-  if (state.winner) return { state, ok: false, msg: "เกมจบแล้ว" };
-  if (state.currentTurn !== side) return { state, ok: false, msg: "ไม่ใช่เทิร์นของคุณ" };
+  const bg = baseGuard(state, side);
+  if (bg) return { state, ok: false, msg: bg };
   if (state.phase !== "charge") return { state, ok: false, msg: "ผ่านช่วง Charge & Draw ไปแล้ว" };
   const g = structuredClone(state);
   const p = g[side];
@@ -410,8 +478,8 @@ export function chargeAndDraw(state: GameState, side: Side, handIndex: number | 
 }
 
 export function goToAttack(state: GameState, side: Side): Result {
-  if (state.winner) return { state, ok: false, msg: "เกมจบแล้ว" };
-  if (state.currentTurn !== side) return { state, ok: false, msg: "ไม่ใช่เทิร์นของคุณ" };
+  const bg = baseGuard(state, side);
+  if (bg) return { state, ok: false, msg: bg };
   if (state.battle) return { state, ok: false, msg: "กำลังรอ Counter" };
   if (state.phase !== "main") return { state, ok: false, msg: "ไป Attack Phase ได้จาก Main Phase เท่านั้น" };
   const g = structuredClone(state);
@@ -421,8 +489,8 @@ export function goToAttack(state: GameState, side: Side): Result {
 }
 
 export function goToFinal(state: GameState, side: Side): Result {
-  if (state.winner) return { state, ok: false, msg: "เกมจบแล้ว" };
-  if (state.currentTurn !== side) return { state, ok: false, msg: "ไม่ใช่เทิร์นของคุณ" };
+  const bg = baseGuard(state, side);
+  if (bg) return { state, ok: false, msg: bg };
   if (state.battle) return { state, ok: false, msg: "กำลังรอ Counter" };
   if (state.phase === "final") return { state, ok: false, msg: "อยู่ Final Phase แล้ว" };
   if (state.phase === "charge") return { state, ok: false, msg: "ต้องผ่านช่วง Charge & Draw ก่อน" };
@@ -437,10 +505,9 @@ export function goToFinal(state: GameState, side: Side): Result {
 }
 
 export function endTurn(state: GameState): GameState {
-  if (state.battle) return state; // ต้องจบ Counter ก่อน
+  if (state.battle || !mulliganDone(state)) return state;
   const g = structuredClone(state);
   if (g.winner) return g;
-  // buff "เทิร์นนี้" หมดอายุ
   (["host", "guest"] as Side[]).forEach(s => {
     [...g[s].monsters, ...(g[s].item ? [g[s].item!] : [])].forEach(m => {
       m.tempPower = 0; m.tempCritical = 0; m.tempDefense = 0;
@@ -456,8 +523,8 @@ export function endTurn(state: GameState): GameState {
 /* Playing cards                                                       */
 /* ------------------------------------------------------------------ */
 function guardTurn(state: GameState, side: Side, needPhase: "main" | "final" | "attack"): string | null {
-  if (state.winner) return "เกมจบแล้ว";
-  if (state.currentTurn !== side) return "ไม่ใช่เทิร์นของคุณ";
+  const bg = baseGuard(state, side);
+  if (bg) return bg;
   if (state.battle) return "กำลังรอฝั่งตรงข้ามตัดสินใจ Counter";
   if (state.phase === "charge") return "ต้องผ่านช่วง Charge & Draw ก่อน (กด 'ข้าม' ถ้าไม่ Charge)";
   if (needPhase === "main" && state.phase !== "main") return "ลงการ์ด/ร่ายเวทได้เฉพาะ Main Phase";
@@ -467,15 +534,23 @@ function guardTurn(state: GameState, side: Side, needPhase: "main" | "final" | "
   return null;
 }
 
-function payCost(g: GameState, side: Side, card: Card): string | null {
+// ตรวจค่าใช้จ่าย: คืนข้อความอธิบายถ้าจ่ายไม่ได้
+function costProblem(g: GameState, side: Side, card: Card): string | null {
   const p = g[side];
   if (card.callCostType === "Gauge") {
-    if (p.gaugePile.length < card.callCost) return `เกจไม่พอ (ต้องการ ${card.callCost} มี ${p.gaugePile.length})`;
-    mPayGauge(g, side, card.callCost);
-  } else {
-    if (p.life <= card.callCost) return "Life ไม่พอจ่าย";
-    p.life -= card.callCost;
+    if (p.gaugePile.length < card.callCost)
+      return `เกจไม่พอ: ต้องจ่ายเกจ ${card.callCost} แต่คุณมีเกจเพียง ${p.gaugePile.length}`;
+  } else if (p.life <= card.callCost) {
+    return `Life ไม่พอ: ต้องจ่าย Life ${card.callCost} แต่คุณมี Life ${p.life} (หลังจ่ายต้องเหลืออย่างน้อย 1)`;
   }
+  return null;
+}
+
+function payCost(g: GameState, side: Side, card: Card): string | null {
+  const bad = costProblem(g, side, card);
+  if (bad) return bad;
+  if (card.callCostType === "Gauge") mPayGauge(g, side, card.callCost);
+  else g[side].life -= card.callCost;
   return null;
 }
 
@@ -486,28 +561,40 @@ export function callMonster(state: GameState, side: Side, handIndex: number, pos
   const p = g[side];
   const cardId = p.hand[handIndex];
   const card = cardId ? getCard(cardId) : undefined;
-  if (!card) return { state, ok: false, msg: "ไม่พบการ์ด" };
-  if (card.type !== "Monster") return { state, ok: false, msg: "ไม่ใช่มอนสเตอร์" };
-  if (p.monsters.some(m => m.position === position)) return { state, ok: false, msg: "ช่องนั้นมีมอนสเตอร์แล้ว" };
+  if (!card) return { state, ok: false, msg: "ไม่พบการ์ดใบนี้ในมือ" };
+  if (card.type !== "Monster") return { state, ok: false, msg: `${card.name} ไม่ใช่มอนสเตอร์ จึงลงช่องมอนสเตอร์ไม่ได้` };
+  if (p.monsters.some(m => m.position === position))
+    return { state, ok: false, msg: `ช่อง${POSITION_NAMES[position]}มีมอนสเตอร์อยู่แล้ว` };
 
+  // Size 0 วางได้เสมอ ไม่นับรวมขีดจำกัด Size
   const currentSize = totalMonsterSize(p);
-  if (currentSize + card.size > g.rules.maxSize)
-    return { state, ok: false, msg: `Size รวมเกิน ${g.rules.maxSize} (${currentSize + card.size})` };
+  if (card.size > 0 && currentSize + card.size > g.rules.maxSize)
+    return { state, ok: false, msg: `Size เกิน: ในสนามมี Size รวม ${currentSize} + ${card.name} (Size ${card.size}) = ${currentSize + card.size} เกินขีดจำกัด ${g.rules.maxSize}` };
+
+  const soulN = Math.max(0, card.callSoulFromDeck ?? 0);
+  if (soulN > 0 && p.deck.length < soulN)
+    return { state, ok: false, msg: `เด็คไม่พอสำหรับ Call Cost: ต้องนำการ์ดบนเด็ค ${soulN} ใบเข้า Soul แต่เด็คเหลือ ${p.deck.length} ใบ` };
 
   const costErr = payCost(g, side, card);
   if (costErr) return { state, ok: false, msg: costErr };
 
   p.hand.splice(handIndex, 1);
   const fc = newFieldCard(cardId, position);
+  if (soulN > 0) {
+    fc.soul = p.deck.splice(0, soulN);
+    log(g, `${card.name} ได้ Soul ${soulN} ใบจากเด็ค (Call Cost)`);
+  }
   p.monsters.push(fc);
-  log(g, `${card.name} ลงสนาม (ช่อง${POSITION_NAMES[position] ?? position})`);
+  log(g, `${card.name} ลงสนาม (ช่อง${POSITION_NAMES[position]})`);
 
-  if (p.buddyId === cardId && !p.buddyCalledThisGame) {
+  const isBuddyCall = p.buddyId === cardId && !p.buddyCalledThisGame;
+  if (isBuddyCall) {
     p.buddyCalledThisGame = true;
-    log(g, `Buddy Call "${card.name}"!`);
-    mLife(g, side, g.rules.buddyCallLife);
+    log(g, `Buddy Call "${card.name}"! ได้รับ Buddy Gift`);
+    if (g.rules.buddyCallLife > 0) mLife(g, side, g.rules.buddyCallLife);
   }
   applyEffects(g, side, card, "onCall", { fc });
+  if (isBuddyCall) applyEffects(g, side, card, "onBuddyCall", { fc });
   return { state: g, ok: true, msg: `${card.name} ลงสนามสำเร็จ` };
 }
 
@@ -520,11 +607,11 @@ export function castSpell(state: GameState, side: Side, handIndex: number): Resu
   const p = g[side];
   const cardId = p.hand[handIndex];
   const card = cardId ? getCard(cardId) : undefined;
-  if (!card) return { state, ok: false, msg: "ไม่พบการ์ด" };
-  if (card.type !== "Spell" && card.type !== "Impact") return { state, ok: false, msg: "ไม่ใช่เวทมนตร์/Impact" };
+  if (!card) return { state, ok: false, msg: "ไม่พบการ์ดใบนี้ในมือ" };
+  if (card.type !== "Spell" && card.type !== "Impact") return { state, ok: false, msg: `${card.name} ไม่ใช่เวทมนตร์/Impact` };
 
   const costErr = payCost(g, side, card);
-  if (costErr) return { state, ok: false, msg: costErr };
+  if (costErr) return { state, ok: false, msg: `ร่าย ${card.name} ไม่ได้ — ${costErr}` };
 
   p.hand.splice(handIndex, 1);
   p.dropZone.push(cardId);
@@ -540,13 +627,13 @@ export function equipItem(state: GameState, side: Side, handIndex: number): Resu
   const p = g[side];
   const cardId = p.hand[handIndex];
   const card = cardId ? getCard(cardId) : undefined;
-  if (!card) return { state, ok: false, msg: "ไม่พบการ์ด" };
-  if (card.type !== "Item") return { state, ok: false, msg: "ไม่ใช่ไอเทม" };
+  if (!card) return { state, ok: false, msg: "ไม่พบการ์ดใบนี้ในมือ" };
+  if (card.type !== "Item") return { state, ok: false, msg: `${card.name} ไม่ใช่ไอเทม` };
 
   const costErr = payCost(g, side, card);
-  if (costErr) return { state, ok: false, msg: costErr };
+  if (costErr) return { state, ok: false, msg: `ติดตั้ง ${card.name} ไม่ได้ — ${costErr}` };
 
-  if (p.item) p.dropZone.push(p.item.cardId);
+  if (p.item) p.dropZone.push(p.item.cardId, ...p.item.soul);
   p.hand.splice(handIndex, 1);
   p.item = newFieldCard(cardId, 0);
   log(g, `${card.name} ถูกติดตั้ง!`);
@@ -554,42 +641,94 @@ export function equipItem(state: GameState, side: Side, handIndex: number): Resu
   return { state: g, ok: true, msg: `ติดตั้ง ${card.name}` };
 }
 
+// Move: ย้ายมอนสเตอร์ไปช่องอื่น (ถ้ามีตัวอยู่ จะสลับกัน) 1 ครั้งต่อเทิร์น ใน Main Phase
+export function moveMonster(state: GameState, side: Side, monsterUid: string, position: number): Result {
+  const err = guardTurn(state, side, "main");
+  if (err) return { state, ok: false, msg: err };
+  const g = structuredClone(state);
+  const p = g[side];
+  const m = p.monsters.find(x => x.uid === monsterUid);
+  const card = m ? getCard(m.cardId) : undefined;
+  if (!m || !card) return { state, ok: false, msg: "ไม่พบมอนสเตอร์" };
+  if (!hasKeyword(card, "move")) return { state, ok: false, msg: `${card.name} ไม่มีความสามารถ Move` };
+  if (m.movedTurn === g.turn) return { state, ok: false, msg: `${card.name} ใช้ Move ไปแล้วในเทิร์นนี้` };
+  if (m.position === position) return { state, ok: false, msg: "มอนสเตอร์อยู่ช่องนั้นอยู่แล้ว" };
+  const occ = p.monsters.find(x => x.position === position);
+  if (occ) occ.position = m.position;
+  m.position = position;
+  m.movedTurn = g.turn;
+  log(g, `${card.name} Move ไปช่อง${POSITION_NAMES[position]}${occ ? " (สลับตำแหน่ง)" : ""}`);
+  return { state: g, ok: true, msg: "Move" };
+}
+
+// Set: วางการ์ด Counter Act คว่ำไว้ในช่อง Set (จ่ายค่าใช้จ่ายตอน Set) แล้วใช้ตอนศัตรูโจมตีได้
+export function setCard(state: GameState, side: Side, handIndex: number): Result {
+  const err = guardTurn(state, side, "main");
+  if (err) return { state, ok: false, msg: err };
+  const g = structuredClone(state);
+  const p = g[side];
+  const cardId = p.hand[handIndex];
+  const card = cardId ? getCard(cardId) : undefined;
+  if (!card) return { state, ok: false, msg: "ไม่พบการ์ดใบนี้ในมือ" };
+  if (!card.autoSkills?.some(s => s.trigger === "onCounter"))
+    return { state, ok: false, msg: `${card.name} ไม่มีสกิล Counter Act จึง Set ไม่ได้` };
+  if (p.setZone.length >= g.rules.maxSet)
+    return { state, ok: false, msg: `ช่อง Set เต็มแล้ว (สูงสุด ${g.rules.maxSet} ใบ)` };
+  const costErr = payCost(g, side, card);
+  if (costErr) return { state, ok: false, msg: `Set ${card.name} ไม่ได้ — ${costErr}` };
+  p.hand.splice(handIndex, 1);
+  p.setZone.push(cardId);
+  log(g, `${nameOf(side)} Set การ์ด 1 ใบ (คว่ำ)`);
+  return { state: g, ok: true, msg: `Set ${card.name}` };
+}
+
 /* ------------------------------------------------------------------ */
 /* Battle                                                              */
 /* ------------------------------------------------------------------ */
-// ตัวเลือกเป้าหมายที่ตีได้ (ใช้ทั้ง UI และบอท)
-export function legalTargets(state: GameState, side: Side, attackerUid: string): AttackTarget[] {
+export function legalTargets(state: GameState, side: Side, attackerUid: string, linkUids: string[] = []): AttackTarget[] {
   const me = state[side];
   const foe = state[other(side)];
-  const fc = me.monsters.find(m => m.uid === attackerUid) ?? (me.item?.uid === attackerUid ? me.item : null);
-  const card = fc ? getCard(fc.cardId) : undefined;
+  const uids = [...new Set([attackerUid, ...linkUids])];
+  const ignore = uids.some(u => {
+    const fc = findFc(me, u);
+    const c = fc ? getCard(fc.cardId) : undefined;
+    return !!c && hasKeyword(c, "ignoreCenter");
+  });
   const targets: AttackTarget[] = foe.monsters.map(m => ({ kind: "monster", position: m.position }));
   const centerBlocked = foe.monsters.some(m => m.position === 1);
-  if (!centerBlocked || (card && hasKeyword(card, "ignoreCenter"))) targets.push({ kind: "fighter" });
+  if (!centerBlocked || ignore) targets.push({ kind: "fighter" });
   return targets;
 }
 
-// ประกาศโจมตี: ถ้าฝั่งป้องกันมี Counter Act ที่ใช้ได้ จะรอให้เลือกก่อน ไม่งั้นต่อสู้ทันที
-export function declareAttack(state: GameState, side: Side, attackerUid: string, target?: AttackTarget): Result {
+// ประกาศโจมตี (ใส่ linkUids เพื่อ Link Attack): ผู้โจมตีทุกตัวจะ Rest ทันที
+export function declareAttack(
+  state: GameState, side: Side, attackerUid: string, target?: AttackTarget, linkUids: string[] = []
+): Result {
   const err = guardTurn(state, side, "attack");
   if (err) return { state, ok: false, msg: err };
   const lim = state.rules.firstTurnAttacks;
   if (state.turn === 1 && lim > 0 && state.attacksThisTurn >= lim)
-    return { state, ok: false, msg: `ผู้เล่นคนแรกโจมตีได้ ${lim} ครั้งในเทิร์นแรก` };
+    return { state, ok: false, msg: `ผู้เล่นคนแรกโจมตีได้ ${lim} ครั้งในเทิร์นแรกเท่านั้น (Link Attack นับเป็น 1 ครั้ง)` };
 
   const g = structuredClone(state);
   const me = g[side];
   const oppSide = other(side);
   const foe = g[oppSide];
 
-  const monster = me.monsters.find(m => m.uid === attackerUid);
-  const attackerFc = monster ?? (me.item?.uid === attackerUid ? me.item : null);
-  if (!attackerFc) return { state, ok: false, msg: "ไม่พบผู้โจมตี" };
-  const card = getCard(attackerFc.cardId);
-  if (!card) return { state, ok: false, msg: "ไม่พบข้อมูลการ์ด" };
-  if (attackerFc.state !== "stand") return { state, ok: false, msg: "อยู่ในสถานะ Rest แล้ว" };
+  const uids = [...new Set([attackerUid, ...linkUids])];
+  const fcs: FieldCard[] = [];
+  for (const u of uids) {
+    const fc = findFc(me, u);
+    if (!fc) return { state, ok: false, msg: "ไม่พบผู้โจมตี" };
+    const c = getCard(fc.cardId);
+    if (!c) return { state, ok: false, msg: "ไม่พบข้อมูลการ์ด" };
+    if (fc.state !== "stand") return { state, ok: false, msg: `${c.name} อยู่ในสถานะ Rest โจมตีไม่ได้` };
+    fcs.push(fc);
+  }
+  const lead = fcs[0];
+  const leadCard = getCard(lead.cardId)!;
 
-  const legal = legalTargets(state, side, attackerUid);
+  const legal = legalTargets(state, side, attackerUid, uids);
   const chosen: AttackTarget = target ??
     (foe.monsters.some(m => m.position === 1) ? { kind: "monster", position: 1 } : { kind: "fighter" });
   const isLegal = legal.some(t =>
@@ -597,16 +736,22 @@ export function declareAttack(state: GameState, side: Side, attackerUid: string,
   );
   if (!isLegal) {
     return { state, ok: false, msg: chosen.kind === "fighter"
-      ? "ตีผู้เล่นไม่ได้ ถ้าศัตรูยังมีมอนสเตอร์ช่องกลาง" : "ไม่มีมอนสเตอร์ในช่องที่เลือก" };
+      ? "ตีผู้เล่นไม่ได้ เพราะศัตรูยังมีมอนสเตอร์ช่องกลาง (ต้องทำลายช่องกลางก่อน)" : "ไม่มีมอนสเตอร์ในช่องที่เลือก" };
   }
 
-  attackerFc.attacks++;
+  // ผู้โจมตีทุกตัว Rest ตอนประกาศโจมตี (กลับมา Stand ตอนจบการต่อสู้ ถ้ายังโจมตีได้อีก)
+  fcs.forEach(fc => { fc.attacks++; fc.state = "rest"; });
   g.attacksThisTurn++;
   const label = chosen.kind === "fighter" ? "ผู้เล่น" : `มอนสเตอร์ช่อง${POSITION_NAMES[chosen.position]}`;
-  log(g, `⚔ ${card.name} โจมตี${label}!`);
-  applyEffects(g, side, card, "onAttack", { fc: attackerFc }); // บัฟตอนประกาศโจมตี
+  const names = fcs.map(f => getCard(f.cardId)!.name).join(" + ");
+  log(g, `${fcs.length > 1 ? "⚔ Link Attack! " : "⚔ "}${names} โจมตี${label}!`);
+  fcs.forEach(fc => {
+    const c = getCard(fc.cardId);
+    if (c) applyEffects(g, side, c, "onAttack", { fc });
+  });
+  void leadCard;
 
-  g.battle = { attackerSide: side, attackerUid, target: chosen, negated: false };
+  g.battle = { attackerSide: side, attackerUid: lead.uid, linkUids: uids, target: chosen, negated: false };
 
   if (g.rules.enableCounter && counterOptions(g, oppSide).length > 0) {
     log(g, `รอ ${nameOf(oppSide)} เลือกว่าจะใช้ Counter Act หรือไม่...`);
@@ -616,45 +761,96 @@ export function declareAttack(state: GameState, side: Side, attackerUid: string,
   return { state: g, ok: true, msg: "โจมตีแล้ว" };
 }
 
-// ไม่ระบุเป้า = ช่องกลางหรือผู้เล่น (ใช้กับเทสต์/บอทแบบง่าย)
 export function attack(state: GameState, side: Side, attackerUid: string, target?: AttackTarget): Result {
   return declareAttack(state, side, attackerUid, target);
 }
 
-// การ์ดในมือที่ใช้เป็น Counter Act ได้ตอนนี้ (มีสกิล onCounter และจ่ายค่าได้)
-export function counterOptions(state: GameState, side: Side): number[] {
-  if (!state.rules.enableCounter) return [];
+function skillNeedsSoul(card: Card): number {
+  let need = 0;
+  card.autoSkills?.forEach(s => {
+    if (s.trigger !== "onCounter") return;
+    let n = 0;
+    s.effects.forEach(e => { if (e.type === "removeSoul") n += Math.floor(e.value); });
+    need = Math.max(need, n);
+  });
+  return need;
+}
+
+// ตัวเลือก Counter Act ของฝั่ง side: จากมือ / ช่อง Set / การ์ดบนสนาม
+export function counterOptions(state: GameState, side: Side): CounterOption[] {
+  if (!state.rules.enableCounter || !state.battle) return [];
   const p = state[side];
-  const out: number[] = [];
+  const out: CounterOption[] = [];
   p.hand.forEach((id, i) => {
     const c = getCard(id);
     if (!c || !c.autoSkills?.some(s => s.trigger === "onCounter")) return;
     const afford = c.callCostType === "Gauge" ? p.gaugePile.length >= c.callCost : p.life > c.callCost;
-    if (afford) out.push(i);
+    if (afford) out.push({ zone: "hand", index: i });
+  });
+  p.setZone.forEach((id, i) => {
+    const c = getCard(id);
+    if (c?.autoSkills?.some(s => s.trigger === "onCounter")) out.push({ zone: "set", index: i });
+  });
+  [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
+    const c = getCard(fc.cardId);
+    if (!c || !c.autoSkills?.some(s => s.trigger === "onCounter")) return;
+    if (fc.counterUsedTurn === state.turn) return;
+    if (fc.soul.length < skillNeedsSoul(c)) return;
+    out.push({ zone: "field", uid: fc.uid });
   });
   return out;
 }
 
-export function counterAct(state: GameState, side: Side, handIndex: number): Result {
+export function counterCardOf(state: GameState, side: Side, opt: CounterOption): Card | undefined {
+  const p = state[side];
+  if (opt.zone === "hand") return getCard(p.hand[opt.index]);
+  if (opt.zone === "set") return getCard(p.setZone[opt.index]);
+  const fc = findFc(p, opt.uid);
+  return fc ? getCard(fc.cardId) : undefined;
+}
+
+function sameOption(a: CounterOption, b: CounterOption) {
+  if (a.zone !== b.zone) return false;
+  if (a.zone === "field" && b.zone === "field") return a.uid === b.uid;
+  if (a.zone !== "field" && b.zone !== "field") return a.index === b.index;
+  return false;
+}
+
+export function counterAct(state: GameState, side: Side, opt: CounterOption): Result {
   const b = state.battle;
   if (!b) return { state, ok: false, msg: "ไม่มีการโจมตีให้ Counter" };
   if (b.attackerSide === side) return { state, ok: false, msg: "Counter ได้เฉพาะฝั่งที่ถูกโจมตี" };
-  if (!counterOptions(state, side).includes(handIndex)) return { state, ok: false, msg: "ใช้การ์ดนี้เป็น Counter ไม่ได้" };
+  if (!counterOptions(state, side).some(o => sameOption(o, opt))) return { state, ok: false, msg: "ใช้การ์ดนี้เป็น Counter ไม่ได้ในตอนนี้ (เช่น เกจ/Soul ไม่พอ หรือใช้ไปแล้วในเทิร์นนี้)" };
   const g = structuredClone(state);
   const p = g[side];
-  const cardId = p.hand[handIndex];
-  const card = getCard(cardId)!;
-  const costErr = payCost(g, side, card);
-  if (costErr) return { state, ok: false, msg: costErr };
-  p.hand.splice(handIndex, 1);
-  p.dropZone.push(cardId);
-  log(g, `🛡 ${nameOf(side)} ใช้ Counter Act: ${card.name}!`);
   const tgt = b.target.kind === "monster" ? p.monsters.find(m => m.position === (b.target as { position: number }).position) : undefined;
-  applyEffects(g, side, card, "onCounter", { fc: tgt });
+
+  if (opt.zone === "hand") {
+    const cardId = p.hand[opt.index];
+    const card = getCard(cardId)!;
+    const costErr = payCost(g, side, card);
+    if (costErr) return { state, ok: false, msg: costErr };
+    p.hand.splice(opt.index, 1);
+    p.dropZone.push(cardId);
+    log(g, `🛡 ${nameOf(side)} ใช้ Counter Act จากมือ: ${card.name}!`);
+    applyEffects(g, side, card, "onCounter", { fc: tgt });
+  } else if (opt.zone === "set") {
+    const cardId = p.setZone[opt.index];
+    const card = getCard(cardId)!;
+    p.setZone.splice(opt.index, 1);
+    p.dropZone.push(cardId);
+    log(g, `🛡 ${nameOf(side)} เปิดการ์ด Set: ${card.name}!`);
+    applyEffects(g, side, card, "onCounter", { fc: tgt });
+  } else {
+    const fc = findFc(p, opt.uid)!;
+    const card = getCard(fc.cardId)!;
+    fc.counterUsedTurn = g.turn;
+    log(g, `🛡 ${nameOf(side)} ใช้ Counter Act ของ ${card.name} บนสนาม!`);
+    applyEffects(g, side, card, "onCounter", { fc });
+  }
   if (g.winner) { g.battle = null; return { state: g, ok: true, msg: "จบเกม" }; }
-  // ถ้ายังมี Counter ให้ใช้ต่อได้ ไม่งั้นต่อสู้เลย
   if (counterOptions(g, side).length === 0) resolveBattle(g);
-  return { state: g, ok: true, msg: `ใช้ ${card.name}` };
+  return { state: g, ok: true, msg: "ใช้ Counter" };
 }
 
 export function passCounter(state: GameState, side: Side): Result {
@@ -667,7 +863,7 @@ export function passCounter(state: GameState, side: Side): Result {
   return { state: g, ok: true, msg: "ต่อสู้" };
 }
 
-// คำนวณผลการต่อสู้ตาม g.battle (ทำงานบน state ที่ clone แล้ว)
+// คำนวณผลการต่อสู้ (รองรับ Link Attack: รวม Power และ Critical ของผู้โจมตีทุกตัว)
 function resolveBattle(g: GameState) {
   const b = g.battle;
   if (!b) return;
@@ -677,75 +873,103 @@ function resolveBattle(g: GameState) {
   const me = g[side];
   const foe = g[oppSide];
 
-  const monster = me.monsters.find(m => m.uid === b.attackerUid);
-  const attackerFc = monster ?? (me.item?.uid === b.attackerUid ? me.item : null);
-  const card = attackerFc ? getCard(attackerFc.cardId) : undefined;
-  if (!attackerFc || !card) { log(g, "ผู้โจมตีหายไปแล้ว การโจมตีไม่เกิดผล"); return; }
+  const parts = b.linkUids
+    .map(u => findFc(me, u))
+    .filter((x): x is FieldCard => !!x)
+    .map(fc => ({ fc, card: getCard(fc.cardId)!, isItem: me.item?.uid === fc.uid }))
+    .filter(x => !!x.card);
+  if (parts.length === 0) { log(g, "ผู้โจมตีหายไปแล้ว การโจมตีไม่เกิดผล"); return; }
 
-  const finish = (destroyed: boolean) => {
-    if (destroyed) return;
-    attackerFc.state = attackerFc.attacks < maxAttacks(card) ? "stand" : "rest";
-    if (attackerFc.state === "stand") log(g, `${card.name} Stand กลับมาโจมตีต่อได้`);
+  // จบการต่อสู้: ตัวที่ยังอยู่และยังโจมตีได้อีกจะ Stand กลับ ที่เหลือ Rest ค้างไว้จนเทิร์นถัดไปของเรา
+  const finish = () => {
+    parts.forEach(({ fc, card }) => {
+      const alive = me.monsters.some(m => m.uid === fc.uid) || me.item?.uid === fc.uid;
+      if (!alive) return;
+      if (fc.attacks < maxAttacks(card)) {
+        fc.state = "stand";
+        log(g, `${card.name} Stand กลับมา (โจมตีได้อีก ${maxAttacks(card) - fc.attacks} ครั้ง)`);
+      } else {
+        fc.state = "rest";
+      }
+    });
+    checkWin(g);
   };
 
   if (b.negated) {
-    log(g, `การโจมตีของ ${card.name} ถูกยกเลิก`);
-    if (attackerFc.state === "stand") attackerFc.state = attackerFc.attacks < maxAttacks(card) ? "stand" : "rest";
-    checkWin(g);
+    log(g, "การโจมตีถูกยกเลิก");
+    finish();
     return;
   }
 
-  const atk = statsOf(attackerFc);
-  const penetrate = hasKeyword(card, "penetrate");
-  const lifelink = hasKeyword(card, "lifelink");
-  let attackerDestroyed = false;
+  const total = parts.reduce((a, { fc }) => {
+    const s = statsOf(fc);
+    return { power: a.power + s.power, critical: a.critical + s.critical };
+  }, { power: 0, critical: 0 });
+  const penetrate = parts.some(x => hasKeyword(x.card, "penetrate"));
+  const lifelink = parts.some(x => hasKeyword(x.card, "lifelink"));
   const chosen = b.target;
+  const linkNote = parts.length > 1 ? ` (Link Attack รวม Power ${total.power} / Critical ${total.critical})` : "";
 
   if (chosen.kind === "monster") {
     const tgt = foe.monsters.find(m => m.position === chosen.position);
     if (!tgt) {
       log(g, "เป้าหมายหายไปแล้ว การโจมตีไม่เกิดผล");
-      finish(false);
-      checkWin(g);
+      finish();
       return;
     }
     const tgtCard = getCard(tgt.cardId);
     const tgtStats = statsOf(tgt);
     const tgtName = tgtCard?.name ?? "มอนสเตอร์";
 
+    // ผู้โจมตีทำดาเมจใส่เป้าหมาย: Power ≥ Defense ของเป้า -> เป้าถูกทำลาย
     let targetDestroyed = false;
     if (tgtCard && hasKeyword(tgtCard, "indestructibleBattle")) {
       log(g, `${tgtName} ไม่ถูกทำลายจากการต่อสู้`);
-    } else if (atk.power >= tgtStats.defense) {
+    } else if (total.power >= tgtStats.defense) {
+      log(g, `Power ${total.power} ≥ Def ${tgtStats.defense} → ทำลาย ${tgtName}${linkNote}`);
       targetDestroyed = mDestroyMonster(g, oppSide, tgt.uid);
-      log(g, `Power ${atk.power} ≥ Def ${tgtStats.defense} → ทำลาย ${tgtName}`);
     } else {
-      log(g, `Power ${atk.power} < Def ${tgtStats.defense} → ${tgtName} รอด`);
+      log(g, `Power ${total.power} < Def ${tgtStats.defense} → ${tgtName} รอด${linkNote}`);
     }
 
-    if (monster && !g.winner && tgtStats.power >= atk.defense && !hasKeyword(card, "indestructibleBattle")) {
-      attackerDestroyed = mDestroyMonster(g, side, monster.uid);
-      if (attackerDestroyed) log(g, `Power ${tgtStats.power} ≥ Def ${atk.defense} → ${card.name} ถูกทำลายจากการตอบโต้`);
+    // ตอบโต้: เฉพาะเป้าหมายที่มี Counterattack เท่านั้น ถึงจะทำลายผู้โจมตีกลับได้
+    if (tgtCard && hasKeyword(tgtCard, "counterattack") && !g.winner) {
+      parts.forEach(({ fc, card, isItem }) => {
+        if (isItem || hasKeyword(card, "indestructibleBattle")) return;
+        const st = statsOf(fc);
+        if (tgtStats.power >= st.defense) {
+          log(g, `Counterattack! ${tgtName} Power ${tgtStats.power} ≥ Def ${st.defense} → ${card.name} ถูกทำลาย`);
+          mDestroyMonster(g, side, fc.uid);
+        }
+      });
     }
 
     if (targetDestroyed) {
-      if (!attackerDestroyed) applyEffects(g, side, card, "onDestroyEnemy", { fc: attackerFc });
+      parts.forEach(({ fc, card }) => {
+        const alive = me.monsters.some(m => m.uid === fc.uid) || me.item?.uid === fc.uid;
+        if (alive) applyEffects(g, side, card, "onDestroyEnemy", { fc });
+      });
       if (penetrate && chosen.position === 1 && !g.winner) {
-        log(g, `${card.name} Penetrate! ทะลวงเกราะ`);
-        mLife(g, oppSide, -atk.critical);
-        if (lifelink && atk.critical > 0) mLife(g, side, atk.critical);
-        if (!g.winner && !attackerDestroyed) applyEffects(g, side, card, "onDamage", { fc: attackerFc });
+        log(g, `Penetrate! ทะลวงเกราะ ดาเมจ ${total.critical}`);
+        mLife(g, oppSide, -total.critical);
+        if (lifelink && total.critical > 0 && !g.winner) mLife(g, side, total.critical);
+        if (!g.winner) parts.forEach(({ fc, card }) => {
+          const alive = me.monsters.some(m => m.uid === fc.uid) || me.item?.uid === fc.uid;
+          if (alive) applyEffects(g, side, card, "onDamage", { fc });
+        });
       }
     }
   } else {
-    log(g, `${card.name} ทำดาเมจใส่ผู้เล่น ${atk.critical}`);
-    mLife(g, oppSide, -atk.critical);
-    if (lifelink && atk.critical > 0 && !g.winner) mLife(g, side, atk.critical);
-    if (!g.winner) applyEffects(g, side, card, "onDamage", { fc: attackerFc });
+    log(g, `ทำดาเมจใส่ผู้เล่น ${total.critical}${linkNote}`);
+    mLife(g, oppSide, -total.critical);
+    if (lifelink && total.critical > 0 && !g.winner) mLife(g, side, total.critical);
+    if (!g.winner) parts.forEach(({ fc, card }) => {
+      const alive = me.monsters.some(m => m.uid === fc.uid) || me.item?.uid === fc.uid;
+      if (alive) applyEffects(g, side, card, "onDamage", { fc });
+    });
   }
 
-  finish(attackerDestroyed);
-  checkWin(g);
+  finish();
 }
 
 /* ------------------------------------------------------------------ */
@@ -769,6 +993,7 @@ export function sandboxMoveCard(
     const m = p.monsters.find(mo => mo.uid === uidOrIndex);
     if (m) {
       cardId = m.cardId;
+      p.dropZone.push(...m.soul);
       p.monsters = p.monsters.filter(mo => mo.uid !== uidOrIndex);
     } else if (p.item?.uid === uidOrIndex) {
       cardId = p.item.cardId;
@@ -810,7 +1035,7 @@ export function sandboxPayGauge(state: GameState, side: Side, n = 1): GameState 
 export function sandboxFlipRest(state: GameState, side: Side, monsterUid: string): GameState {
   const g = structuredClone(state);
   const p = g[side];
-  const m = p.monsters.find(mo => mo.uid === monsterUid) ?? (p.item?.uid === monsterUid ? p.item : null);
+  const m = findFc(p, monsterUid);
   if (m) m.state = m.state === "stand" ? "rest" : "stand";
   return g;
 }
@@ -822,7 +1047,6 @@ export function sandboxAdjustPower(state: GameState, side: Side, monsterUid: str
   return g;
 }
 
-// ย้ายมอนสเตอร์ไปช่องที่เลือก (ถ้ามีตัวอยู่ จะสลับกัน)
 export function sandboxMoveToPosition(state: GameState, side: Side, monsterUid: string, pos: number): GameState {
   const g = structuredClone(state);
   const p = g[side];

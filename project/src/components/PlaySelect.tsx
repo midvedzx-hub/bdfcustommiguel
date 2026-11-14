@@ -107,6 +107,14 @@ export function PlaySelect({ onExit, onPlay }: Props) {
             <label className="flex items-center justify-between gap-3">แยก Attack Phase<input type="checkbox" checked={rules.useAttackPhase} onChange={e => setRule({ useAttackPhase: e.target.checked })} className="w-5 h-5" /></label>
             <label className="flex items-center justify-between gap-3">เปิดระบบ Counter Act<input type="checkbox" checked={rules.enableCounter} onChange={e => setRule({ enableCounter: e.target.checked })} className="w-5 h-5" /></label>
             <label className="flex items-center justify-between gap-3">เด็คหมดแล้วแพ้<input type="checkbox" checked={rules.deckOutLose} onChange={e => setRule({ deckOutLose: e.target.checked })} className="w-5 h-5" /></label>
+            <label className="flex items-center justify-between gap-3">ใครเริ่มก่อน
+              <select value={rules.firstPlayer} onChange={e => setRule({ firstPlayer: e.target.value as RuleSet["firstPlayer"] })} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1">
+                <option value="random">สุ่ม (ตามกฏจริง)</option>
+                <option value="host">เจ้าของห้อง / เรา</option>
+                <option value="guest">อีกฝ่าย</option>
+              </select>
+            </label>
+            <label className="flex items-center justify-between gap-3">ช่อง Set เก็บการ์ดได้สูงสุด<input type="number" min={0} max={9} value={rules.maxSet} onChange={e => setRule({ maxSet: Math.max(0, parseInt(e.target.value) || 0) })} className={num} /></label>
           </div>
           {mode === "multiplayer" && <p className="text-xs text-slate-500 mt-3">ออนไลน์: ใช้กติกาของ "เจ้าของห้อง" ทั้งสองฝั่ง</p>}
         </div>

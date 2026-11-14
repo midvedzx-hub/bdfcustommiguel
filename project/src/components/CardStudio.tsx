@@ -164,6 +164,13 @@ export function CardStudio({ onBack }: { onBack: () => void }) {
                 <input value={editing.attribute ?? ""} onChange={e => setEditing({ ...editing, attribute: e.target.value })} placeholder="แสดงใต้ชื่อการ์ด" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 mt-1 focus:border-cyan-500 outline-none" />
               </div>
 
+              {editing.type === "Monster" && (
+                <div>
+                  <label className="text-sm text-slate-400">Call Cost แบบ Soul: นำการ์ดบนเด็คเข้า Soul ของการ์ดนี้ตอนลงสนาม (0 = ไม่ใช้)</label>
+                  <input type="number" min={0} max={9} value={editing.callSoulFromDeck ?? 0} onChange={e => setEditing({ ...editing, callSoulFromDeck: Math.max(0, parseInt(e.target.value) || 0) })} className="w-24 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 mt-1 focus:border-cyan-500 outline-none" />
+                </div>
+              )}
+
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
                   <label className="text-sm text-slate-400">ประเภท</label>
