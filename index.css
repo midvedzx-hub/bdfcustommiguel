@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body {
+    font-family: "Noto Sans Thai", "Noto Sans", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4 {
+    font-family: Kanit, "Noto Sans Thai", system-ui, sans-serif;
+    letter-spacing: 0.01em;
+  }
+}
+
+/* การ์ดกางมือ: เลื่อนขึ้นเวลาชี้ */
+.hand-card { transition: transform .15s ease, box-shadow .15s ease; }
+.hand-card:hover { transform: translateY(-14px) scale(1.06); z-index: 30; }
+
+/* ขนาดสนามตามแผ่นเล่น Buddyfight (อัตราส่วน 1.8:1) */
+.bf-root {
+  --mw: max(320px, min(calc((100vh - 270px) * 0.95), calc(100vw - 350px), 1000px));
+  --mh: calc(var(--mw) / 1.8);
+  --hs: calc(var(--mh) * 0.39);
+  --cw: calc(var(--hs) * 0.62);
+}
+@media (max-width: 1023px) {
+  .bf-root { --mw: min(calc(100vw - 16px), 720px); }
+}
+.glow-target { filter: drop-shadow(0 0 7px #f43f5e) drop-shadow(0 0 14px #f43f5e); animation: pulseGlow 1s ease-in-out infinite; }
+.glow-slot { filter: drop-shadow(0 0 7px #34d399) drop-shadow(0 0 14px #34d399); animation: pulseGlow 1s ease-in-out infinite; }
+.glow-sel { filter: drop-shadow(0 0 7px #fbbf24) drop-shadow(0 0 12px #fbbf24); }
+@keyframes pulseGlow { 0%,100% { opacity: 1; } 50% { opacity: .7; } }
