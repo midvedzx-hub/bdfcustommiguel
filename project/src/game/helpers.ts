@@ -22,6 +22,9 @@ const KEYWORDS: Record<string, string> = {
   indestructibleBattle: "Battle Proof",
 };
 
+const FILTER_TH: Record<string, string> = { Monster: "มอนสเตอร์", Spell: "เวท", Item: "ไอเทม", Impact: "Impact" };
+const filterText = (f?: string) => (f && f !== "any" ? `การ์ด${FILTER_TH[f] ?? f}` : "การ์ด");
+
 export function effectText(e: AutoEffect): string {
   const v = e.value;
   switch (e.type) {
@@ -32,7 +35,7 @@ export function effectText(e: AutoEffect): string {
     case "destroyOpponentMonster": return `ทำลายมอนสเตอร์ศัตรู ${v} ตัว`;
     case "restOpponent": return `Rest มอนสเตอร์ศัตรู ${v} ตัว`;
     case "opponentDiscard": return `ศัตรูทิ้งการ์ดในมือ ${v} ใบ`;
-    case "recoverFromDrop": return `เก็บการ์ดจากสุสานขึ้นมือ ${v} ใบ`;
+    case "recoverFromDrop": return `เก็บ${filterText(e.filter)}จากสุสานขึ้นมือ ${v} ใบ`;
     case "standSelf": return `Stand มอนสเตอร์ของเรา`;
     case "buffPower": return `Power +${v}`;
     case "buffCritical": return `Critical +${v}`;
@@ -43,6 +46,11 @@ export function effectText(e: AutoEffect): string {
     case "restAttacker": return `Rest ผู้โจมตี`;
     case "addSoul": return `นำการ์ดบนเด็ค ${v} ใบเข้า Soul ของการ์ดนี้`;
     case "removeSoul": return `ถอด Soul ${v} ใบของการ์ดนี้ลงสุสาน`;
+    case "dropToSoul": return `นำ${filterText(e.filter)} ${v} ใบจากสุสานเข้า Soul`;
+    case "soulToHand": return `ถอด Soul ${v} ใบของการ์ดนี้ขึ้นมือ`;
+    case "bounceOpponentMonster": return `ดึงมอนสเตอร์ศัตรู ${v} ตัวกลับมือ`;
+    case "powerPerSoul": return `Power +${v} ต่อการ์ด 1 ใบใน Soul`;
+    case "criticalPerSoul": return `Critical +${v} ต่อการ์ด 1 ใบใน Soul`;
     default: return KEYWORDS[e.type] ?? e.type;
   }
 }
@@ -64,7 +72,14 @@ export function keywordBadges(card: Card): string[] {
   const out: string[] = [];
   card.autoSkills?.forEach(sk => {
     if (sk.trigger !== "continuous" && sk.trigger !== "onAttack") return;
-    sk.effects.forEach(e => { const k = KEYWORDS[e.type]; if (k && !out.includes(k)) out.push(k); });
+    sk.effects.forEach(e => {
+      const k = KEYWORDS[e.type];
+      if (!k) return;
+      const v = Math.max(1, Math.floor(e.value));
+      // Lifelink แสดงค่าดาเมจเสมอ (Soulguard ถอด Soul 1 ใบเสมอ จึงไม่มีตัวเลข)
+      const label = e.type === "lifelink" ? `${k} ${v}` : k;
+      if (!out.includes(label)) out.push(label);
+    });
   });
   return out;
 }
@@ -89,7 +104,12 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
   { label: "Move", skill: { trigger: "continuous", effects: [{ type: "move", value: 1 }] } },
   { label: "Counterattack", skill: { trigger: "continuous", effects: [{ type: "counterattack", value: 1 }] } },
   { label: "Soulguard", skill: { trigger: "continuous", effects: [{ type: "soulguard", value: 1 }] } },
-  { label: "Lifelink", skill: { trigger: "continuous", effects: [{ type: "lifelink", value: 1 }] } },
+  { label: "Lifelink 1 (ตายแล้วโดนดาเมจ)", skill: { trigger: "continuous", effects: [{ type: "lifelink", value: 1 }] } },
+  { label: "ต้นเทิร์น: สุสาน→Soul 1", skill: { trigger: "onTurnStart", effects: [{ type: "dropToSoul", value: 1 }] } },
+  { label: "ลงสนาม: สุสาน→Soul 2", skill: { trigger: "onCall", effects: [{ type: "dropToSoul", value: 2 }] } },
+  { label: "ร่าย: สุสาน→Soul ของ Soulguard 2", skill: { trigger: "onCast", effects: [{ type: "dropToSoul", value: 2 }] } },
+  { label: "ร่าย: ดึงมอนสเตอร์ศัตรูกลับมือ", skill: { trigger: "onCast", effects: [{ type: "bounceOpponentMonster", value: 1 }] } },
+  { label: "Power +1000 ต่อ Soul", skill: { trigger: "continuous", effects: [{ type: "powerPerSoul", value: 1000 }] } },
   { label: "ลงสนาม: จั่ว 1", skill: { trigger: "onCall", effects: [{ type: "draw", value: 1 }] } },
   { label: "ลงสนาม: Charge 1", skill: { trigger: "onCall", effects: [{ type: "addGauge", value: 1 }] } },
   { label: "ลงสนาม: ดาเมจ 1", skill: { trigger: "onCall", effects: [{ type: "reduceLife", value: 1 }] } },
@@ -110,8 +130,8 @@ export const KEYWORD_HELP: Record<string, string> = {
   Penetrate: "ถ้าโจมตีแล้วทำลายมอนสเตอร์ช่องกลางของศัตรูได้ จะทำดาเมจใส่ผู้เล่นเท่า Critical",
   "Double Attack": "โจมตีได้ 2 ครั้งในเทิร์นเดียว (หลังโจมตีครั้งแรกจะ Stand กลับมา)",
   "Triple Attack": "โจมตีได้ 3 ครั้งในเทิร์นเดียว",
-  Soulguard: "ถ้าจะถูกทำลาย ให้ถอด Soul 1 ใบลงสุสานแทน (ต้องมี Soul)",
-  Lifelink: "เมื่อทำดาเมจใส่ผู้เล่น จะฟื้น Life เท่าดาเมจนั้น",
+  Soulguard: "เมื่อการ์ดนี้กำลังจะออกจากสนาม (ถูกทำลาย ดึงกลับมือ ส่งลงสุสาน หรือใส่กลับเด็ค) เลือกถอดการ์ดจาก Soul ของมัน 1 ใบลงสุสาน เพื่อยกเลิกการออกจากสนามได้ (ต้องมี Soul) — ถ้าการ์ดถูก Nullify จะไม่ทำงาน · ปุ่ม 🛡 Soulguard ออโต้ ใช้เปิด/ปิดการใช้",
+  Lifelink: "เมื่อการ์ดนี้ตาย (ถูกทำลาย) เจ้าของจะโดนดาเมจตามตัวเลข Lifelink (Soulguard กันตายได้จึงไม่โดน)",
   Move: "ย้ายไปช่องมอนสเตอร์อื่นได้ 1 ครั้งต่อเทิร์นใน Main Phase (ถ้ามีตัวอยู่จะสลับกัน)",
   Counterattack: "เมื่อถูกโจมตี ถ้า Power ของการ์ดนี้ ≥ Defense ของผู้โจมตี ผู้โจมตีจะถูกทำลาย (ถ้าไม่มี Counterattack ผู้โจมตีจะไม่ถูกทำลายกลับ)",
   "Ignore Center": "ตีผู้เล่นได้แม้ศัตรูมีมอนสเตอร์ช่องกลาง",

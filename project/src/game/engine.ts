@@ -149,10 +149,20 @@ export function statsOf(fc: FieldCard): { power: number; defense: number; critic
   const c = getCard(fc.cardId);
   if (!c) return { power: 0, defense: 0, critical: 0 };
   return {
-    power: c.power + fc.tempPower + continuousSum(c, "buffPower"),
+    power: c.power + fc.tempPower + continuousSum(c, "buffPower") + continuousSum(c, "powerPerSoul") * fc.soul.length,
     defense: c.defense + (fc.tempDefense ?? 0) + continuousSum(c, "buffDefense"),
-    critical: c.critical + (fc.tempCritical ?? 0) + continuousSum(c, "buffCritical"),
+    critical: c.critical + (fc.tempCritical ?? 0) + continuousSum(c, "buffCritical") + continuousSum(c, "criticalPerSoul") * fc.soul.length,
   };
+}
+
+// ค่าของคีย์เวิร์ด (เช่น Soulguard 2 / Lifelink 3) = ค่าสูงสุดที่ตั้งไว้ในการ์ด, 0 = ไม่มีคีย์เวิร์ดนี้
+export function keywordValue(card: Card, type: AutoEffectType): number {
+  let v = 0;
+  card.autoSkills?.forEach(s => {
+    if (s.trigger !== "continuous" && s.trigger !== "onAttack") return;
+    s.effects.forEach(e => { if (e.type === type) v = Math.max(v, Math.max(1, Math.floor(e.value))); });
+  });
+  return v;
 }
 
 // คีย์เวิร์ดอ่านได้จากสกิลถาวร และจาก "เมื่อโจมตี" (รองรับการ์ดเก่าที่สร้างไว้แล้ว)
@@ -205,26 +215,77 @@ function mRemoveSoul(g: GameState, side: Side, fc: FieldCard, n: number): number
   return moved;
 }
 
+// Soulguard: การ์ดที่จะถูกนำออกจากสนาม (ทำลาย / ดึงกลับมือ) ถอด Soul N ใบลงสุสานเพื่อ "อยู่ต่อ" ได้ (N = ค่า Soulguard, ปกติ 1)
+// คืน true = กันสำเร็จ (การ์ดไม่ออกจากสนาม)
+function trySoulguard(g: GameState, side: Side, m: FieldCard, card: Card | undefined, why: string): boolean {
+  if (!card || keywordValue(card, "soulguard") <= 0) return false;
+  if (m.nullified) { log(g, `${card.name} ถูก Nullify — Soulguard ไม่ทำงาน`); return false; }
+  if (g[side].soulguardOff) { log(g, `${nameOf(side)} ปิด Soulguard ไว้ — ${card.name} ไม่ใช้ Soulguard`); return false; }
+  if (m.soul.length < 1) return false;
+  log(g, `${card.name} ใช้ Soulguard! ถอด Soul 1 ใบ กัน${why}ออกจากสนาม (เหลือ Soul ${m.soul.length - 1})`);
+  fx(g, { k: "guard", side, uid: m.uid, pos: m.position, left: m.soul.length - 1 });
+  mRemoveSoul(g, side, m, 1);
+  return true;
+}
+
+// ผู้เล่นเลือกเปิด/ปิดการใช้ Soulguard (เปิด = ถ้าจะออกจากสนามแล้วมี Soul จะถอดกันให้ทันที)
+export function setSoulguardAuto(state: GameState, side: Side, on: boolean): GameState {
+  if ((state[side].soulguardOff ?? false) === !on) return state;
+  const g = structuredClone(state);
+  g[side].soulguardOff = !on;
+  log(g, `${nameOf(side)} ${on ? "เปิด" : "ปิด"} การใช้ Soulguard`);
+  return g;
+}
+
 function mDestroyMonster(g: GameState, side: Side, monsterUid: string): boolean {
   const p = g[side];
   const m = p.monsters.find(x => x.uid === monsterUid);
   if (!m) return false;
   const card = getCard(m.cardId);
-
-  // Soulguard: ถอด Soul 1 ใบลงสุสานแทนการถูกทำลาย
-  if (card && hasKeyword(card, "soulguard") && m.soul.length >= 1) {
-    log(g, `${card.name} ใช้ Soulguard! ถอด Soul 1 ใบแทนการถูกทำลาย (เหลือ Soul ${m.soul.length - 1})`);
-    fx(g, { k: "guard", side, uid: m.uid, pos: m.position, left: m.soul.length - 1 });
-    mRemoveSoul(g, side, m, 1);
-    return false;
-  }
+  if (trySoulguard(g, side, m, card, "การถูกทำลาย")) return false;
 
   fx(g, { k: "destroy", side, uid: m.uid, cardId: m.cardId, pos: m.position });
   p.monsters = p.monsters.filter(x => x.uid !== monsterUid);
   p.dropZone.push(m.cardId, ...m.soul);
   log(g, `${card?.name ?? "มอนสเตอร์"} ถูกทำลาย`);
   if (card) applyEffects(g, side, card, "onDestroyed");
+  // Lifelink: เมื่อการ์ดนี้ตาย เจ้าของโดนดาเมจตามค่า Lifelink
+  const ll = card && !m.nullified ? keywordValue(card, "lifelink") : 0;
+  if (ll > 0 && !g.winner) {
+    log(g, `Lifelink! ${card!.name} ตาย → ${nameOf(side)} โดนดาเมจ ${ll}`);
+    mLife(g, side, -ll);
+  }
   return true;
+}
+
+// นำมอนสเตอร์ออกจากสนามโดยไม่ใช่การตาย (กลับมือ / ลงสุสาน / กลับบนเด็ค): ไม่ทำงาน onDestroyed / Lifelink — Soulguard กันได้ทุกแบบ
+function mLeaveField(g: GameState, side: Side, monsterUid: string, dest: "hand" | "drop" | "deck"): boolean {
+  const p = g[side];
+  const m = p.monsters.find(x => x.uid === monsterUid);
+  if (!m) return false;
+  const card = getCard(m.cardId);
+  const label = dest === "hand" ? "ถูกดึงกลับมือ" : dest === "drop" ? "ถูกส่งลงสุสาน" : "ถูกใส่กลับเด็ค";
+  if (trySoulguard(g, side, m, card, `การ${label.replace("ถูก", "ถูก")}`)) return false;
+  fx(g, { k: "destroy", side, uid: m.uid, cardId: m.cardId, pos: m.position });
+  p.monsters = p.monsters.filter(x => x.uid !== monsterUid);
+  if (dest === "hand") p.hand.push(m.cardId);
+  else if (dest === "drop") p.dropZone.push(m.cardId);
+  else p.deck.unshift(m.cardId);
+  p.dropZone.push(...m.soul); // Soul ลงสุสานเสมอ
+  log(g, `${card?.name ?? "มอนสเตอร์"} ${label}`);
+  return true;
+}
+
+// เลือกการ์ดจากสุสานตามชนิด (นับจากใบที่ลงล่าสุด)
+function pickFromDrop(g: GameState, side: Side, n: number, filter?: string): string[] {
+  const p = g[side];
+  const out: string[] = [];
+  for (let i = p.dropZone.length - 1; i >= 0 && out.length < n; i--) {
+    const c = getCard(p.dropZone[i]);
+    if (filter && filter !== "any" && c?.type !== filter) continue;
+    out.push(p.dropZone.splice(i, 1)[0]);
+  }
+  return out;
 }
 
 function applyEffects(
@@ -272,9 +333,9 @@ function applyEffects(
           break;
         }
         case "recoverFromDrop": {
-          const p = g[side];
-          for (let i = 0; i < n && p.dropZone.length > 0; i++) p.hand.push(p.dropZone.pop()!);
-          log(g, `${card.name} เก็บการ์ดจากสุสานขึ้นมือ`);
+          const got = pickFromDrop(g, side, n, eff.filter);
+          g[side].hand.push(...got);
+          log(g, `${card.name} เก็บการ์ดจากสุสานขึ้นมือ ${got.length} ใบ`);
           break;
         }
         case "standSelf": {
@@ -300,6 +361,55 @@ function applyEffects(
           let moved = 0;
           for (let i = 0; i < n && g[side].deck.length > 0; i++) { fc.soul.push(g[side].deck.shift()!); moved++; }
           if (moved > 0) { log(g, `${card.name} ได้รับ Soul +${moved}`); fx(g, { k: "soulIn", side, uid: fc.uid, pos: posOf(g, side, fc), n: moved }); }
+          break;
+        }
+        case "dropToSoul": {
+          // เป้าหมาย: การ์ดที่ใช้สกิล > มอนสเตอร์ที่มี Soulguard > มอนสเตอร์ตัวล่าสุด
+          const fc = ctx?.fc
+            ?? g[side].monsters.find(m => { const c = getCard(m.cardId); return !!c && keywordValue(c, "soulguard") > 0; })
+            ?? g[side].monsters[g[side].monsters.length - 1];
+          if (!fc) { log(g, `${card.name}: ไม่มีมอนสเตอร์ให้ใส่ Soul`); break; }
+          const got = pickFromDrop(g, side, n, eff.filter);
+          if (got.length === 0) { log(g, `${card.name}: ไม่มีการ์ดที่ตรงเงื่อนไขในสุสาน`); break; }
+          fc.soul.push(...got);
+          log(g, `${card.name} นำการ์ดจากสุสาน ${got.length} ใบเข้า Soul ของ ${getCard(fc.cardId)?.name ?? "การ์ด"} (รวม ${fc.soul.length})`);
+          fx(g, { k: "soulIn", side, uid: fc.uid, pos: posOf(g, side, fc), n: got.length, from: "drop" });
+          break;
+        }
+        case "soulToHand": {
+          const fc = ctx?.fc;
+          if (!fc || fc.soul.length === 0) { log(g, `${card.name}: ไม่มี Soul ให้ถอดขึ้นมือ`); break; }
+          let moved = 0;
+          for (let i = 0; i < n && fc.soul.length > 0; i++) { g[side].hand.push(fc.soul.pop()!); moved++; }
+          log(g, `${card.name} ถอด Soul ${moved} ใบขึ้นมือ`);
+          fx(g, { k: "soulOut", side, uid: fc.uid, pos: posOf(g, side, fc), n: moved });
+          const c0 = getCard(fc.cardId);
+          if (c0) applyEffects(g, side, c0, "onSoulRemoved", { fc });
+          break;
+        }
+        case "bounceOpponentMonster": {
+          const order = [1, 0, 2];
+          [...g[opp].monsters]
+            .sort((a, b) => order.indexOf(a.position) - order.indexOf(b.position))
+            .slice(0, n)
+            .forEach(m => mLeaveField(g, opp, m.uid, "hand"));
+          break;
+        }
+        case "opponentMonsterToDrop":
+        case "opponentMonsterToDeck": {
+          const order = [1, 0, 2];
+          [...g[opp].monsters]
+            .sort((a, b) => order.indexOf(a.position) - order.indexOf(b.position))
+            .slice(0, n)
+            .forEach(m => mLeaveField(g, opp, m.uid, eff.type === "opponentMonsterToDrop" ? "drop" : "deck"));
+          break;
+        }
+        case "nullifyOpponentMonster": {
+          const order = [1, 0, 2];
+          [...g[opp].monsters]
+            .sort((a, b) => order.indexOf(a.position) - order.indexOf(b.position))
+            .slice(0, n)
+            .forEach(m => { m.nullified = true; log(g, `${card.name} Nullify! ความสามารถของ ${getCard(m.cardId)?.name ?? "มอนสเตอร์"} ถูกยกเลิกจนจบเทิร์น`); });
           break;
         }
         case "removeSoul": {
@@ -542,7 +652,7 @@ export function endTurn(state: GameState): GameState {
   if (g.winner) return g;
   (["host", "guest"] as Side[]).forEach(s => {
     [...g[s].monsters, ...(g[s].item ? [g[s].item!] : [])].forEach(m => {
-      m.tempPower = 0; m.tempCritical = 0; m.tempDefense = 0;
+      m.tempPower = 0; m.tempCritical = 0; m.tempDefense = 0; m.nullified = false;
     });
   });
   g.currentTurn = other(g.currentTurn);
@@ -945,7 +1055,6 @@ function resolveBattle(g: GameState) {
     return { power: a.power + s.power, critical: a.critical + s.critical };
   }, { power: 0, critical: 0 });
   const penetrate = parts.some(x => hasKeyword(x.card, "penetrate"));
-  const lifelink = parts.some(x => hasKeyword(x.card, "lifelink"));
   const chosen = b.target;
   const linkNote = parts.length > 1 ? ` (Link Attack รวม Power ${total.power} / Critical ${total.critical})` : "";
 
@@ -962,7 +1071,7 @@ function resolveBattle(g: GameState) {
 
     // ผู้โจมตีทำดาเมจใส่เป้าหมาย: Power ≥ Defense ของเป้า -> เป้าถูกทำลาย
     let targetDestroyed = false;
-    if (tgtCard && hasKeyword(tgtCard, "indestructibleBattle")) {
+    if (tgtCard && !tgt.nullified && hasKeyword(tgtCard, "indestructibleBattle")) {
       log(g, `${tgtName} ไม่ถูกทำลายจากการต่อสู้`);
     } else if (total.power >= tgtStats.defense) {
       log(g, `Power ${total.power} ≥ Def ${tgtStats.defense} → ทำลาย ${tgtName}${linkNote}`);
@@ -972,9 +1081,9 @@ function resolveBattle(g: GameState) {
     }
 
     // ตอบโต้: เฉพาะเป้าหมายที่มี Counterattack เท่านั้น ถึงจะทำลายผู้โจมตีกลับได้
-    if (tgtCard && hasKeyword(tgtCard, "counterattack") && !g.winner) {
+    if (tgtCard && !tgt.nullified && hasKeyword(tgtCard, "counterattack") && !g.winner) {
       parts.forEach(({ fc, card, isItem }) => {
-        if (isItem || hasKeyword(card, "indestructibleBattle")) return;
+        if (isItem || (!fc.nullified && hasKeyword(card, "indestructibleBattle"))) return;
         const st = statsOf(fc);
         if (tgtStats.power >= st.defense) {
           log(g, `Counterattack! ${tgtName} Power ${tgtStats.power} ≥ Def ${st.defense} → ${card.name} ถูกทำลาย`);
@@ -991,7 +1100,6 @@ function resolveBattle(g: GameState) {
       if (penetrate && chosen.position === 1 && !g.winner) {
         log(g, `Penetrate! ทะลวงเกราะ ดาเมจ ${total.critical}`);
         mLife(g, oppSide, -total.critical);
-        if (lifelink && total.critical > 0 && !g.winner) mLife(g, side, total.critical);
         if (!g.winner) parts.forEach(({ fc, card }) => {
           const alive = me.monsters.some(m => m.uid === fc.uid) || me.item?.uid === fc.uid;
           if (alive) applyEffects(g, side, card, "onDamage", { fc });
@@ -1001,7 +1109,6 @@ function resolveBattle(g: GameState) {
   } else {
     log(g, `ทำดาเมจใส่ผู้เล่น ${total.critical}${linkNote}`);
     mLife(g, oppSide, -total.critical);
-    if (lifelink && total.critical > 0 && !g.winner) mLife(g, side, total.critical);
     if (!g.winner) parts.forEach(({ fc, card }) => {
       const alive = me.monsters.some(m => m.uid === fc.uid) || me.item?.uid === fc.uid;
       if (alive) applyEffects(g, side, card, "onDamage", { fc });

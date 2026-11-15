@@ -32,8 +32,15 @@ const TYPE_LABEL: Record<string, string> = {
   Impact: "ท่าไม้ตาย",
 };
 
-const hasSoulguard = (card: Card) =>
-  !!card.autoSkills?.some(s => (s.trigger === "continuous" || s.trigger === "onAttack") && s.effects.some(e => e.type === "soulguard"));
+// ค่า Soulguard (จำนวน Soul ที่ต้องถอดต่อครั้ง) 0 = ไม่มี
+const soulguardCost = (card: Card) => {
+  let v = 0;
+  card.autoSkills?.forEach(s => {
+    if (s.trigger !== "continuous" && s.trigger !== "onAttack") return;
+    s.effects.forEach(e => { if (e.type === "soulguard") v = 1; }); // ถอด Soul 1 ใบเสมอ
+  });
+  return v;
+};
 
 // ขนาดตัวเลขแนวตั้ง: ยิ่งยาวยิ่งเล็ก จะได้ไม่ล้นแถบ
 const vertSize = (v: number, compact: boolean) => {
@@ -43,18 +50,20 @@ const vertSize = (v: number, compact: boolean) => {
 };
 
 // แถบ Soul: ลูกแก้วม่วง 1 ลูก = Soul 1 ใบ + โล่ Soulguard ที่บอกจำนวนครั้งที่ยังกันตายได้
-export function SoulRail({ count, guard }: { count: number; guard: boolean }) {
-  const shown = Math.min(count, 6);
+export function SoulRail({ count, guardCost }: { count: number; guardCost: number }) {
+  const guard = guardCost > 0;
+  const uses = guard ? Math.floor(count / guardCost) : 0; // กันได้อีกกี่ครั้ง
+  const shown = Math.min(count, 4);
   return (
     <div className="absolute z-20 flex flex-col items-center pointer-events-none" style={{ right: "0.3em", top: "5.6em", gap: "0.3em" }}>
       {guard && (
-        <div key={"g" + count} className={`soul-pop relative flex items-center justify-center ${count > 0 ? "soul-guard-live" : ""}`} style={{ width: "2.5em", height: "2.8em" }} title={`Soulguard: กันตายได้อีก ${count} ครั้ง`}>
+        <div key={"g" + count} className={`soul-pop relative flex items-center justify-center ${uses > 0 ? "soul-guard-live" : ""}`} style={{ width: "2.5em", height: "2.8em" }} title={`Soulguard: ถอด Soul ${guardCost} ใบ กันออกจากสนามได้อีก ${uses} ครั้ง`}>
           <svg viewBox="0 0 24 28" className="absolute inset-0 w-full h-full" aria-hidden>
             <path d="M12 1 L22 5 V13 C22 20 17.5 24.5 12 27 C6.5 24.5 2 20 2 13 V5 Z"
-              fill={count > 0 ? "url(#sgGrad)" : "#1e293b"} stroke={count > 0 ? "#e9d5ff" : "#64748b"} strokeWidth="1.6" strokeDasharray={count > 0 ? "0" : "2.4 2"} />
+              fill={uses > 0 ? "url(#sgGrad)" : "#1e293b"} stroke={uses > 0 ? "#e9d5ff" : "#64748b"} strokeWidth="1.6" strokeDasharray={uses > 0 ? "0" : "2.4 2"} />
             <defs><linearGradient id="sgGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#a855f7" /><stop offset="1" stopColor="#4c1d95" /></linearGradient></defs>
           </svg>
-          <span className="relative font-display font-extrabold text-white" style={{ fontSize: "1.25em", lineHeight: 1, textShadow: "0 0 0.3em #000", marginTop: "-0.1em" }}>{count}</span>
+          <span className="relative font-display font-extrabold text-white" style={{ fontSize: "1.25em", lineHeight: 1, textShadow: "0 0 0.3em #000", marginTop: "-0.1em" }}>{uses}</span>
         </div>
       )}
       {Array.from({ length: shown }).map((_, i) => (
@@ -111,7 +120,7 @@ export function CardView({
   /* ---------------- Monster ---------------- */
   if (card.type === "Monster") {
     const stroke: CSSProperties = { WebkitTextStroke: "0.07em #000", paintOrder: "stroke fill" } as CSSProperties;
-    const guard = hasSoulguard(card);
+    const guard = soulguardCost(card);
     const vert = (color: string, v: number): CSSProperties => ({ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: vertSize(v, compact), lineHeight: 1, whiteSpace: "nowrap", color, ...stroke });
     return (
       <div onClick={onClick} {...dnd} className={`${common} flex flex-col`} style={{ ...base, border: `0.22em solid ${color}`, background: "#0b1220" }}>
@@ -163,7 +172,7 @@ export function CardView({
             <span className="font-display font-bold italic text-white truncate" style={{ fontSize: compact ? "1em" : "1.1em", textShadow: "0 0 0.3em #000" }}>{card.name}</span>
           </div>
         </div>
-        {soul !== undefined && (soul > 0 || guard) && <SoulRail count={soul} guard={guard} />}
+        {soul !== undefined && (soul > 0 || guard > 0) && <SoulRail count={soul} guardCost={guard} />}
         {children}
       </div>
     );
@@ -218,7 +227,7 @@ export function CardView({
         </div>
       )}
 
-      {soul !== undefined && soul > 0 && <SoulRail count={soul} guard={hasSoulguard(card)} />}
+      {soul !== undefined && soul > 0 && <SoulRail count={soul} guardCost={soulguardCost(card)} />}
       {/* Name */}
       <div className="mt-[0.3em] rounded-[0.5em] flex items-center justify-center px-[0.4em] shrink-0" style={{ height: "2.1em", background: `linear-gradient(180deg, ${frame.a}, ${frame.b})`, border: `0.12em solid ${frame.b}` }}>
         <span className="font-display font-bold text-slate-900 truncate" style={{ fontSize: "1.05em" }}>{card.name}</span>

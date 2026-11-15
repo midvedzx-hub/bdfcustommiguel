@@ -254,7 +254,7 @@ export function FxLayer({ game, cardOf, flagOf, onHide }: {
         }
         case "soulIn": {
           const p = pointOf(slotId(ev.side, ev.pos));
-          const d = pointOf(`deck:${ev.side}`);
+          const d = pointOf(ev.from === "drop" ? `drop:${ev.side}` : `deck:${ev.side}`);
           if (!p) break;
           idx++;
           const delay = at + (evs.some(e => e.k === "call" && "uid" in e && e.uid === ev.uid) ? 520 : 0);

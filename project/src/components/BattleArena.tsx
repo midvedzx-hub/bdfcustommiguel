@@ -7,13 +7,14 @@ import {
 import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet, FieldCard } from "@/types";
 import { TRIGGER_LABELS } from "@/types";
 import { DEFAULT_RULES } from "@/types";
-import {
+import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
   callMonster, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
   goToAttack, goToFinal, mulligan, legalTargets, statsOf, counterOptions, counterCardOf, counterAct,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   type AttackTarget, type CounterOption, type Result,
+  setSoulguardAuto,
 } from "@/game/engine";
 import { getFlags, getCards, getDecks } from "@/storage";
 import { getFlagColor, hasCounter, skillLines, keywordBadges, costText, effectText, KEYWORD_HELP, TRIGGER_HELP } from "@/game/helpers";
@@ -698,6 +699,9 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                   {(m.tempPower !== 0 || m.tempCritical !== 0 || m.tempDefense !== 0) && (
                     <div className="absolute top-[2.6em] right-0 bg-cyan-500 text-white font-bold px-1 rounded-l z-20" style={{ fontSize: "0.7em" }}>BUFF</div>
                   )}
+                  {m.nullified && (
+                    <div className="absolute inset-x-0 top-[40%] text-center bg-fuchsia-700/90 text-white font-bold tracking-wider z-20 border-y border-fuchsia-200" style={{ fontSize: "0.8em" }}>NULLIFY</div>
+                  )}
                   {maxAttacks(card) > 1 && (
                     <div className="absolute top-[0.3em] right-[0.3em] bg-rose-600 text-white font-bold px-1 rounded z-20" style={{ fontSize: "0.75em" }}>{m.attacks}/{maxAttacks(card)}</div>
                   )}
@@ -963,6 +967,11 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             );
           })}
         </div>
+        <button
+          onClick={() => doAction(st => setSoulguardAuto(st, mySide, !!me.soulguardOff))}
+          title="เปิด: การ์ด Soulguard ที่จะออกจากสนามจะถอด Soul 1 ใบกันให้ทันที · ปิด: ไม่ใช้ Soulguard (ปล่อยให้ออกจากสนามตามปกติ)"
+          className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${me.soulguardOff ? "bg-slate-800 border-slate-600 text-slate-400" : "bg-violet-700/80 border-violet-300 text-white shadow-[0_0_10px_rgba(168,85,247,.6)]"}`}
+        >🛡 Soulguard {me.soulguardOff ? "ปิด" : "ใช้อัตโนมัติ"}</button>
         {isMyTurn && !game.battle && game.phase === "draw" && (
           <button onClick={doDraw} className={`${b} bg-cyan-600 hover:bg-cyan-500 btn-nudge transition`}>Draw</button>
         )}
@@ -1102,7 +1111,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                   สถานะบนสนาม: <b className="text-white">{fc.state === "stand" ? "Stand" : "Rest"}</b>
                   {" · "}Soul: <b className="text-violet-300">{fc.soul.length}</b>
                   {fc.soul.length > 0 && <span className="inline-flex gap-1 ml-2 align-middle">{fc.soul.slice(0, 10).map((_, i) => <span key={i} className="soul-orb soul-bob" style={{ width: 12, height: 12, animationDelay: `${i * 0.15}s` }} />)}</span>}
-                  {hasKeyword(card, "soulguard") && <span className="ml-2 text-violet-200">🛡 Soulguard พร้อมกันตายอีก <b>{fc.soul.length}</b> ครั้ง</span>}
+                  {keywordValue(card, "soulguard") > 0 && <span className="ml-2 text-violet-200">🛡 Soulguard กันออกจากสนามได้อีก <b>{fc.nullified ? 0 : fc.soul.length}</b> ครั้ง{fc.nullified ? " (ถูก Nullify)" : ""}</span>}
                   {maxAttacks(card) > 1 ? <> · โจมตีแล้ว <b className="text-white">{fc.attacks}/{maxAttacks(card)}</b></> : null}
                 </div>
               )}
@@ -1132,7 +1141,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                     {badges.map(b => (
                       <div key={b} className="flex gap-2 items-start">
                         <span className="bg-red-600 text-white rounded px-2 text-xs font-bold shrink-0">{b}</span>
-                        <span className="text-slate-300 text-xs">{KEYWORD_HELP[b]}</span>
+                        <span className="text-slate-300 text-xs">{KEYWORD_HELP[b.replace(/ \d+$/, "")]}</span>
                       </div>
                     ))}
                   </div>

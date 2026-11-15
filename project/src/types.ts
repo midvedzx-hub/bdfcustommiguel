@@ -31,8 +31,8 @@ export type AutoEffectType =
   | "doubleAttack"            // โจมตีแล้ว Stand กลับ (ครั้งที่ 2)
   | "tripleAttack"            // โจมตีได้ 3 ครั้ง
   | "multiAttack"             // (เก่า) value = จำนวนครั้งที่โจมตีได้
-  | "soulguard"               // ถูกทำลายครั้งแรกแล้วจ่ายเกจ 1 เพื่อรอด
-  | "lifelink"                // ทำดาเมจใส่ผู้เล่นแล้วฟื้น Life เท่ากัน
+  | "soulguard"               // จะถูกนำออกจากสนาม (ทำลาย/ดึงกลับมือ) → ถอด Soul N ใบลงสุสานแทน แล้วอยู่ต่อ
+  | "lifelink"                // เมื่อการ์ดนี้ตาย (ถูกทำลาย) เจ้าของโดนดาเมจเท่าค่านี้
   | "ignoreCenter"            // ตีผู้เล่นได้แม้ศัตรูมีมอนสเตอร์กลาง
   | "indestructibleBattle"    // ไม่ถูกทำลายจากการต่อสู้
   | "negateAttack"            // (Counter) ยกเลิกการโจมตีนั้น
@@ -41,7 +41,15 @@ export type AutoEffectType =
   | "move"                    // Move: ย้ายมอนสเตอร์ไปช่องอื่นได้ (1 ครั้ง/เทิร์น ใน Main Phase)
   | "counterattack"           // ถูกโจมตีแล้วตอบโต้: ถ้า Power ≥ Defense ผู้โจมตี ผู้โจมตีจะถูกทำลาย
   | "addSoul"                 // นำการ์ดบนเด็ค N ใบเข้าโซลของการ์ดนี้
-  | "removeSoul";             // ถอดโซลของการ์ดนี้ N ใบลงสุสาน (ถ้าโซลไม่พอ เอฟเฟกต์ถัดไปของสกิลนี้จะไม่ทำงาน)
+  | "removeSoul"              // ถอดโซลของการ์ดนี้ N ใบลงสุสาน (ถ้าโซลไม่พอ เอฟเฟกต์ถัดไปของสกิลนี้จะไม่ทำงาน)
+  | "dropToSoul"              // นำการ์ดจากสุสานของเรา N ใบเข้าโซล (การ์ดนี้ / ถ้าเป็นเวทจะเข้ามอนสเตอร์ที่มี Soulguard ก่อน)
+  | "soulToHand"              // ถอดโซลของการ์ดนี้ N ใบขึ้นมือ
+  | "bounceOpponentMonster"   // ดึงมอนสเตอร์ศัตรู N ตัวกลับมือ (Soulguard กันได้)
+  | "opponentMonsterToDrop"   // ส่งมอนสเตอร์ศัตรู N ตัวลงสุสานโดยไม่นับเป็นการทำลาย (Soulguard กันได้)
+  | "opponentMonsterToDeck"   // ใส่มอนสเตอร์ศัตรู N ตัวกลับบนกองเด็ค (Soulguard กันได้)
+  | "nullifyOpponentMonster"  // ยกเลิกความสามารถมอนสเตอร์ศัตรู N ตัวจนจบเทิร์น (Soulguard/Lifelink/Counterattack/Battle Proof ไม่ทำงาน)
+  | "powerPerSoul"            // Power +N ต่อการ์ด 1 ใบในโซล (ถาวร)
+  | "criticalPerSoul";        // Critical +N ต่อการ์ด 1 ใบในโซล (ถาวร)
 
 export const TRIGGER_LABELS: { value: AutoTrigger; label: string }[] = [
   { value: "onCall", label: "เมื่อลงสนาม / ติดตั้ง" },
@@ -75,8 +83,8 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "doubleAttack", label: "Double Attack", hint: "ใส่ 1" },
   { value: "tripleAttack", label: "Triple Attack", hint: "ใส่ 1" },
   { value: "multiAttack", label: "โจมตีหลายครั้ง (กำหนดเอง)", hint: "จำนวนครั้ง" },
-  { value: "soulguard", label: "Soulguard (จ่ายเกจกันตาย)", hint: "ใส่ 1" },
-  { value: "lifelink", label: "Lifelink (ดูด Life)", hint: "ใส่ 1" },
+  { value: "soulguard", label: "Soulguard (ถอด Soul 1 ใบ กันออกจากสนาม)", hint: "ใส่ 1" },
+  { value: "lifelink", label: "Lifelink (ตายแล้วเจ้าของโดนดาเมจ)", hint: "ดาเมจที่เจ้าของโดนตอนการ์ดนี้ตาย" },
   { value: "ignoreCenter", label: "ตีผู้เล่นได้แม้มีมอนกลาง", hint: "ใส่ 1" },
   { value: "indestructibleBattle", label: "ไม่ถูกทำลายจากการต่อสู้", hint: "ใส่ 1" },
   { value: "negateAttack", label: "[Counter] ยกเลิกการโจมตี", hint: "ใส่ 1" },
@@ -86,11 +94,30 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "counterattack", label: "Counterattack (ตอบโต้ผู้โจมตี)", hint: "ใส่ 1" },
   { value: "addSoul", label: "เพิ่ม Soul (เด็ค→โซลการ์ดนี้)", hint: "จำนวนใบ" },
   { value: "removeSoul", label: "ถอด Soul ลงสุสาน (เป็นค่าใช้จ่าย)", hint: "จำนวนใบ" },
+  { value: "dropToSoul", label: "สุสาน→Soul (นำการ์ดจากสุสานเข้าโซล)", hint: "จำนวนใบ (เลือกชนิดการ์ดได้)" },
+  { value: "soulToHand", label: "ถอด Soul ขึ้นมือ", hint: "จำนวนใบ" },
+  { value: "bounceOpponentMonster", label: "ดึงมอนสเตอร์ศัตรูกลับมือ", hint: "จำนวนตัว" },
+  { value: "opponentMonsterToDrop", label: "ส่งมอนสเตอร์ศัตรูลงสุสาน (ไม่ใช่การทำลาย)", hint: "จำนวนตัว" },
+  { value: "opponentMonsterToDeck", label: "ใส่มอนสเตอร์ศัตรูกลับกองเด็ค", hint: "จำนวนตัว" },
+  { value: "nullifyOpponentMonster", label: "Nullify ยกเลิกความสามารถมอนสเตอร์ศัตรู (จนจบเทิร์น)", hint: "จำนวนตัว" },
+  { value: "powerPerSoul", label: "Power เพิ่มต่อ Soul 1 ใบ (ถาวร)", hint: "เช่น 1000" },
+  { value: "criticalPerSoul", label: "Critical เพิ่มต่อ Soul 1 ใบ (ถาวร)", hint: "เช่น 1" },
 ];
+
+// ชนิดการ์ดที่เลือกได้เมื่อดึงจากสุสาน (dropToSoul / recoverFromDrop)
+export const DROP_FILTERS: { value: CardFilter; label: string }[] = [
+  { value: "any", label: "การ์ดใดก็ได้" },
+  { value: "Monster", label: "เฉพาะมอนสเตอร์" },
+  { value: "Spell", label: "เฉพาะเวท" },
+  { value: "Item", label: "เฉพาะไอเทม" },
+  { value: "Impact", label: "เฉพาะ Impact" },
+];
+export type CardFilter = "any" | "Monster" | "Spell" | "Item" | "Impact";
 
 export interface AutoEffect {
   type: AutoEffectType;
   value: number;
+  filter?: CardFilter; // ใช้กับเอฟเฟกต์ที่ดึงการ์ดจากสุสาน
 }
 
 export interface AutoSkill {
@@ -186,6 +213,7 @@ export interface FieldCard {
   movedTurn?: number; // เทิร์นที่ใช้ Move ไปแล้ว
   counterUsedTurn?: number; // เทิร์นที่ใช้ Counter Act จากสนามไปแล้ว (ใช้ได้ 1 ครั้งต่อเทิร์น)
   guardUsed?: boolean;
+  nullified?: boolean; // ถูก Nullify: ความสามารถหลัก (Soulguard ฯลฯ) ไม่ทำงานจนจบเทิร์น
 }
 
 export interface PlayerState {
@@ -201,6 +229,7 @@ export interface PlayerState {
   flagId: string;
   buddyId: string | null;
   buddyCalledThisGame: boolean;
+  soulguardOff?: boolean; // ปิดการใช้ Soulguard อัตโนมัติ (ผู้เล่นเลือกไม่ใช้ได้)
 }
 
 export interface GameState {
@@ -228,7 +257,7 @@ export type FxEvent = { id: number } & (
   | { k: "life"; side: "host" | "guest"; delta: number }
   | { k: "destroy"; side: "host" | "guest"; uid: string; cardId: string; pos: number }
   | { k: "guard"; side: "host" | "guest"; uid: string; pos: number; left: number }
-  | { k: "soulIn"; side: "host" | "guest"; uid: string; pos: number; n: number }
+  | { k: "soulIn"; side: "host" | "guest"; uid: string; pos: number; n: number; from?: "deck" | "drop" }
   | { k: "soulOut"; side: "host" | "guest"; uid: string; pos: number; n: number }
   | { k: "call"; side: "host" | "guest"; uid: string; pos: number; buddy: boolean }
   | { k: "cast"; side: "host" | "guest"; cardId: string; label: string }
