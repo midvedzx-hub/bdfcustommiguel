@@ -372,7 +372,7 @@ function startTurn(g: GameState, skipDraw: boolean) {
   if (p.item) { p.item.state = "stand"; p.item.attacks = 0; }
   g.attacksThisTurn = 0;
   g.battle = null;
-  // ลำดับเทิร์น: Stand → Draw → Charge & Draw → Main → Attack → Final (ผู้เล่นคนแรกเทิร์นแรกข้าม Draw)
+  // ลำดับเทิร์น: Stand → Draw → Charge & Draw → Main → Attack → Final (ข้าม Draw เฉพาะเมื่อปิดกติกา "ผู้เล่นคนแรกจั่วด้วย")
   g.phase = skipDraw ? "charge" : "draw";
   log(g, `— เทิร์น ${g.turn}: ${nameOf(side)} (Stand${skipDraw ? " · เทิร์นแรกไม่จั่ว" : ""}) —`);
   if (g.winner) return;
@@ -400,14 +400,14 @@ export function createInitialState(
     rev: 0,
     host: createPlayerState(hostDeck, hostFlag, cards),
     guest: createPlayerState(guestDeck, guestFlag, cards),
-    log: [`เกมเริ่มต้นแล้ว! ${nameOf(first)} เริ่มก่อน (เทิร์นแรกไม่จั่ว) — เลือก Mulligan ก่อนเริ่มเล่น`],
+    log: [`เกมเริ่มต้นแล้ว! ${nameOf(first)} เริ่มก่อน${r.firstPlayerDraws ? "" : " (เทิร์นแรกไม่จั่ว)"} — เลือก Mulligan ก่อนเริ่มเล่น`],
     winner: null,
   };
   (["host", "guest"] as Side[]).forEach(s => {
     const f = s === "host" ? hostFlag : guestFlag;
     log(g, `${nameOf(s)} (${f?.name ?? "Flag"}): Life ${g[s].life} · มือเริ่มต้น ${g[s].hand.length} ใบ · เกจเริ่มต้น ${g[s].gauge} ใบ · เด็คเหลือ ${g[s].deck.length} ใบ`);
   });
-  startTurn(g, true);
+  startTurn(g, !r.firstPlayerDraws); // ปกติผู้เล่นคนแรกก็เริ่มที่ Draw Phase และจั่ว 1 ใบเหมือนเทิร์นอื่น
   return g;
 }
 

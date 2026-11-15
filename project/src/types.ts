@@ -137,6 +137,7 @@ export interface RuleSet {
   enableCounter: boolean;     // เปิดระบบ Counter Act
   deckOutLose: boolean;       // เด็คหมดแล้วแพ้
   firstPlayer: "random" | "host" | "guest"; // ใครเริ่มก่อน
+  firstPlayerDraws: boolean;  // ผู้เล่นคนแรกจั่วการ์ดใน Draw Phase ของเทิร์นแรกด้วย (กฏจริงข้าม)
   maxSet: number;             // จำนวนการ์ดที่ Set ได้สูงสุด
 }
 
@@ -148,6 +149,7 @@ export const DEFAULT_RULES: RuleSet = {
   enableCounter: true,
   deckOutLose: true,
   firstPlayer: "random",
+  firstPlayerDraws: true,
   maxSet: 2,
 };
 

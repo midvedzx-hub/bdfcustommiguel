@@ -47,6 +47,7 @@ export function PlaySelect({ onExit, onPlay }: Props) {
     { key: "useAttackPhase", label: "แยก Attack Phase" },
     { key: "enableCounter", label: "เปิดระบบ Counter Act" },
     { key: "deckOutLose", label: "เด็คหมดแล้วแพ้" },
+    { key: "firstPlayerDraws", label: "ผู้เล่นคนแรกจั่วในเทิร์นแรกด้วย" },
   ];
   const summary = [
     `Size ≤ ${rules.maxSize}`,

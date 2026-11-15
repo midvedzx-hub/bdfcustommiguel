@@ -30,7 +30,7 @@ const DEFAULT_CARD: Card = {
   attribute: "",
 };
 
-export function CardStudio({ onBack }: { onBack: () => void }) {
+export function CardStudio({ onBack, startEditing }: { onBack: () => void; startEditing?: Card }) {
   const [cards, setCards] = useState<Card[]>(getCards());
   const [flags] = useState<Flag[]>(getFlags());
   const [editing, setEditing] = useState<Card | null>(null);
@@ -150,12 +150,12 @@ export function CardStudio({ onBack }: { onBack: () => void }) {
     const flag = flags.find(f => f.id === editing.flagId);
     return (
       <div className="min-h-screen bg-slate-950 text-white p-6">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-6xl mx-auto page-in">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-cyan-400">สร้างการ์ด</h2>
+            <h2 className="font-display text-3xl font-bold text-emerald-300" style={{ textShadow: "0 0 24px #34d39955" }}>ออกแบบการ์ด</h2>
             <div className="flex gap-2">
-              <button onClick={() => setEditing(null)} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition">ยกเลิก</button>
-              <button onClick={saveEdit} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg transition flex items-center gap-2"><Save size={16} /> บันทึก</button>
+              <button onClick={() => setEditing(null)} className="btn">ยกเลิก</button>
+              <button onClick={saveEdit} className="btn btn-primary"><Save size={16} /> บันทึก</button>
             </div>
           </div>
 

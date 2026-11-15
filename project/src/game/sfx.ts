@@ -3,6 +3,14 @@ let ctx: AudioContext | null = null;
 let muted = (() => {
   try { return localStorage.getItem("cbf_muted") === "1"; } catch { return false; }
 })();
+let sfxVol = (() => {
+  try { const v = parseFloat(localStorage.getItem("cbf_sfx_vol") ?? ""); return isNaN(v) ? 0.8 : Math.min(1, Math.max(0, v)); } catch { return 0.8; }
+})();
+export function getSfxVolume() { return sfxVol; }
+export function setSfxVolume(v: number) {
+  sfxVol = Math.min(1, Math.max(0, v));
+  try { localStorage.setItem("cbf_sfx_vol", String(sfxVol)); } catch { /* ignore */ }
+}
 
 export function isMuted() { return muted; }
 export function setMuted(v: boolean) {
@@ -32,7 +40,7 @@ function tone(freq: number, dur: number, type: OscillatorType, vol: number, dela
   o.frequency.setValueAtTime(freq, t0);
   if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t0 + dur);
   g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol * sfxVol), t0 + 0.012);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
   o.connect(g).connect(c.destination);
   o.start(t0);
@@ -53,7 +61,7 @@ function noise(dur: number, vol: number, delay = 0, lowpass = 3000) {
   f.type = "lowpass";
   f.frequency.value = lowpass;
   const g = c.createGain();
-  g.gain.value = vol;
+  g.gain.value = vol * sfxVol;
   src.connect(f).connect(g).connect(c.destination);
   src.start(t0);
 }

@@ -1,8 +1,7 @@
-import { Flag, Layers, Swords, Gamepad2, Download, Upload, BookOpen, Check, ChevronRight, Sparkles, Volume2, VolumeX } from "lucide-react";
+import { Flag, Layers, Swords, Gamepad2, Download, Upload, BookOpen, Check, ChevronRight, Sparkles } from "lucide-react";
 import { getFlags, getCards, getDecks, exportAll, importAll, downloadJSON } from "@/storage";
 import { useRef, useState } from "react";
 import { CardView } from "@/components/CardView";
-import { isMuted, setMuted, playSfx } from "@/game/sfx";
 
 interface Props {
   onFlagMaker: () => void;
@@ -17,7 +16,6 @@ export function Lobby({ onFlagMaker, onCardStudio, onDeckBuilder, onPlay }: Prop
   const decks = getDecks();
   const fileRef = useRef<HTMLInputElement>(null);
   const [importMsg, setImportMsg] = useState("");
-  const [muted, setMutedState] = useState(isMuted());
 
   function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -62,12 +60,6 @@ export function Lobby({ onFlagMaker, onCardStudio, onDeckBuilder, onPlay }: Prop
       <div className="absolute bottom-0 right-0 w-[30rem] h-[30rem] bg-fuchsia-600/10 rounded-full blur-3xl pointer-events-none" />
 
       <div className="relative z-10 max-w-6xl mx-auto px-5 md:px-8 py-8 md:py-12 page-in">
-        <div className="flex justify-end mb-2">
-          <button className="btn !py-1.5 !px-3 !text-xs" title="เปิด/ปิดเสียงเอฟเฟกต์" onClick={() => { const m = !muted; setMuted(m); setMutedState(m); if (!m) playSfx("turn"); }}>
-            {muted ? <VolumeX size={14} /> : <Volume2 size={14} />} เสียง {muted ? "ปิด" : "เปิด"}
-          </button>
-        </div>
-
         {/* Hero */}
         <section className="grid lg:grid-cols-[1.1fr_1fr] gap-10 items-center mb-14">
           <div>

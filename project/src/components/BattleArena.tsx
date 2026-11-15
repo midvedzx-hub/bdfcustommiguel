@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import {
   Swords, Heart, Zap, Skull, LogOut, Plus, Minus, Hand, Trash2, RotateCw, Crown,
-  Copy, LogIn, Users, RefreshCw, Wrench, X, Shield, Star, AlertTriangle, Link2, Eye, Volume2, VolumeX,
+  Copy, LogIn, Users, RefreshCw, Wrench, X, Shield, Star, AlertTriangle, Link2, Eye,
 } from "lucide-react";
 import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet, FieldCard } from "@/types";
 import { TRIGGER_LABELS } from "@/types";
@@ -20,7 +20,8 @@ import { getFlagColor, hasCounter, skillLines, keywordBadges, costText, effectTe
 import { mp } from "@/game/multiplayer";
 import { CardView } from "@/components/CardView";
 import { FxLayer, Banner } from "@/components/FxLayer";
-import { playSfx, isMuted, setMuted } from "@/game/sfx";
+import { playSfx } from "@/game/sfx";
+import { AudioControl } from "@/components/AudioControl";
 
 interface Props {
   mode: "bot" | "multiplayer";
@@ -302,7 +303,6 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const [, setImgTick] = useState(0);
   const dragRef = useRef<Drag>(null);
   const [inspectMode, setInspectMode] = useState(false);
-  const [muted, setMutedState] = useState(isMuted());
   const [hidden, setHidden] = useState<string[]>([]);
   const [banner, setBanner] = useState<{ key: number; text: string; sub?: string; color: string } | null>(null);
   const bannerTimer = useRef<number | undefined>(undefined);
@@ -1277,7 +1277,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             </>)}
             <button onClick={() => setInspectMode(v => !v)} title="โหมดดูการ์ด: คลิกการ์ดใบไหนก็ได้เพื่อดูความสามารถ (หรือคลิกขวา/ดับเบิลคลิก)" className={`btn !py-1.5 !px-2.5 !text-xs ${inspectMode ? "btn-primary" : ""}`}><Eye size={14} /> <span className="hidden md:inline">ดูการ์ด</span></button>
             <button onClick={() => setSandbox(v => !v)} title="Sandbox: เครื่องมือแก้เกมด้วยมือ" className={`btn !py-1.5 !px-2.5 !text-xs ${sandbox ? "!bg-fuchsia-700 !border-fuchsia-400/60" : ""}`}><Wrench size={14} /> <span className="hidden md:inline">Sandbox</span></button>
-            <button onClick={() => { const m = !muted; setMuted(m); setMutedState(m); if (!m) playSfx("turn"); }} title={muted ? "เปิดเสียง" : "ปิดเสียง"} className="btn !py-1.5 !px-2.5 !text-xs">{muted ? <VolumeX size={14} /> : <Volume2 size={14} />}</button>
+            <AudioControl variant="inline" />
           </div>
         </div>
 

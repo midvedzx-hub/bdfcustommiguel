@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Save, Trash2, Star, Search, ArrowLeft, ArrowRight, Download, Upload, BookOpen } from "lucide-react";
+import { Plus, Minus, Save, Trash2, Star, Search, Download, Upload, BookOpen } from "lucide-react";
 import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Deck, Card, Flag } from "@/types";
 import { getDecks, saveDecks, getCards, getFlags, uid, downloadJSON, importAll } from "@/storage";
@@ -69,8 +69,9 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
 
   if (editing) {
     const flag = flagOf(editing.flagId);
-    const deckCards = editing.cardIds.map(id => cardOf(id)).filter(Boolean) as Card[];
+    const col = flag?.color || "#22d3ee";
     const buddyCard = editing.buddyId ? cardOf(editing.buddyId) : null;
+    const TYPE_COL: Record<string, string> = { Monster: "#f59e0b", Spell: "#38bdf8", Item: "#34d399", Impact: "#fb7185" };
 
     const filtered = cards.filter(c => {
       if (typeFilter !== "all" && c.type !== typeFilter) return false;
@@ -80,113 +81,157 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
 
     const counts: { [id: string]: number } = {};
     editing.cardIds.forEach(id => { counts[id] = (counts[id] || 0) + 1; });
+    // รวมการ์ดซ้ำเป็นแถวเดียว เรียงตามประเภท แล้วตามค่าใช้จ่าย
+    const typeOrder = ["Monster", "Item", "Spell", "Impact"];
+    const groups = Object.keys(counts)
+      .map(id => ({ id, n: counts[id], c: cardOf(id) }))
+      .filter((g): g is { id: string; n: number; c: Card } => !!g.c)
+      .sort((x, y) => typeOrder.indexOf(x.c.type) - typeOrder.indexOf(y.c.type) || x.c.callCost - y.c.callCost || x.c.name.localeCompare(y.c.name));
+    const typeCount: Record<string, number> = { Monster: 0, Spell: 0, Item: 0, Impact: 0 };
+    editing.cardIds.forEach(id => { const c = cardOf(id); if (c) typeCount[c.type]++; });
+    const total = editing.cardIds.length;
+    // เส้นโค้งค่าใช้จ่าย: 0,1,2,3,4,5+
+    const curve = [0, 0, 0, 0, 0, 0];
+    editing.cardIds.forEach(id => { const c = cardOf(id); if (c) curve[Math.min(5, c.callCost)]++; });
+    const maxCurve = Math.max(1, ...curve);
+    const avgCost = total ? (editing.cardIds.reduce((a, id) => a + (cardOf(id)?.callCost ?? 0), 0) / total) : 0;
 
     return (
-      <div className="min-h-screen bg-slate-950 text-white p-4">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <input value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })} className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 font-bold text-lg focus:border-cyan-500 outline-none" />
-              <span className="text-slate-400 text-sm">({editing.cardIds.length} ใบ)</span>
+      <ScreenShell
+        title="แก้ไขเด็ค" subtitle="คลิกการ์ดจากคลังเพื่อเพิ่ม · ใช้ปุ่ม +/− ในรายการเด็คเพื่อปรับจำนวน" icon={BookOpen} accent={col} maxW="max-w-7xl"
+        actions={<>
+          <button onClick={() => setEditing(null)} className="btn">ยกเลิก</button>
+          <button onClick={saveEdit} className="btn btn-primary"><Save size={16} /> บันทึกเด็ค</button>
+        </>}
+      >
+        {/* ตั้งค่าเด็ค */}
+        <div className="panel p-4 mb-5 grid lg:grid-cols-[1.2fr_1fr_1fr] gap-4 items-center" style={{ borderColor: `${col}55` }}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 border-2" style={{ borderColor: col, background: `linear-gradient(135deg, ${col}, #0f172a)` }}>
+              {flag?.image && <img src={flag.image} className="w-full h-full object-cover" />}
             </div>
-            <div className="flex gap-2">
-              <button onClick={() => setEditing(null)} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition">ยกเลิก</button>
-              <button onClick={saveEdit} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg transition flex items-center gap-2"><Save size={16} /> บันทึก</button>
+            <div className="min-w-0 flex-1">
+              <label className="text-xs text-slate-400">ชื่อเด็ค</label>
+              <input value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 font-display font-bold text-lg" />
             </div>
           </div>
+          <div>
+            <label className="text-xs text-slate-400">Flag (โลก)</label>
+            <select value={editing.flagId} onChange={e => setEditing({ ...editing, flagId: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2">
+              {flags.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+            </select>
+            {flag && <div className="text-xs mt-1" style={{ color: col }}>Life {flag.life} · จั่ว {flag.startHand} · เกจ {flag.startGauge}</div>}
+          </div>
+          <div>
+            <label className="text-xs text-slate-400 flex items-center gap-1"><Star size={11} className="text-amber-400" fill="currentColor" /> Buddy</label>
+            <select value={editing.buddyId ?? ""} onChange={e => setBuddy(e.target.value || null)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2">
+              <option value="">ไม่เลือก</option>
+              {(flag?.buddyIds ?? []).length > 0 && (
+                <optgroup label="Buddy ประจำโลกนี้">
+                  {(flag!.buddyIds ?? []).map(id => cardOf(id)).filter(Boolean).map(c => <option key={c!.id} value={c!.id}>★ {c!.name}</option>)}
+                </optgroup>
+              )}
+              <optgroup label="มอนสเตอร์ทั้งหมด">
+                {cards.filter(c => c.type === "Monster").map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </optgroup>
+            </select>
+            {buddyCard && <div className="text-xs text-amber-400 mt-1 truncate">★ {buddyCard.name} (Buddy Call: Life +1)</div>}
+          </div>
+        </div>
 
-          <div className="mb-4 bg-slate-900 rounded-xl p-4 border border-slate-800">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-400">Flag:</label>
-                <select value={editing.flagId} onChange={e => setEditing({ ...editing, flagId: e.target.value })} className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2">
-                  {flags.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
+        {/* สถิติเด็ค */}
+        <div className="panel p-4 mb-5 grid md:grid-cols-[auto_1fr_auto] gap-5 items-center">
+          <div className="text-center">
+            <div className={`font-display text-4xl font-extrabold ${total === 50 ? "text-emerald-400" : "text-amber-300"}`}>{total}<span className="text-lg text-slate-500">/50</span></div>
+            <div className="text-xs text-slate-500">{total === 50 ? "ครบตามมาตรฐาน" : total < 50 ? `ขาดอีก ${50 - total} ใบ` : `เกิน ${total - 50} ใบ`}</div>
+          </div>
+          <div>
+            <div className="flex h-3 rounded-full overflow-hidden bg-slate-800 mb-2">
+              {Object.entries(typeCount).map(([t, n]) => n > 0 && <div key={t} style={{ width: `${(n / Math.max(1, total)) * 100}%`, background: TYPE_COL[t] }} />)}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(typeCount).map(([t, n]) => <span key={t} className="chip"><span className="w-2 h-2 rounded-full" style={{ background: TYPE_COL[t] }} />{t} {n}</span>)}
+              <span className="chip">Cost เฉลี่ย {avgCost.toFixed(1)}</span>
+            </div>
+          </div>
+          <div className="flex items-end gap-1.5 h-14" title="จำนวนการ์ดตามค่าใช้จ่าย (0–5+)">
+            {curve.map((n, i) => (
+              <div key={i} className="flex flex-col items-center justify-end h-full">
+                <div className="w-5 rounded-t bg-gradient-to-t from-cyan-700 to-cyan-300 transition-all" style={{ height: `${(n / maxCurve) * 100}%`, minHeight: n > 0 ? 3 : 0 }} title={`Cost ${i}${i === 5 ? "+" : ""}: ${n}`} />
+                <span className="text-[10px] text-slate-500 mt-0.5">{i === 5 ? "5+" : i}</span>
               </div>
-              {flag && (
-                <div className="flex items-center gap-2 text-sm">
-                  <div className="w-8 h-8 rounded overflow-hidden bg-slate-800">{flag.image && <img src={flag.image} className="w-full h-full object-cover" />}</div>
-                  <span style={{ color: flag.color }}>Life {flag.life} | จั่ว {flag.startHand} | เกจ {flag.startGauge}</span>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid lg:grid-cols-[1.35fr_1fr] gap-5">
+          {/* คลังการ์ด */}
+          <div>
+            <div className="flex flex-wrap gap-2 mb-2 items-center">
+              <h3 className="font-display font-bold text-cyan-300 mr-auto">คลังการ์ด ({filtered.length})</h3>
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหา..." className="bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-3 py-1.5 text-sm w-44" />
+              </div>
+              <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="bg-slate-900 border border-slate-700 rounded-xl px-2 py-1.5 text-sm">
+                <option value="all">ทุกประเภท</option>
+                <option value="Monster">Monster</option>
+                <option value="Spell">Spell</option>
+                <option value="Item">Item</option>
+                <option value="Impact">Impact</option>
+              </select>
+            </div>
+            <div className="panel p-3 max-h-[62vh] overflow-y-auto">
+              {filtered.length === 0 ? <p className="text-center text-slate-500 py-10 text-sm">ไม่พบการ์ด</p> : (
+                <div className="grid gap-x-3 gap-y-5 justify-items-center" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))" }}>
+                  {filtered.map(c => {
+                    const n = counts[c.id] || 0;
+                    return (
+                      <div key={c.id} className="relative group lift rounded-lg cursor-pointer" onClick={() => addCard(c.id)} style={{ ["--glow" as string]: "rgba(34,211,238,.5)" }}>
+                        <CardView card={c} flag={flagOf(c.flagId)} size="sm" />
+                        {n > 0 && <span className="absolute -top-2 -right-2 z-30 min-w-[1.5rem] h-6 px-1 rounded-full bg-cyan-500 text-slate-900 text-xs font-bold flex items-center justify-center shadow-lg">×{n}</span>}
+                        <div className="absolute inset-0 z-20 bg-cyan-500/25 opacity-0 group-hover:opacity-100 transition rounded-lg flex items-center justify-center pointer-events-none">
+                          <Plus className="text-white drop-shadow" />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-              <div className="ml-auto flex items-center gap-2">
-                <label className="text-sm text-slate-400">Buddy:</label>
-                <select value={editing.buddyId ?? ""} onChange={e => setBuddy(e.target.value || null)} className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2">
-                  <option value="">ไม่เลือก</option>
-                  {(flag?.buddyIds ?? []).length > 0 && (
-                    <optgroup label="Buddy ประจำโลกนี้">
-                      {(flag!.buddyIds ?? []).map(id => cardOf(id)).filter(Boolean).map(c => <option key={c!.id} value={c!.id}>★ {c!.name}</option>)}
-                    </optgroup>
-                  )}
-                  <optgroup label="มอนสเตอร์ทั้งหมด">
-                    {cards.filter(c => c.type === "Monster").map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </optgroup>
-                </select>
-              </div>
             </div>
-            {buddyCard && (
-              <div className="mt-2 flex items-center gap-2 text-xs text-amber-400">
-                <Star size={12} fill="currentColor" /> Buddy: {buddyCard.name} (ลงสนามครั้งแรก Life +1)
-              </div>
-            )}
           </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
-            <div>
-              <h3 className="font-bold text-cyan-400 mb-2">คลังการ์ด ({filtered.length})</h3>
-              <div className="flex gap-2 mb-2">
-                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหา..." className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:border-cyan-500 outline-none" />
-                <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm">
-                  <option value="all">ทั้งหมด</option>
-                  <option value="Monster">Monster</option>
-                  <option value="Spell">Spell</option>
-                  <option value="Item">Item</option>
-                  <option value="Impact">Impact</option>
-                </select>
-              </div>
-              <div className="bg-slate-900 rounded-xl p-3 max-h-[60vh] overflow-y-auto">
-                <div className="flex flex-wrap gap-3 justify-center">
-                  {filtered.map(c => (
-                    <div key={c.id} className="relative group" onClick={() => addCard(c.id)}>
-                      <CardView card={c} flag={flagOf(c.flagId)} size="sm" />
-                      <div className="absolute inset-0 z-30 bg-cyan-500/20 opacity-0 group-hover:opacity-100 transition rounded-lg flex items-center justify-center">
-                        <Plus className="text-cyan-300" />
+          {/* เด็คของฉัน */}
+          <div>
+            <h3 className="font-display font-bold text-cyan-300 mb-2">เด็คของฉัน ({total} ใบ · {groups.length} แบบ)</h3>
+            <div className="panel p-2 max-h-[62vh] overflow-y-auto">
+              {groups.length === 0 ? (
+                <p className="text-center text-slate-500 py-12 text-sm">คลิกการ์ดจากคลังเพื่อเพิ่มเข้าเด็ค</p>
+              ) : (
+                <div className="space-y-1">
+                  {groups.map(({ id, n, c }) => (
+                    <div key={id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 bg-slate-800/60 hover:bg-slate-700/70 transition group">
+                      <span className="w-1.5 self-stretch rounded-full shrink-0" style={{ background: TYPE_COL[c.type] }} />
+                      <CardView card={c} flag={flagOf(c.flagId)} width="30px" hideText />
+                      <span className="w-6 h-6 rounded-full bg-amber-400 text-slate-900 text-xs font-bold flex items-center justify-center shrink-0" title="Cost">{c.callCost}</span>
+                      <span className="text-sm flex-1 truncate">{c.name}</span>
+                      {editing.buddyId === id && <Star size={12} className="text-amber-400 shrink-0" fill="currentColor" />}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={() => removeCard(editing.cardIds.lastIndexOf(id))} className="w-6 h-6 rounded-md bg-slate-700 hover:bg-red-800 flex items-center justify-center"><Minus size={12} /></button>
+                        <span className="w-6 text-center font-display font-bold text-cyan-300">{n}</span>
+                        <button onClick={() => addCard(id)} className="w-6 h-6 rounded-md bg-slate-700 hover:bg-cyan-700 flex items-center justify-center"><Plus size={12} /></button>
                       </div>
                     </div>
                   ))}
                 </div>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="font-bold text-cyan-400 mb-2">เด็คของฉัน ({editing.cardIds.length} ใบ)</h3>
-              <div className="bg-slate-900 rounded-xl p-3 max-h-[60vh] overflow-y-auto">
-                {deckCards.length === 0 ? (
-                  <p className="text-center text-slate-500 py-8 text-sm">คลิกการ์ดจากคลังเพื่อเพิ่มเข้าเด็ค</p>
-                ) : (
-                  <div className="space-y-1">
-                    {editing.cardIds.map((id, i) => {
-                      const c = cardOf(id);
-                      if (!c) return null;
-                      return (
-                        <div key={i} className="flex items-center gap-2 bg-slate-800 rounded-lg px-3 py-1.5 hover:bg-slate-700 transition group">
-                          <span className="text-xs text-slate-500 w-6">{i + 1}</span>
-                          <span className="text-xs text-cyan-400 w-16">{c.type}</span>
-                          <span className="text-sm flex-1 truncate">{c.name}</span>
-                          {editing.buddyId === id && <Star size={12} className="text-amber-400" fill="currentColor" />}
-                          <button onClick={() => removeCard(i)} className="opacity-0 group-hover:opacity-100 p-1 bg-red-900 hover:bg-red-800 rounded transition"><Trash2 size={12} /></button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+              )}
             </div>
           </div>
         </div>
-      </div>
+      </ScreenShell>
     );
   }
+
 
   const TYPE_COL: Record<string, string> = { Monster: "#f59e0b", Spell: "#38bdf8", Item: "#34d399", Impact: "#fb7185" };
   return (
