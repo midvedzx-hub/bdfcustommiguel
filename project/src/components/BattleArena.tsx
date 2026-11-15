@@ -9,7 +9,7 @@ import { TRIGGER_LABELS } from "@/types";
 import { DEFAULT_RULES } from "@/types";
 import {
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
-  callMonster, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, chargeAndDraw,
+  callMonster, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
   goToAttack, goToFinal, mulligan, legalTargets, statsOf, counterOptions, counterCardOf, counterAct,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
@@ -46,10 +46,14 @@ function shuffled<T>(arr: T[]): T[] {
   return a;
 }
 
+// ตัดการ์ดที่ไม่มีข้อมูลแล้ว (เช่น ถูกลบจาก Card Studio แต่ยังค้างในเด็ค) ออก ไม่งั้นจะกลายเป็นการ์ดคว่ำที่ใช้ไม่ได้
+const cleanDeck = (d: Deck): Deck => ({ ...d, cardIds: d.cardIds.filter(id => !!getCard(id)), buddyId: d.buddyId && getCard(d.buddyId) ? d.buddyId : null });
+
 function makeGame(hDeck: Deck, gDeck: Deck, hFlag: Flag, gFlag: Flag, cards: Card[], rules: RuleSet): GameState {
+  const h = cleanDeck(hDeck), gd = cleanDeck(gDeck);
   return createInitialState(
-    { ...hDeck, cardIds: shuffled(hDeck.cardIds) },
-    { ...gDeck, cardIds: shuffled(gDeck.cardIds) },
+    { ...h, cardIds: shuffled(h.cardIds) },
+    { ...gd, cardIds: shuffled(gd.cardIds) },
     hFlag, gFlag, cards, rules
   );
 }
@@ -203,6 +207,10 @@ export function botStep(s: GameState): GameState {
   if (s.currentTurn !== "guest") return s;
 
   switch (s.phase) {
+    case "draw": {
+      const r = drawPhase(s, "guest");
+      return r.ok ? r.state : s;
+    }
     case "charge": {
       const r = chargeAndDraw(s, "guest", s.guest.hand.length > 5 ? s.guest.hand.length - 1 : null);
       return r.ok ? r.state : s;
@@ -452,6 +460,24 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     window.setTimeout(() => setHidden(h => h.filter(u => !uids.includes(u))), ms);
   };
 
+  /* ---------------- Draw Phase: จั่วให้อัตโนมัติหลังเห็นเฟส Draw สั้นๆ ---------------- */
+  useEffect(() => {
+    if (game.winner || !started || game.phase !== "draw" || game.battle) return;
+    if (game.currentTurn !== mySide) return; // ฝั่งตรงข้าม/บอทจัดการเอง
+    const t = setTimeout(() => act("จั่วไม่ได้", s => (s.phase === "draw" && s.currentTurn === mySide ? drawPhase(s, mySide) : { state: s, ok: true, msg: "" })), 900);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game.phase, game.currentTurn, game.turn, started]);
+
+  /* ---------------- แจ้งเตือนการ์ดที่ถูกลบแต่ยังค้างในเด็ค ---------------- */
+  useEffect(() => {
+    const miss = (d: Deck) => d.cardIds.filter(id => !getCard(id)).length;
+    const mine = miss(hostDeck);
+    const bot = mode === "bot" ? miss(guestDeck) : 0;
+    if (mine + bot > 0) setNotice({ title: "พบการ์ดที่ถูกลบไปแล้วในเด็ค", msg: `เด็คมีการ์ดที่ไม่มีข้อมูลแล้ว ${mine > 0 ? `${mine} ใบ (เด็คของคุณ)` : ""}${mine > 0 && bot > 0 ? " และ " : ""}${bot > 0 ? `${bot} ใบ (เด็คบอท)` : ""} — ระบบตัดออกจากเกมนี้ให้แล้ว ไปที่ Deck Builder เพื่อลบ/แทนที่การ์ดเหล่านั้นถาวร` });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /* ---------------- Bot ---------------- */
   useEffect(() => {
     if (mode !== "bot" || game.winner) return;
@@ -481,6 +507,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     if (atkSels.length === 0) return;
     launchAttack(atkSels[0], target);
   }
+  const doDraw = () => act("จั่วไม่ได้", s => drawPhase(s, mySide));
   const doCharge = (i: number | null) => { act("Charge ไม่ได้", s => chargeAndDraw(s, mySide, i)); setChargePick(false); };
   const doGoAttack = () => act("เปลี่ยนเฟสไม่ได้", s => goToAttack(s, mySide));
   const doGoFinal = () => act("เปลี่ยนเฟสไม่ได้", s => goToFinal(s, mySide));
@@ -632,7 +659,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               let note = whyBlocked();
               if (!note && isMine) {
                 if (m.state === "rest") note = `${card.name} อยู่ในสถานะ Rest (โจมตีไปแล้วหรือถูก Rest) จะ Stand ตอนต้นเทิร์นของคุณ`;
-                else if (game.rules.useAttackPhase && game.phase !== "attack") note = `โจมตีได้เฉพาะ Attack Phase (ตอนนี้คือ ${game.phase === "charge" ? "Charge & Draw" : game.phase === "main" ? "Main" : "Final"}) — กดปุ่ม 'ไป Attack Phase'`;
+                else if (game.rules.useAttackPhase && game.phase !== "attack") note = `โจมตีได้เฉพาะ Attack Phase (ตอนนี้คือ ${game.phase === "draw" ? "Draw" : game.phase === "charge" ? "Charge & Draw" : game.phase === "main" ? "Main" : "Final"}) — กดปุ่ม 'ไป Attack Phase'`;
                 else if (game.phase === "final") note = "ผ่านช่วงโจมตีมาแล้ว ตอนนี้เป็น Final Phase";
               } else if (!note && !isMine && game.phase === attackPhaseName && canAttackNow) note = "เลือกผู้โจมตีของคุณก่อน (คลิกมอนสเตอร์ที่ Stand) แล้วค่อยเลือกเป้าหมาย";
               return openInspect(card, p.flagId, m, note);
@@ -838,6 +865,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 onClick={() => {
                   if (inspectMode) return openInspect(card, p.flagId);
                   if (!isMyTurn) return openInspect(card, p.flagId, null, whyBlocked() ?? "ยังไม่ใช่เทิร์นของคุณ");
+                  if (game.phase === "draw") return openInspect(card, p.flagId, null, "ตอนนี้เป็น Draw Phase — กำลังจั่วการ์ดประจำเทิร์น (กดปุ่ม 'Draw' ถ้ายังไม่จั่ว) จากนั้นจึงถึง Charge & Draw");
                   if (game.phase === "charge" && chargePick) return doCharge(i);
                   if (game.phase === "charge") return openInspect(card, p.flagId, null, "ตอนนี้เป็นช่วง Charge & Draw — กดปุ่ม 'Charge & Draw' แล้วเลือกการ์ดเพื่อใส่เกจ หรือกด 'ข้าม' เพื่อเข้า Main Phase ก่อนจึงลงการ์ดได้");
                   if (game.phase === "final" && card.type !== "Impact") return openInspect(card, p.flagId, null, "ตอนนี้เป็น Final Phase ใช้ได้เฉพาะ Impact (ลงมอนสเตอร์/ร่ายเวทได้เฉพาะ Main Phase)");
@@ -887,6 +915,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
 
   function renderPhaseStrip() {
     const phases: { key: GameState["phase"]; label: string }[] = [
+      { key: "draw", label: "Draw" },
       { key: "charge", label: "Charge & Draw" },
       { key: "main", label: "Main" },
       ...(game.rules.useAttackPhase ? [{ key: "attack" as const, label: "Attack" }] : []),
@@ -898,6 +927,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     else if (!started) hint = "รอทั้งสองฝั่งเลือก Mulligan...";
     else if (waitingCounter) hint = "รอฝั่งตรงข้ามเลือกว่าจะใช้ Counter Act หรือไม่...";
     else if (!isMyTurn) hint = "เทิร์นของฝั่งตรงข้าม";
+    else if (game.phase === "draw") hint = "Draw Phase: จั่วการ์ด 1 ใบ แล้วไป Charge & Draw";
     else if (game.phase === "charge") hint = chargePick ? "เลือกการ์ดในมือ 1 ใบเพื่อใส่เกจ (แล้วจั่ว 1)" : "Charge & Draw: ใส่การ์ดจากมือลงเกจแล้วจั่ว 1 ใบ (ข้ามได้)";
     else if (game.phase === "main") hint = moveSel ? "เลือกช่องที่จะ Move ไป" : handSel !== null ? "เลือกช่องว่างเพื่อลงมอนสเตอร์ หรือใช้ปุ่มด้านล่าง" : "Main: ลงมอนสเตอร์ / ติดตั้งไอเทม / ร่ายเวท / Set แล้วกด 'ไป Attack'";
     else if (game.phase === "attack") hint = atkSels.length > 0 ? `เลือกเป้าหมาย (${atkSels.length > 1 ? `Link Attack ${atkSels.length} ตัว — ` : ""}ช่องศัตรูที่เรืองแสงแดง หรือ Life/Flag) หรือลากผู้โจมตีไปวางบนเป้า` : "Attack: คลิกมอนสเตอร์ที่ Stand เพื่อเลือกผู้โจมตี (เปิด Link Attack เพื่อเลือกหลายตัว)";
@@ -920,6 +950,9 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             );
           })}
         </div>
+        {isMyTurn && !game.battle && game.phase === "draw" && (
+          <button onClick={doDraw} className={`${b} bg-cyan-600 hover:bg-cyan-500 btn-nudge transition`}>Draw</button>
+        )}
         {isMyTurn && !game.battle && game.phase === "charge" && (<>
           <button onClick={() => setChargePick(v => !v)} className={`${b} ${chargePick ? "bg-amber-400 text-slate-900" : "bg-amber-600 hover:bg-amber-500 btn-nudge"} transition`}>{chargePick ? "เลือกการ์ด..." : "Charge & Draw"}</button>
           <button onClick={() => doCharge(null)} className={`${b} bg-slate-700 hover:bg-slate-600`}>ข้าม</button>
@@ -933,7 +966,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         {isMyTurn && !game.battle && (game.phase === "main" || game.phase === "attack") && (
           <button onClick={doGoFinal} className={`${b} bg-fuchsia-700 hover:bg-fuchsia-600`}>ไป Final Phase</button>
         )}
-        {isMyTurn && !game.battle && game.phase !== "charge" && (
+        {isMyTurn && !game.battle && game.phase !== "charge" && game.phase !== "draw" && (
           <button onClick={doEndTurn} className={`${b} bg-amber-600 hover:bg-amber-500 transition ${game.phase === "final" ? "btn-nudge" : ""}`}>จบเทิร์น</button>
         )}
         {(atkSels.length > 0 || moveSel) && <button onClick={() => { setAtkSels([]); setMoveSel(null); }} className={`${b} bg-slate-700 hover:bg-slate-600 flex items-center gap-1`}><X size={14} /> ยกเลิกเลือก</button>}

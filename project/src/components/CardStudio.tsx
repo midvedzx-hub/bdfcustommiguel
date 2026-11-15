@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Plus, Save, Trash2, Download, Upload, Edit3, Copy, Zap } from "lucide-react";
 import type { Card, Flag, CardType, AutoTrigger, AutoEffectType, AutoEffect, AutoSkill } from "@/types";
 import { TRIGGER_LABELS, EFFECT_LABELS } from "@/types";
-import { getCards, saveCards, getFlags, uid, downloadJSON, importAll } from "@/storage";
+import { getCards, saveCards, getFlags, saveFlags, getDecks, saveDecks, uid, downloadJSON, importAll } from "@/storage";
 import { ImageUpload } from "@/components/ImageUpload";
 import { CardView } from "@/components/CardView";
 import { SKILL_TEMPLATES } from "@/game/helpers";
@@ -62,6 +62,9 @@ export function CardStudio({ onBack }: { onBack: () => void }) {
 
   function del(id: string) {
     persist(cards.filter(c => c.id !== id));
+    // ลบการ์ดออกจากทุกเด็ค/Buddy ของ Flag ด้วย ไม่งั้นจะค้างเป็นการ์ดคว่ำที่ใช้ไม่ได้ตอนเล่น
+    saveDecks(getDecks().map(d => ({ ...d, cardIds: d.cardIds.filter(x => x !== id), buddyId: d.buddyId === id ? null : d.buddyId })));
+    saveFlags(getFlags().map(f => ({ ...f, buddyIds: (f.buddyIds ?? []).filter(x => x !== id) })));
   }
 
   function addTemplate(idx: number) {

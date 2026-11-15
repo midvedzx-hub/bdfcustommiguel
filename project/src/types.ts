@@ -204,7 +204,7 @@ export interface PlayerState {
 export interface GameState {
   turn: number;
   currentTurn: "host" | "guest";
-  phase: "charge" | "main" | "attack" | "final";
+  phase: "draw" | "charge" | "main" | "attack" | "final";
   rules: RuleSet;
   mulligan: { host: boolean; guest: boolean }; // เลือกเปลี่ยนมือเริ่มต้นเสร็จแล้วหรือยัง
   battle: BattleState | null; // การโจมตีที่กำลังรอ Counter

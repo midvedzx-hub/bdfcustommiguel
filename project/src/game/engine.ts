@@ -369,9 +369,9 @@ function startTurn(g: GameState, skipDraw: boolean) {
   if (p.item) { p.item.state = "stand"; p.item.attacks = 0; }
   g.attacksThisTurn = 0;
   g.battle = null;
-  g.phase = "charge";
-  log(g, `— เทิร์น ${g.turn}: ${nameOf(side)} (Stand${skipDraw ? "" : " & Draw"}) —`);
-  if (!skipDraw) mDraw(g, side, 1);
+  // ลำดับเทิร์น: Stand → Draw → Charge & Draw → Main → Attack → Final (ผู้เล่นคนแรกเทิร์นแรกข้าม Draw)
+  g.phase = skipDraw ? "charge" : "draw";
+  log(g, `— เทิร์น ${g.turn}: ${nameOf(side)} (Stand${skipDraw ? " · เทิร์นแรกไม่จั่ว" : ""}) —`);
   if (g.winner) return;
   p.monsters.forEach(m => {
     const c = getCard(m.cardId);
@@ -469,9 +469,22 @@ function baseGuard(state: GameState, side: Side): string | null {
   return null;
 }
 
+// Draw Phase: จั่วการ์ด 1 ใบ แล้วเข้า Charge & Draw
+export function drawPhase(state: GameState, side: Side): Result {
+  const bg = baseGuard(state, side);
+  if (bg) return { state, ok: false, msg: bg };
+  if (state.phase !== "draw") return { state, ok: false, msg: "ตอนนี้ไม่ใช่ Draw Phase" };
+  const g = structuredClone(state);
+  log(g, `${nameOf(side)} Draw Phase`);
+  mDraw(g, side, 1);
+  if (!g.winner) g.phase = "charge";
+  return { state: g, ok: true, msg: "จั่วการ์ดแล้ว เข้าสู่ Charge & Draw" };
+}
+
 export function chargeAndDraw(state: GameState, side: Side, handIndex: number | null): Result {
   const bg = baseGuard(state, side);
   if (bg) return { state, ok: false, msg: bg };
+  if (state.phase === "draw") return { state, ok: false, msg: "ต้องจั่วการ์ดใน Draw Phase ก่อน (กดปุ่ม 'Draw')" };
   if (state.phase !== "charge") return { state, ok: false, msg: "ผ่านช่วง Charge & Draw ไปแล้ว" };
   const g = structuredClone(state);
   const p = g[side];
@@ -505,7 +518,7 @@ export function goToFinal(state: GameState, side: Side): Result {
   if (bg) return { state, ok: false, msg: bg };
   if (state.battle) return { state, ok: false, msg: "กำลังรอ Counter" };
   if (state.phase === "final") return { state, ok: false, msg: "อยู่ Final Phase แล้ว" };
-  if (state.phase === "charge") return { state, ok: false, msg: "ต้องผ่านช่วง Charge & Draw ก่อน" };
+  if (state.phase === "draw" || state.phase === "charge") return { state, ok: false, msg: "ต้องผ่านช่วง Draw และ Charge & Draw ก่อน" };
   const g = structuredClone(state);
   g.phase = "final";
   log(g, `${nameOf(side)} เข้าสู่ Final Phase`);
@@ -538,6 +551,7 @@ function guardTurn(state: GameState, side: Side, needPhase: "main" | "final" | "
   const bg = baseGuard(state, side);
   if (bg) return bg;
   if (state.battle) return "กำลังรอฝั่งตรงข้ามตัดสินใจ Counter";
+  if (state.phase === "draw") return "ยังอยู่ใน Draw Phase — ต้องจั่วการ์ดก่อน (กดปุ่ม 'Draw') แล้วผ่าน Charge & Draw จึงจะลงการ์ดได้";
   if (state.phase === "charge") return "ต้องผ่านช่วง Charge & Draw ก่อน (กด 'ข้าม' ถ้าไม่ Charge)";
   if (needPhase === "main" && state.phase !== "main") return "ลงการ์ด/ร่ายเวทได้เฉพาะ Main Phase";
   if (needPhase === "attack" && state.phase !== (state.rules.useAttackPhase ? "attack" : "main"))
