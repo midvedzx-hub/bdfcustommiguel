@@ -1,5 +1,5 @@
 import type {
-  GameState, PlayerState, Card, Flag, Deck, FieldCard, AutoEffectType, AutoTrigger, RuleSet, AttackTarget,
+  GameState, PlayerState, Card, Flag, Deck, FieldCard, AutoEffectType, AutoTrigger, RuleSet, AttackTarget, FxEvent, FxInput,
 } from "@/types";
 import { DEFAULT_RULES } from "@/types";
 import { uid } from "@/storage";
@@ -59,6 +59,13 @@ export function missingImageIds(ids: string[]): string[] {
 /* ------------------------------------------------------------------ */
 /* Internal mutable helpers (ทำงานบน state ที่ clone มาแล้วเท่านั้น)     */
 /* ------------------------------------------------------------------ */
+function fx(g: GameState, e: FxInput) {
+  const id = (g.fxSeq ?? 0) + 1;
+  g.fxSeq = id;
+  g.fx = [...(g.fx ?? []), { ...e, id } as FxEvent].slice(-30);
+}
+const posOf = (g: GameState, side: Side, fc: FieldCard) => (g[side].item?.uid === fc.uid ? -1 : fc.position);
+
 function log(g: GameState, msg: string) {
   g.log = [...g.log, msg].slice(-80);
 }
@@ -90,7 +97,7 @@ function mDraw(g: GameState, side: Side, n: number, canLose = true): number {
     p.hand.push(p.deck.shift()!);
     drawn++;
   }
-  if (drawn > 0) log(g, `${nameOf(side)} จั่วการ์ด ${drawn} ใบ`);
+  if (drawn > 0) { log(g, `${nameOf(side)} จั่วการ์ด ${drawn} ใบ`); fx(g, { k: "draw", side, n: drawn }); }
   return drawn;
 }
 
@@ -106,7 +113,7 @@ function mCharge(g: GameState, side: Side, n: number, canLose = true): number {
     moved++;
   }
   syncGauge(p);
-  if (moved > 0) log(g, `${nameOf(side)} Charge เกจ +${moved}`);
+  if (moved > 0) { log(g, `${nameOf(side)} Charge เกจ +${moved}`); fx(g, { k: "charge", side, n: moved }); }
   return moved;
 }
 
@@ -122,6 +129,7 @@ function mLife(g: GameState, side: Side, delta: number) {
   const p = g[side];
   p.life = Math.max(0, p.life + delta);
   log(g, `${nameOf(side)} ${delta >= 0 ? "ฟื้น" : "เสีย"} Life ${Math.abs(delta)} (เหลือ ${p.life})`);
+  if (delta !== 0) fx(g, { k: "life", side, delta });
   checkWin(g);
 }
 
@@ -191,6 +199,7 @@ function mRemoveSoul(g: GameState, side: Side, fc: FieldCard, n: number): number
   if (moved > 0) {
     const card = getCard(fc.cardId);
     log(g, `${card?.name ?? "การ์ด"} ถูกถอด Soul ${moved} ใบลงสุสาน`);
+    fx(g, { k: "soulOut", side, uid: fc.uid, pos: posOf(g, side, fc), n: moved });
     if (card) applyEffects(g, side, card, "onSoulRemoved", { fc });
   }
   return moved;
@@ -204,11 +213,13 @@ function mDestroyMonster(g: GameState, side: Side, monsterUid: string): boolean 
 
   // Soulguard: ถอด Soul 1 ใบลงสุสานแทนการถูกทำลาย
   if (card && hasKeyword(card, "soulguard") && m.soul.length >= 1) {
-    log(g, `${card.name} ใช้ Soulguard! ถอด Soul 1 ใบแทนการถูกทำลาย`);
+    log(g, `${card.name} ใช้ Soulguard! ถอด Soul 1 ใบแทนการถูกทำลาย (เหลือ Soul ${m.soul.length - 1})`);
+    fx(g, { k: "guard", side, uid: m.uid, pos: m.position, left: m.soul.length - 1 });
     mRemoveSoul(g, side, m, 1);
     return false;
   }
 
+  fx(g, { k: "destroy", side, uid: m.uid, cardId: m.cardId, pos: m.position });
   p.monsters = p.monsters.filter(x => x.uid !== monsterUid);
   p.dropZone.push(m.cardId, ...m.soul);
   log(g, `${card?.name ?? "มอนสเตอร์"} ถูกทำลาย`);
@@ -288,7 +299,7 @@ function applyEffects(
           if (!fc) break;
           let moved = 0;
           for (let i = 0; i < n && g[side].deck.length > 0; i++) { fc.soul.push(g[side].deck.shift()!); moved++; }
-          if (moved > 0) log(g, `${card.name} ได้รับ Soul +${moved}`);
+          if (moved > 0) { log(g, `${card.name} ได้รับ Soul +${moved}`); fx(g, { k: "soulIn", side, uid: fc.uid, pos: posOf(g, side, fc), n: moved }); }
           break;
         }
         case "removeSoul": {
@@ -298,7 +309,7 @@ function applyEffects(
           break;
         }
         case "negateAttack":
-          if (g.battle) { g.battle.negated = true; log(g, `${card.name} ยกเลิกการโจมตี!`); }
+          if (g.battle) { g.battle.negated = true; log(g, `${card.name} ยกเลิกการโจมตี!`); fx(g, { k: "negate", side }); }
           break;
         case "destroyAttacker": {
           if (!g.battle) break;
@@ -468,6 +479,7 @@ export function chargeAndDraw(state: GameState, side: Side, handIndex: number | 
     if (handIndex < 0 || handIndex >= p.hand.length) return { state, ok: false, msg: "ไม่พบการ์ดในมือ" };
     p.gaugePile.push(p.hand.splice(handIndex, 1)[0]);
     syncGauge(p);
+    fx(g, { k: "charge", side, n: 1 });
     log(g, `${nameOf(side)} Charge การ์ด 1 ใบลงเกจ`);
     mDraw(g, side, 1);
   } else {
@@ -588,6 +600,8 @@ export function callMonster(state: GameState, side: Side, handIndex: number, pos
   log(g, `${card.name} ลงสนาม (ช่อง${POSITION_NAMES[position]})`);
 
   const isBuddyCall = p.buddyId === cardId && !p.buddyCalledThisGame;
+  fx(g, { k: "call", side, uid: fc.uid, pos: position, buddy: isBuddyCall });
+  if (soulN > 0) fx(g, { k: "soulIn", side, uid: fc.uid, pos: position, n: soulN });
   if (isBuddyCall) {
     p.buddyCalledThisGame = true;
     log(g, `Buddy Call "${card.name}"! ได้รับ Buddy Gift`);
@@ -616,6 +630,7 @@ export function castSpell(state: GameState, side: Side, handIndex: number): Resu
   p.hand.splice(handIndex, 1);
   p.dropZone.push(cardId);
   log(g, `${card.name} ถูกร่าย!`);
+  fx(g, { k: "cast", side, cardId, label: card.type === "Impact" ? "IMPACT!" : "SPELL!" });
   applyEffects(g, side, card, "onCast");
   return { state: g, ok: true, msg: `ร่าย ${card.name} สำเร็จ` };
 }
@@ -752,6 +767,7 @@ export function declareAttack(
   void leadCard;
 
   g.battle = { attackerSide: side, attackerUid: lead.uid, linkUids: uids, target: chosen, negated: false };
+  fx(g, { k: "attack", side, uids, units: fcs.map(f => ({ uid: f.uid, cardId: f.cardId, pos: posOf(g, side, f) })), target: chosen });
 
   if (g.rules.enableCounter && counterOptions(g, oppSide).length > 0) {
     log(g, `รอ ${nameOf(oppSide)} เลือกว่าจะใช้ Counter Act หรือไม่...`);
@@ -833,6 +849,7 @@ export function counterAct(state: GameState, side: Side, opt: CounterOption): Re
     p.hand.splice(opt.index, 1);
     p.dropZone.push(cardId);
     log(g, `🛡 ${nameOf(side)} ใช้ Counter Act จากมือ: ${card.name}!`);
+    fx(g, { k: "cast", side, cardId, label: "COUNTER!" });
     applyEffects(g, side, card, "onCounter", { fc: tgt });
   } else if (opt.zone === "set") {
     const cardId = p.setZone[opt.index];
@@ -840,6 +857,7 @@ export function counterAct(state: GameState, side: Side, opt: CounterOption): Re
     p.setZone.splice(opt.index, 1);
     p.dropZone.push(cardId);
     log(g, `🛡 ${nameOf(side)} เปิดการ์ด Set: ${card.name}!`);
+    fx(g, { k: "cast", side, cardId, label: "COUNTER!" });
     applyEffects(g, side, card, "onCounter", { fc: tgt });
   } else {
     const fc = findFc(p, opt.uid)!;

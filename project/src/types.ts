@@ -215,7 +215,26 @@ export interface GameState {
   guest: PlayerState;
   log: string[];
   winner: "host" | "guest" | null;
+  fx?: FxEvent[];   // เหตุการณ์ล่าสุด (ใช้เล่นอนิเมชัน)
+  fxSeq?: number;   // เลข id ล่าสุดของ fx
 }
+
+// เหตุการณ์สำหรับเล่นอนิเมชันฝั่ง UI (engine เป็นคนส่ง ซิงค์ไปกับ state จึงเห็นเหมือนกันทั้งสองฝั่ง)
+// pos: ช่องมอนสเตอร์ 0-2, ไอเทม = -1
+export type FxEvent = { id: number } & (
+  | { k: "attack"; side: "host" | "guest"; uids: string[]; units: { uid: string; cardId: string; pos: number }[]; target: AttackTarget }
+  | { k: "life"; side: "host" | "guest"; delta: number }
+  | { k: "destroy"; side: "host" | "guest"; uid: string; cardId: string; pos: number }
+  | { k: "guard"; side: "host" | "guest"; uid: string; pos: number; left: number }
+  | { k: "soulIn"; side: "host" | "guest"; uid: string; pos: number; n: number }
+  | { k: "soulOut"; side: "host" | "guest"; uid: string; pos: number; n: number }
+  | { k: "call"; side: "host" | "guest"; uid: string; pos: number; buddy: boolean }
+  | { k: "cast"; side: "host" | "guest"; cardId: string; label: string }
+  | { k: "charge"; side: "host" | "guest"; n: number }
+  | { k: "draw"; side: "host" | "guest"; n: number }
+  | { k: "negate"; side: "host" | "guest" }
+);
+export type FxInput = FxEvent extends infer E ? (E extends FxEvent ? Omit<E, "id"> : never) : never;
 
 export interface SyncMessage {
   type: "state" | "action" | "chat" | "hello" | "requestSync" | "image" | "needImages";

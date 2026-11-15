@@ -19,6 +19,7 @@ import { getFlags, getCards, getDecks } from "@/storage";
 import { getFlagColor, hasCounter, skillLines, keywordBadges, costText, effectText, KEYWORD_HELP, TRIGGER_HELP } from "@/game/helpers";
 import { mp } from "@/game/multiplayer";
 import { CardView } from "@/components/CardView";
+import { FxLayer, Banner } from "@/components/FxLayer";
 
 interface Props {
   mode: "bot" | "multiplayer";
@@ -99,12 +100,13 @@ function place(l: number, t: number, w: number, h: number, mirror: boolean): CSS
   };
 }
 
-function HexZone({ style, label, glow, onClick, onDrop, children }: {
+function HexZone({ style, label, glow, onClick, onDrop, children, fx }: {
   style: CSSProperties; label: string; glow?: string; onClick?: () => void;
-  onDrop?: () => void; children?: ReactNode;
+  onDrop?: () => void; children?: ReactNode; fx?: string;
 }) {
   return (
     <div
+      data-fx={fx}
       style={style}
       className={`${glow ?? ""} ${onClick ? "cursor-pointer" : ""}`}
       onClick={onClick}
@@ -121,12 +123,13 @@ function HexZone({ style, label, glow, onClick, onDrop, children }: {
   );
 }
 
-function RectZone({ style, label, glow, onClick, onDrop, children, className = "" }: {
+function RectZone({ style, label, glow, onClick, onDrop, children, className = "", fx }: {
   style: CSSProperties; label?: string; glow?: string; onClick?: () => void;
-  onDrop?: () => void; children?: ReactNode; className?: string;
+  onDrop?: () => void; children?: ReactNode; className?: string; fx?: string;
 }) {
   return (
     <div
+      data-fx={fx}
       style={{ ...style, border: `2px solid ${MAT_RED}`, background: "linear-gradient(160deg,#3b4252,#252a36)" }}
       className={`rounded-md flex items-center justify-center overflow-hidden ${glow ?? ""} ${onClick ? "cursor-pointer" : ""} ${className}`}
       onClick={onClick}
@@ -136,6 +139,25 @@ function RectZone({ style, label, glow, onClick, onDrop, children, className = "
       {label && <span className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center font-display font-bold text-slate-300/50 pointer-events-none" style={{ fontSize: "calc(var(--mh) * 0.045)" }}>{label}</span>}
       {children}
     </div>
+  );
+}
+
+// การ์ดซ้อนอยู่ใต้มอนสเตอร์ = Soul (ยิ่งเยอะยิ่งหนา สูงสุด 4 ชั้นที่เห็น)
+function SoulStack({ n }: { n: number }) {
+  if (n <= 0) return null;
+  return (
+    <>
+      {Array.from({ length: Math.min(n, 4) }).map((_, i) => (
+        <div key={i} className="absolute rounded-[6px]" style={{
+          inset: 0,
+          transform: `translate(calc(var(--cw) * ${0.05 * (i + 1)}), calc(var(--cw) * ${0.06 * (i + 1)}))`,
+          background: "linear-gradient(160deg,#6d28d9,#2e1065)",
+          border: "1.5px solid #c4b5fd",
+          boxShadow: "0 0 10px #a855f788",
+          opacity: 0.95 - i * 0.12,
+        }} />
+      ))}
+    </>
   );
 }
 
@@ -249,7 +271,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const gameRef = useRef<GameState>(game);
 
   const [menuTarget, setMenuTarget] = useState<MenuTarget>(null);
-  const [hovered, setHovered] = useState<{ card: Card; flagId?: string; stats?: { power: number; defense: number; critical: number } } | null>(null);
+  const [hovered, setHovered] = useState<{ card: Card; flagId?: string; stats?: { power: number; defense: number; critical: number }; soul?: number } | null>(null);
   const [showRoomDialog, setShowRoomDialog] = useState(mode === "multiplayer");
   const [roomId, setRoomId] = useState("");
   const [joinId, setJoinId] = useState("");
@@ -271,6 +293,10 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const [, setImgTick] = useState(0);
   const dragRef = useRef<Drag>(null);
   const [inspectMode, setInspectMode] = useState(false);
+  const [hidden, setHidden] = useState<string[]>([]);
+  const [banner, setBanner] = useState<{ key: number; text: string; sub?: string; color: string } | null>(null);
+  const bannerTimer = useRef<number | undefined>(undefined);
+  const prevPhase = useRef({ turn: 0, phase: "", started: false });
   const [inspect, setInspect] = useState<{ card: Card; flagId?: string; fc?: FieldCard | null; note?: string } | null>(null);
 
   const mySide: Side = mode === "multiplayer" ? role : "host";
@@ -395,6 +421,36 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     doAction(() => r.state);
     return true;
   }
+
+  /* ---------------- แบนเนอร์เปลี่ยนเทิร์น / เฟส ---------------- */
+  useEffect(() => {
+    const prev = prevPhase.current;
+    prevPhase.current = { turn: game.turn, phase: game.phase, started };
+    if (game.winner || !started) return;
+    const mine = game.currentTurn === mySide;
+    let nb: { text: string; sub?: string; color: string } | null = null;
+    if (!prev.started || game.turn !== prev.turn) {
+      nb = mine
+        ? { text: "เทิร์นของคุณ", sub: `TURN ${game.turn}`, color: "#0891b2" }
+        : { text: "เทิร์นฝั่งตรงข้าม", sub: `TURN ${game.turn}`, color: "#be123c" };
+    } else if (mine && game.phase !== prev.phase && game.phase === "attack") {
+      nb = { text: "ATTACK PHASE", sub: "เลือกผู้โจมตี แล้วเลือกเป้าหมาย", color: "#dc2626" };
+    } else if (mine && game.phase !== prev.phase && game.phase === "final") {
+      nb = { text: "FINAL PHASE", sub: "ใช้ Impact ได้ แล้วจบเทิร์น", color: "#a21caf" };
+    }
+    if (nb) {
+      setBanner({ ...nb, key: Date.now() });
+      window.clearTimeout(bannerTimer.current);
+      bannerTimer.current = window.setTimeout(() => setBanner(null), 1500);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game.turn, game.phase, game.currentTurn, started]);
+  useEffect(() => () => window.clearTimeout(bannerTimer.current), []);
+
+  const hideUnits = (uids: string[], ms: number) => {
+    setHidden(h => [...h, ...uids]);
+    window.setTimeout(() => setHidden(h => h.filter(u => !uids.includes(u))), ms);
+  };
 
   /* ---------------- Bot ---------------- */
   useEffect(() => {
@@ -553,6 +609,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       return (
         <HexZone
           key={pos}
+          fx={`slot:${side}:${pos}`}
           style={hexPos[pos]}
           label={`มอนสเตอร์${POSITION_NAMES[pos]}`}
           glow={glow}
@@ -584,28 +641,28 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           }}
         >
           {m && card && (
-            <div
-              className="transition-transform duration-500 relative"
-              style={{ transform: m.state === "rest" ? "rotate(90deg)" : "none" }}
-              onMouseEnter={() => setHovered({ card, flagId: p.flagId, stats: statsOf(m) })}
-            >
-              <CardView
-                card={card} flag={flag} width="var(--cw)" hideText stats={statsOf(m)}
-                onInspect={() => openInspect(card, p.flagId, m)}
-                draggable={isMine && ((canAttackNow && m.state === "stand") || canMoveThis)}
-                onDragStart={() => { dragRef.current = { kind: "unit", uid: m.uid }; if (canAttackNow && !atkSels.includes(m.uid)) setAtkSels([m.uid]); }}
-                onDragEnd={() => { dragRef.current = null; }}
+            <div key={m.uid} className="anim-call relative" data-fxcard={m.uid} style={{ visibility: hidden.includes(m.uid) ? "hidden" : "visible" }}>
+              <div
+                className="transition-transform duration-500 relative"
+                style={{ transform: m.state === "rest" ? "rotate(90deg)" : "none" }}
+                onMouseEnter={() => setHovered({ card, flagId: p.flagId, stats: statsOf(m), soul: m.soul.length })}
               >
-                {(m.tempPower !== 0 || m.tempCritical !== 0 || m.tempDefense !== 0) && (
-                  <div className="absolute top-[5.5em] right-0 bg-cyan-500 text-white font-bold px-1 rounded-l z-20" style={{ fontSize: "0.7em" }}>BUFF</div>
-                )}
-                {maxAttacks(card) > 1 && (
-                  <div className="absolute top-[0.3em] right-[0.3em] bg-rose-600 text-white font-bold px-1 rounded z-20" style={{ fontSize: "0.75em" }}>{m.attacks}/{maxAttacks(card)}</div>
-                )}
-                {m.soul.length > 0 && (
-                  <div className="absolute bottom-[3em] right-[0.3em] bg-violet-600 text-white font-bold px-1 rounded z-20" style={{ fontSize: "0.75em" }}>SOUL {m.soul.length}</div>
-                )}
-              </CardView>
+                <SoulStack n={m.soul.length} />
+                <CardView
+                  card={card} flag={flag} width="var(--cw)" hideText stats={statsOf(m)} soul={m.soul.length}
+                  onInspect={() => openInspect(card, p.flagId, m)}
+                  draggable={isMine && ((canAttackNow && m.state === "stand") || canMoveThis)}
+                  onDragStart={() => { dragRef.current = { kind: "unit", uid: m.uid }; if (canAttackNow && !atkSels.includes(m.uid)) setAtkSels([m.uid]); }}
+                  onDragEnd={() => { dragRef.current = null; }}
+                >
+                  {(m.tempPower !== 0 || m.tempCritical !== 0 || m.tempDefense !== 0) && (
+                    <div className="absolute top-[2.6em] right-0 bg-cyan-500 text-white font-bold px-1 rounded-l z-20" style={{ fontSize: "0.7em" }}>BUFF</div>
+                  )}
+                  {maxAttacks(card) > 1 && (
+                    <div className="absolute top-[0.3em] right-[0.3em] bg-rose-600 text-white font-bold px-1 rounded z-20" style={{ fontSize: "0.75em" }}>{m.attacks}/{maxAttacks(card)}</div>
+                  )}
+                </CardView>
+              </div>
             </div>
           )}
         </HexZone>
@@ -617,7 +674,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
 
     return (
       <div
-        className="relative rounded-2xl overflow-hidden transition-shadow"
+        data-fx={`mat:${side}`}
+        className="relative rounded-2xl overflow-hidden transition-shadow duration-500"
         style={{
           width: "var(--mw)", height: "var(--mh)",
           background: `radial-gradient(ellipse at 50% 90%, ${color}55, transparent 60%), repeating-linear-gradient(45deg, #9aa0ab 0 6px, #8d93a0 6px 12px)`,
@@ -626,7 +684,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         }}
       >
         {/* Life track */}
-        <div style={{ ...place(10, 0, 81, 8.5, mirror), background: "linear-gradient(180deg,#7f1d1d,#5b1414)", borderRadius: mirror ? "0 0 10px 10px" : "10px 10px 0 0" }}
+        <div data-fx={`life:${side}`} style={{ ...place(10, 0, 81, 8.5, mirror), background: "linear-gradient(180deg,#7f1d1d,#5b1414)", borderRadius: mirror ? "0 0 10px 10px" : "10px 10px 0 0" }}
           className={`flex items-center gap-[1%] px-[1.2%] ${fighterLegal ? "glow-target cursor-crosshair" : ""}`}
           onClick={() => !isMine && atkSels.length > 0 && tryAttack({ kind: "fighter" })}
           onDragOver={draggingAttack ? (e) => e.preventDefault() : undefined}
@@ -641,14 +699,14 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         </div>
 
         {/* Gauge */}
-        <RectZone style={place(2, 11, 14.5, 50, mirror)} label={p.gauge === 0 ? "เกจ" : undefined} className="relative">
+        <RectZone fx={`gauge:${side}`} style={place(2, 11, 14.5, 50, mirror)} label={p.gauge === 0 ? "เกจ" : undefined} className="relative">
           <div className="absolute inset-x-[14%] flex flex-col items-center" style={{ top: mirror ? "auto" : "6%", bottom: mirror ? "6%" : "auto" }}>
             {Array.from({ length: gaugeCards }).map((_, i) => (
               <div key={i} className="rounded-sm bg-slate-600 border border-slate-400/70" style={{ width: "100%", height: "calc(var(--mh) * 0.05)", marginTop: i === 0 ? 0 : "calc(var(--mh) * -0.012)" }} />
             ))}
           </div>
           <div className="absolute inset-x-0 flex flex-col items-center font-display font-bold text-amber-300 drop-shadow-lg" style={{ top: mirror ? "6%" : "auto", bottom: mirror ? "auto" : "5%", fontSize: "calc(var(--mh) * 0.1)" }}>
-            <span className="flex items-center gap-1"><Zap size={14} fill="currentColor" />{p.gauge}</span>
+            <span className="flex items-center gap-1"><Zap size={14} fill="currentColor" /><span key={p.gauge} className="num-pop">{p.gauge}</span></span>
           </div>
           {sandbox && (
             <div className="absolute top-0.5 right-0.5 flex gap-0.5 z-20">
@@ -663,13 +721,13 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         {monsterHex(2)}
 
         {/* Deck */}
-        <RectZone style={place(85.5, 11, 12.5, 31, mirror)} onClick={() => sandbox && setMenuTarget({ kind: "deck", side })} label={undefined}>
+        <RectZone fx={`deck:${side}`} style={place(85.5, 11, 12.5, 31, mirror)} onClick={() => sandbox && setMenuTarget({ kind: "deck", side })} label={undefined}>
           <CardView faceDown width="calc(var(--mh) * 0.2)">
-            <div className="absolute inset-0 flex items-center justify-center font-display font-bold text-white drop-shadow" style={{ fontSize: "2.4em" }}>{p.deck.length}</div>
+            <div className="absolute inset-0 flex items-center justify-center font-display font-bold text-white drop-shadow" style={{ fontSize: "2.4em" }}><span key={p.deck.length} className="num-pop">{p.deck.length}</span></div>
           </CardView>
         </RectZone>
         {/* Drop */}
-        <RectZone style={place(85.5, 45, 12.5, 31, mirror)} onClick={() => p.dropZone.length > 0 && setMenuTarget({ kind: "drop", side })}>
+        <RectZone fx={`drop:${side}`} style={place(85.5, 45, 12.5, 31, mirror)} onClick={() => p.dropZone.length > 0 && setMenuTarget({ kind: "drop", side })}>
           {p.dropZone.length > 0 && cardOf(p.dropZone[p.dropZone.length - 1]) ? (
             <div className="relative opacity-90">
               <CardView card={cardOf(p.dropZone[p.dropZone.length - 1])} flag={flag} width="calc(var(--mh) * 0.2)" hideText />
@@ -695,16 +753,17 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           <span className="absolute right-2 top-1 font-display font-bold text-slate-300/40" style={{ fontSize: "calc(var(--mh) * 0.04)" }}>บัดดี้</span>
           <div className="flex items-center justify-around w-full px-2" style={{ flexDirection: mirror ? "row-reverse" : "row" }}>
             {/* Flag */}
-            <div className={`relative rounded-md overflow-hidden ${fighterLegal ? "glow-target cursor-crosshair" : ""}`} style={{ width: "calc(var(--mh) * 0.23)", aspectRatio: "63 / 88", border: `3px solid ${color}` }}
+            <div data-fx={`fighter:${side}`} className={`relative rounded-md overflow-hidden ${fighterLegal ? "glow-target cursor-crosshair" : ""}`} style={{ width: "calc(var(--mh) * 0.23)", aspectRatio: "63 / 88", border: `3px solid ${color}` }}
               onClick={() => !isMine && atkSels.length > 0 && tryAttack({ kind: "fighter" })}
               onDragOver={draggingAttack ? (e) => e.preventDefault() : undefined}
               onDrop={draggingAttack ? (e) => { e.preventDefault(); handleDropAttack({ kind: "fighter" }); } : undefined}>
               {flag?.image ? <img src={flag.image} className="w-full h-full object-cover" draggable={false} /> : <div className="w-full h-full" style={{ background: `linear-gradient(160deg, ${color}, #111827)` }} />}
               <div className="absolute bottom-0 inset-x-0 bg-slate-950/85 text-center font-display font-semibold truncate px-1" style={{ color, fontSize: "calc(var(--mh) * 0.035)" }}>{flag?.name ?? "Flag"}</div>
-              <div className="absolute top-0 left-0 bg-rose-600 text-white font-display font-bold px-1 rounded-br flex items-center gap-0.5" style={{ fontSize: "calc(var(--mh) * 0.045)" }}><Heart size={10} fill="currentColor" />{p.life}</div>
+              <div className="absolute top-0 left-0 bg-rose-600 text-white font-display font-bold px-1 rounded-br flex items-center gap-0.5" style={{ fontSize: "calc(var(--mh) * 0.045)" }}><Heart size={10} fill="currentColor" /><span key={p.life} className="num-pop">{p.life}</span></div>
             </div>
             {/* Item */}
             <div
+              data-fx={`item:${side}`}
               className={`relative flex items-center justify-center ${isMine && p.item && atkSels.includes(p.item.uid) ? "glow-sel" : ""}`}
               style={{ width: "calc(var(--mh) * 0.23)", aspectRatio: "63 / 88", border: "2px dashed #64748b", borderRadius: 8 }}
               onClick={() => {
@@ -721,12 +780,15 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               }}
             >
               {p.item && cardOf(p.item.cardId) ? (
-                <div className="transition-transform duration-500" style={{ transform: p.item.state === "rest" ? "rotate(90deg)" : "none" }} onMouseEnter={() => setHovered({ card: cardOf(p.item!.cardId)!, flagId: p.flagId, stats: statsOf(p.item!) })}>
-                  <CardView card={cardOf(p.item.cardId)!} flag={flag} width="calc(var(--mh) * 0.22)" hideText stats={statsOf(p.item)}
+                <div key={p.item.uid} className="anim-call" style={{ visibility: hidden.includes(p.item.uid) ? "hidden" : "visible" }}>
+                <div className="transition-transform duration-500 relative" style={{ transform: p.item.state === "rest" ? "rotate(90deg)" : "none" }} onMouseEnter={() => setHovered({ card: cardOf(p.item!.cardId)!, flagId: p.flagId, stats: statsOf(p.item!), soul: p.item!.soul.length })}>
+                  <SoulStack n={p.item.soul.length} />
+                  <CardView card={cardOf(p.item.cardId)!} flag={flag} width="calc(var(--mh) * 0.22)" hideText stats={statsOf(p.item)} soul={p.item.soul.length}
                     onInspect={() => openInspect(cardOf(p.item!.cardId)!, p.flagId, p.item)}
                     draggable={isMine && canAttackNow && p.item.state === "stand"}
                     onDragStart={() => { dragRef.current = { kind: "unit", uid: p.item!.uid }; if (!atkSels.includes(p.item!.uid)) setAtkSels([p.item!.uid]); }}
                     onDragEnd={() => { dragRef.current = null; }} />
+                </div>
                 </div>
               ) : <span className="font-display font-bold text-slate-300/40" style={{ fontSize: "calc(var(--mh) * 0.04)" }}>ไอเทม</span>}
             </div>
@@ -766,7 +828,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           const sel = handSel === i;
           const glow = chargePick ? "ring-2 ring-amber-400" : sel ? "ring-4 ring-cyan-400 -translate-y-3" : "";
           return (
-            <div key={i} className={`hand-card ${glow} rounded-lg`} style={style} onMouseEnter={() => setHovered({ card, flagId: p.flagId })}>
+            <div key={i} className={`hand-card anim-draw ${glow} rounded-lg`} style={{ ...style, animationDelay: `${Math.min(i, 8) * 45}ms` }} onMouseEnter={() => setHovered({ card, flagId: p.flagId })}>
               <CardView
                 card={card} flag={flag} width={hw} hideText
                 draggable={canPlayNow || (isMyTurn && game.phase === "final")}
@@ -846,17 +908,24 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     return (
       <div className="rounded-xl bg-slate-900/80 border border-slate-800 px-3 py-2 flex flex-wrap items-center justify-center gap-2" style={{ width: "min(100%, max(var(--mw), 760px))" }}>
         <span className="font-display font-bold text-sm" style={{ color: turnColor }}>เทิร์น {game.turn} · {game.currentTurn === mySide ? "ของคุณ" : "ฝั่งตรงข้าม"}</span>
-        <div className="flex gap-1">
-          {phases.map(ph => (
-            <span key={ph.key} className={`px-2.5 py-1 rounded-full text-xs border ${game.phase === ph.key ? "bg-cyan-600/30 border-cyan-400 text-cyan-200 font-bold" : "border-slate-700 text-slate-500"}`}>{ph.label}</span>
-          ))}
+        <div className="flex items-center">
+          {phases.map((ph, i) => {
+            const cur = phases.findIndex(x => x.key === game.phase);
+            const done = i < cur, act = i === cur;
+            return (
+              <div key={ph.key} className="flex items-center">
+                {i > 0 && <div className={`h-0.5 w-3 md:w-7 transition-colors duration-500 ${done || act ? "bg-cyan-400" : "bg-slate-700"}`} />}
+                <span className={`px-3 py-1 rounded-full text-xs border transition-all duration-300 ${act ? "bg-cyan-500/25 border-cyan-300 text-cyan-100 font-bold scale-110 shadow-[0_0_14px_rgba(34,211,238,.65)]" : done ? "border-cyan-700 text-cyan-500" : "border-slate-700 text-slate-500"}`}>{done ? "✓ " : ""}{ph.label}</span>
+              </div>
+            );
+          })}
         </div>
         {isMyTurn && !game.battle && game.phase === "charge" && (<>
-          <button onClick={() => setChargePick(v => !v)} className={`${b} ${chargePick ? "bg-amber-400 text-slate-900" : "bg-amber-600 hover:bg-amber-500"}`}>{chargePick ? "เลือกการ์ด..." : "Charge & Draw"}</button>
+          <button onClick={() => setChargePick(v => !v)} className={`${b} ${chargePick ? "bg-amber-400 text-slate-900" : "bg-amber-600 hover:bg-amber-500 btn-nudge"} transition`}>{chargePick ? "เลือกการ์ด..." : "Charge & Draw"}</button>
           <button onClick={() => doCharge(null)} className={`${b} bg-slate-700 hover:bg-slate-600`}>ข้าม</button>
         </>)}
         {isMyTurn && !game.battle && game.phase === "main" && game.rules.useAttackPhase && (
-          <button onClick={doGoAttack} className={`${b} bg-rose-600 hover:bg-rose-500 flex items-center gap-1`}><Swords size={14} /> ไป Attack Phase</button>
+          <button onClick={doGoAttack} className={`${b} bg-rose-600 hover:bg-rose-500 flex items-center gap-1 transition`}><Swords size={14} /> ไป Attack Phase</button>
         )}
         {canAttackNow && standCount >= 2 && (
           <button onClick={() => setLinkMode(v => !v)} className={`${b} flex items-center gap-1 ${linkMode ? "bg-violet-500 text-white" : "bg-violet-800 hover:bg-violet-700"}`}><Link2 size={14} /> Link Attack {linkMode ? "ON" : "OFF"}</button>
@@ -865,7 +934,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           <button onClick={doGoFinal} className={`${b} bg-fuchsia-700 hover:bg-fuchsia-600`}>ไป Final Phase</button>
         )}
         {isMyTurn && !game.battle && game.phase !== "charge" && (
-          <button onClick={doEndTurn} className={`${b} bg-amber-600 hover:bg-amber-500`}>จบเทิร์น</button>
+          <button onClick={doEndTurn} className={`${b} bg-amber-600 hover:bg-amber-500 transition ${game.phase === "final" ? "btn-nudge" : ""}`}>จบเทิร์น</button>
         )}
         {(atkSels.length > 0 || moveSel) && <button onClick={() => { setAtkSels([]); setMoveSel(null); }} className={`${b} bg-slate-700 hover:bg-slate-600 flex items-center gap-1`}><X size={14} /> ยกเลิกเลือก</button>}
         {hint && <div className="basis-full text-center text-xs text-slate-300">{hint}</div>}
@@ -968,7 +1037,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             </div>
           )}
           <div className="flex gap-5 flex-wrap md:flex-nowrap">
-            <div className="mx-auto md:mx-0"><CardView card={card} flag={flag} size="xl" stats={st} /></div>
+            <div className="mx-auto md:mx-0"><CardView card={card} flag={flag} size="xl" stats={st} soul={fc?.soul.length} /></div>
             <div className="flex-1 min-w-[220px] space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-300">
                 <span>ประเภท: <b className="text-white">{card.type}</b></span>
@@ -976,7 +1045,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 <span>Cost: <b className="text-white">{card.callCostType === "Life" ? "Life" : "เกจ"} {card.callCost}</b></span>
                 {card.type === "Monster" && <span>Size: <b className="text-white">{card.size}</b></span>}
                 {(card.type === "Monster" || card.type === "Item" || card.type === "Impact") && (<>
-                  <span>Power: <b className="text-red-400">{st ? st.power : card.power}</b>{st && st.power !== card.power ? <span className="text-slate-500"> (ปกติ {card.power})</span> : null}</span>
+                  <span>Power: <b className="text-rose-400">{st ? st.power : card.power}</b>{st && st.power !== card.power ? <span className="text-slate-500"> (ปกติ {card.power})</span> : null}</span>
                   <span>Critical: <b className="text-rose-300">{st ? st.critical : card.critical}</b></span>
                   {card.type === "Monster" && <span>Defense: <b className="text-sky-300">{st ? st.defense : card.defense}</b></span>}
                 </>)}
@@ -986,6 +1055,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 <div className="text-xs text-slate-400 bg-slate-800/60 rounded-lg px-3 py-2">
                   สถานะบนสนาม: <b className="text-white">{fc.state === "stand" ? "Stand" : "Rest"}</b>
                   {" · "}Soul: <b className="text-violet-300">{fc.soul.length}</b>
+                  {fc.soul.length > 0 && <span className="inline-flex gap-1 ml-2 align-middle">{fc.soul.slice(0, 10).map((_, i) => <span key={i} className="soul-orb soul-bob" style={{ width: 12, height: 12, animationDelay: `${i * 0.15}s` }} />)}</span>}
+                  {hasKeyword(card, "soulguard") && <span className="ml-2 text-violet-200">🛡 Soulguard พร้อมกันตายอีก <b>{fc.soul.length}</b> ครั้ง</span>}
                   {maxAttacks(card) > 1 ? <> · โจมตีแล้ว <b className="text-white">{fc.attacks}/{maxAttacks(card)}</b></> : null}
                 </div>
               )}
@@ -1113,13 +1184,18 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   /* ---------------- Winner ---------------- */
   if (game.winner) {
     const myWin = game.winner === mySide;
+    const col = myWin ? "#22d3ee" : "#f43f5e";
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white">
-        <div className="text-center">
-          <Crown size={72} className="mx-auto text-amber-400 mb-4" />
-          <h2 className="font-display text-5xl font-bold mb-2" style={{ color: myWin ? "#22d3ee" : "#f43f5e" }}>{myWin ? "ชนะ!" : "แพ้!"}</h2>
-          <p className="text-slate-400 mb-2">{game.log[game.log.length - 1]}</p>
-          <button onClick={onExit} className="mt-4 px-6 py-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl transition font-bold">กลับเมนู</button>
+      <div className="min-h-screen arena-bg flex items-center justify-center text-white relative overflow-hidden">
+        {myWin && Array.from({ length: 36 }).map((_, i) => (
+          <span key={i} className="confetti" style={{ left: `${(i * 97) % 100}%`, background: ["#22d3ee", "#fbbf24", "#f43f5e", "#a78bfa", "#4ade80"][i % 5], animationDuration: `${2.4 + (i % 7) * 0.45}s`, animationDelay: `${(i % 9) * 0.25}s` }} />
+        ))}
+        <div className="absolute inset-0" style={{ background: `radial-gradient(circle at 50% 45%, ${col}33, transparent 60%)` }} />
+        <div className="text-center relative">
+          <Crown size={84} className="mx-auto mb-4 crown-float" style={{ color: myWin ? "#fbbf24" : "#64748b", filter: myWin ? "drop-shadow(0 0 22px #fbbf24)" : "none" }} />
+          <h2 className="result-in font-display text-6xl font-extrabold mb-3" style={{ color: col, textShadow: `0 0 30px ${col}` }}>{myWin ? "ชนะ!" : "แพ้!"}</h2>
+          <p className="text-slate-300 mb-2">{game.log[game.log.length - 1]}</p>
+          <button onClick={onExit} className="mt-4 px-8 py-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl transition font-bold hover:scale-105">กลับเมนู</button>
         </div>
       </div>
     );
@@ -1128,7 +1204,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const previewFlag = hovered ? flagOf(hovered.flagId ?? hovered.card.flagId) : undefined;
 
   return (
-    <div className="bf-root min-h-screen bg-slate-950 text-white flex flex-col lg:flex-row">
+    <div className="bf-root arena-bg min-h-screen text-white flex flex-col lg:flex-row">
       {/* Main column */}
       <div className="flex-1 min-w-0 p-2 flex flex-col items-center gap-2">
         <div className="flex items-center justify-between gap-2 flex-wrap w-full" style={{ maxWidth: "var(--mw)" }}>
@@ -1171,19 +1247,26 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       <aside className="lg:w-80 lg:min-h-screen shrink-0 bg-slate-900/70 border-t lg:border-t-0 lg:border-l border-slate-800 p-3 flex flex-col gap-3">
         <div className="flex justify-center">
           {hovered ? (
-            <CardView card={hovered.card} flag={previewFlag} size="xl" stats={hovered.stats} />
+            <CardView card={hovered.card} flag={previewFlag} size="xl" stats={hovered.stats} soul={hovered.soul} />
           ) : (
             <div className="w-[288px] max-w-full aspect-[63/88] rounded-xl border-2 border-dashed border-slate-700 flex items-center justify-center text-slate-600 text-sm text-center p-6">ชี้การ์ดเพื่อดูรายละเอียดแบบเต็ม</div>
           )}
         </div>
         <div className="flex-1 min-h-[8rem] max-h-64 lg:max-h-none overflow-y-auto bg-slate-950/60 rounded-xl border border-slate-800 p-2">
           <h4 className="text-xs font-bold text-slate-500 mb-1 flex items-center gap-1"><Star size={10} /> Battle Log</h4>
-          {[...game.log].slice(-40).reverse().map((l, i) => (
-            <div key={i} className={`text-xs py-0.5 ${i === 0 ? "text-white" : "text-slate-400"}`}>{l}</div>
-          ))}
+          {(() => {
+            const seen: Record<string, number> = {};
+            const rows = game.log.map(l => { seen[l] = (seen[l] ?? 0) + 1; return { l, k: `${l}#${seen[l]}` }; });
+            return rows.slice(-40).reverse().map(({ l, k }, i) => {
+              const tone = l.startsWith("⚔") ? "text-rose-300" : l.startsWith("🛡") ? "text-sky-300" : /Soul/.test(l) ? "text-violet-300" : /ทำลาย|แพ้/.test(l) ? "text-orange-300" : /ฟื้น/.test(l) ? "text-emerald-300" : /Life/.test(l) ? "text-red-300" : l.startsWith("—") ? "text-cyan-300 font-bold" : i === 0 ? "text-white" : "text-slate-400";
+              return <div key={k} className={`log-in text-xs py-0.5 ${tone}`}>{l}</div>;
+            });
+          })()}
         </div>
       </aside>
 
+      <FxLayer game={game} cardOf={cardOf} flagOf={flagOf} onHide={hideUnits} />
+      {banner && <Banner key={banner.key} text={banner.text} sub={banner.sub} color={banner.color} />}
       {renderMenus()}
       {renderMulligan()}
       {renderCounterModal()}

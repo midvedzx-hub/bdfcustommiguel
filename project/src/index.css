@@ -33,3 +33,80 @@
 .glow-slot { filter: drop-shadow(0 0 7px #34d399) drop-shadow(0 0 14px #34d399); animation: pulseGlow 1s ease-in-out infinite; }
 .glow-sel { filter: drop-shadow(0 0 7px #fbbf24) drop-shadow(0 0 12px #fbbf24); }
 @keyframes pulseGlow { 0%,100% { opacity: 1; } 50% { opacity: .7; } }
+
+/* ================= อนิเมชันและเอฟเฟกต์ในสนาม ================= */
+.arena-bg {
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(34,211,238,.10), transparent 60%),
+    radial-gradient(900px 500px at 50% 110%, rgba(244,63,94,.10), transparent 60%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,.018) 0 1px, transparent 1px 36px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.018) 0 1px, transparent 1px 36px),
+    #070b14;
+}
+
+/* การ์ดลงสนาม */
+@keyframes cardIn {
+  0%   { transform: translateY(-38%) scale(1.55) rotate(-4deg); opacity: 0; filter: brightness(2.4) drop-shadow(0 0 18px #fff); }
+  55%  { transform: translateY(2%) scale(.94) rotate(0); opacity: 1; filter: brightness(1.5) drop-shadow(0 0 12px #67e8f9); }
+  75%  { transform: translateY(-1%) scale(1.04); filter: brightness(1.15); }
+  100% { transform: none; opacity: 1; filter: none; }
+}
+.anim-call { animation: cardIn .62s cubic-bezier(.2,.9,.25,1) backwards; }
+
+/* จั่วการ์ดเข้ามือ */
+@keyframes drawIn {
+  0%   { transform: translate(40%, -90%) scale(.5) rotate(10deg); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+.anim-draw { animation: drawIn .45s cubic-bezier(.2,.8,.25,1) backwards; }
+
+/* Soul */
+.soul-orb {
+  display: block; border-radius: 9999px; flex-shrink: 0;
+  background: radial-gradient(circle at 32% 28%, #f5f3ff 0 12%, #c084fc 38%, #6d28d9 75%, #3b0764);
+  box-shadow: 0 0 .55em #a855f7, 0 0 1.2em #7c3aed88, inset 0 0 .25em #fff8;
+  border: .06em solid #ede9fe;
+}
+@keyframes soulBob { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-.22em) scale(1.08); } }
+.soul-bob { animation: soulBob 2.2s ease-in-out infinite; }
+@keyframes soulPop { 0% { transform: scale(.2); opacity: 0; } 60% { transform: scale(1.35); opacity: 1; } 100% { transform: scale(1); } }
+.soul-pop { animation: soulPop .5s cubic-bezier(.2,.9,.3,1.2) both; }
+@keyframes guardLive { 0%,100% { filter: drop-shadow(0 0 .25em #c084fc); } 50% { filter: drop-shadow(0 0 .7em #e9d5ff) drop-shadow(0 0 1.1em #a855f7); } }
+.soul-guard-live { animation: soulPop .5s cubic-bezier(.2,.9,.3,1.2) both, guardLive 1.8s ease-in-out infinite .5s; }
+
+/* แบนเนอร์เปลี่ยนเทิร์น / เฟส */
+@keyframes bannerSweep {
+  0%   { transform: translateX(-120%) skewX(-14deg); opacity: 0; }
+  18%  { transform: translateX(0) skewX(-14deg); opacity: 1; }
+  78%  { transform: translateX(0) skewX(-14deg); opacity: 1; }
+  100% { transform: translateX(120%) skewX(-14deg); opacity: 0; }
+}
+.banner-sweep { animation: bannerSweep 1.5s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes bannerText { 0% { letter-spacing: .6em; opacity: 0; } 25% { letter-spacing: .08em; opacity: 1; } 100% { letter-spacing: .12em; opacity: 1; } }
+.banner-text { animation: bannerText 1.1s ease-out both; }
+
+/* ปุ่ม/ป้ายที่ควรกดต่อไป */
+@keyframes nudge { 0%,100% { box-shadow: 0 0 0 0 rgba(251,191,36,.65); } 50% { box-shadow: 0 0 0 8px rgba(251,191,36,0); } }
+.btn-nudge { animation: nudge 1.4s ease-out infinite; }
+
+/* Battle log */
+@keyframes logIn { 0% { transform: translateX(-12px); opacity: 0; } 100% { transform: none; opacity: 1; } }
+.log-in { animation: logIn .35s ease-out both; }
+
+/* หน้าชนะ/แพ้ */
+@keyframes crownFloat { 0%,100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-14px) rotate(3deg); } }
+.crown-float { animation: crownFloat 2.4s ease-in-out infinite; }
+@keyframes resultIn { 0% { transform: scale(.3); opacity: 0; letter-spacing: .5em; } 60% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); letter-spacing: .05em; } }
+.result-in { animation: resultIn .9s cubic-bezier(.2,.9,.3,1.1) both; }
+@keyframes confetti { 0% { transform: translateY(-10vh) rotate(0); opacity: 1; } 100% { transform: translateY(110vh) rotate(720deg); opacity: .9; } }
+.confetti { position: fixed; top: 0; width: 10px; height: 16px; border-radius: 2px; animation: confetti linear infinite; pointer-events: none; }
+
+/* ตัวเลขที่เพิ่งเปลี่ยน */
+@keyframes numPop { 0% { transform: scale(1.8); filter: brightness(2); } 100% { transform: none; filter: none; } }
+.num-pop { animation: numPop .45s ease-out both; display: inline-block; }
+
+/* การ์ดบนมือ: ชี้แล้วเรืองแสง */
+.hand-card:hover { box-shadow: 0 10px 28px rgba(34,211,238,.35); }
+@media (prefers-reduced-motion: reduce) {
+  .anim-call, .anim-draw, .soul-bob, .soul-pop, .soul-guard-live, .banner-sweep, .banner-text, .btn-nudge, .log-in, .crown-float, .confetti { animation: none !important; }
+}
