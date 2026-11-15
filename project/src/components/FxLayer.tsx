@@ -3,12 +3,28 @@ import type { CSSProperties, ReactNode } from "react";
 import type { Card, Flag, FxEvent, GameState } from "@/types";
 import { CardView } from "@/components/CardView";
 import { statsOf } from "@/game/engine";
+import { playSfx } from "@/game/sfx";
 
 /* เลเยอร์เอฟเฟกต์ลอยเหนือสนาม (position: fixed)
  * อ่าน game.fx (เหตุการณ์จาก engine) แล้วเล่นอนิเมชันด้วย Web Animations API
  * ตำแหน่งอ้างอิงจาก DOM ที่มี data-fx:  slot:<side>:<0-2> · item:<side> · fighter:<side> · life:<side> · gauge:<side> · deck:<side> · drop:<side> · mat:<side>
  */
 type Side = "host" | "guest";
+// เสียงประกอบเหตุการณ์ (เวลาสอดคล้องกับอนิเมชัน)
+function sfxFor(ev: FxEvent, at: number, impact: number) {
+  switch (ev.k) {
+    case "attack": playSfx("whoosh", 0); playSfx("hit", impact); break;
+    case "life": playSfx(ev.delta < 0 ? "hurt" : "heal", at); break;
+    case "destroy": playSfx("destroy", at); break;
+    case "guard": playSfx("guard", at); break;
+    case "soulIn": case "soulOut": playSfx("soul", at); break;
+    case "call": playSfx("call", at); break;
+    case "cast": playSfx("cast", at); break;
+    case "charge": playSfx("charge", at); break;
+    case "draw": playSfx("draw", at); break;
+    case "negate": playSfx("negate", at); break;
+  }
+}
 interface Pt { x: number; y: number; w: number; h: number }
 
 function pointOf(id: string): Pt | null {
@@ -117,6 +133,7 @@ export function FxLayer({ game, cardOf, flagOf, onHide }: {
 
     evs.forEach(ev => {
       const at = base + Math.min(idx, 6) * 140;
+      sfxFor(ev, at, IMPACT);
       switch (ev.k) {
         case "attack": {
           const lead = game[ev.side];

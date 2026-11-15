@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Plus, Save, Trash2, Download, Upload, Edit3, Copy, Zap } from "lucide-react";
+import { Plus, Save, Trash2, Download, Upload, Edit3, Copy, Zap, Search, Layers } from "lucide-react";
+import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Card, Flag, CardType, AutoTrigger, AutoEffectType, AutoEffect, AutoSkill } from "@/types";
 import { TRIGGER_LABELS, EFFECT_LABELS } from "@/types";
 import { getCards, saveCards, getFlags, saveFlags, getDecks, saveDecks, uid, downloadJSON, importAll } from "@/storage";
@@ -8,6 +9,7 @@ import { CardView } from "@/components/CardView";
 import { SKILL_TEMPLATES } from "@/game/helpers";
 
 const TYPES: CardType[] = ["Monster", "Spell", "Item", "Impact"];
+const TYPE_DOT: Record<string, string> = { Monster: "#f59e0b", Spell: "#38bdf8", Item: "#34d399", Impact: "#fb7185" };
 const TRIGGERS = TRIGGER_LABELS;
 const EFFECT_TYPES = EFFECT_LABELS;
 
@@ -33,6 +35,8 @@ export function CardStudio({ onBack }: { onBack: () => void }) {
   const [flags] = useState<Flag[]>(getFlags());
   const [editing, setEditing] = useState<Card | null>(null);
   const [filter, setFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
+  const [worldFilter, setWorldFilter] = useState<string>("all");
   const [copied, setCopied] = useState(false);
 
   function persist(next: Card[]) {
@@ -132,7 +136,15 @@ export function CardStudio({ onBack }: { onBack: () => void }) {
   }
 
   const flagOf = (c: Card) => flags.find(f => f.id === c.flagId);
-  const filtered = filter === "all" ? cards : cards.filter(c => c.type === filter);
+  const q = search.trim().toLowerCase();
+  const filtered = cards.filter(c =>
+    (filter === "all" || c.type === filter) &&
+    (worldFilter === "all" || c.flagId === worldFilter) &&
+    (!q || c.name.toLowerCase().includes(q) || (c.attribute ?? "").toLowerCase().includes(q))
+  );
+  function dup(c: Card) {
+    persist([...cards, { ...structuredClone(c), id: uid(), name: `${c.name} (สำเนา)` }]);
+  }
 
   if (editing) {
     const flag = flags.find(f => f.id === editing.flagId);
@@ -298,49 +310,56 @@ export function CardStudio({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white p-6">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-cyan-400">Card Studio</h2>
-          <div className="flex gap-2">
-            <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(cards, null, 2)); setCopied(true); setTimeout(() => setCopied(false), 1500); }} className="px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition flex items-center gap-1 text-sm"><Copy size={14} /> ก๊อปปี้</button>
-            <button onClick={() => downloadJSON(JSON.stringify(cards, null, 2), "cards.json")} className="px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition flex items-center gap-1 text-sm"><Download size={14} /> Export</button>
-            <label className="px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition flex items-center gap-1 text-sm cursor-pointer"><Upload size={14} /> Import<input type="file" accept=".json" className="hidden" onChange={handleImport} /></label>
-            <button onClick={startNew} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg transition flex items-center gap-2"><Plus size={16} /> สร้างการ์ด</button>
-            <button onClick={onBack} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition">กลับ</button>
-          </div>
-        </div>
+    <ScreenShell
+      title="Card Studio" subtitle="ออกแบบ Monster / Spell / Item / Impact พร้อมสกิลอัตโนมัติ" icon={Layers} accent="#34d399" onBack={onBack} maxW="max-w-7xl"
+      actions={<>
+        <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(cards, null, 2)); setCopied(true); setTimeout(() => setCopied(false), 1500); }} className="btn"><Copy size={14} /> {copied ? "คัดลอกแล้ว" : "ก๊อปปี้"}</button>
+        <button onClick={() => downloadJSON(JSON.stringify(cards, null, 2), "cards.json")} className="btn"><Download size={14} /> Export</button>
+        <label className="btn cursor-pointer"><Upload size={14} /> Import<input type="file" accept=".json" className="hidden" onChange={handleImport} /></label>
+        <button onClick={startNew} className="btn btn-primary"><Plus size={16} /> สร้างการ์ด</button>
+      </>}
+    >
+      {flags.length === 0 && (
+        <div className="bg-amber-900/30 border border-amber-700 rounded-xl p-4 text-amber-300 text-sm mb-4">ควรสร้าง Flag ก่อน เพื่อให้การ์ดมีสังกัด</div>
+      )}
 
-        {flags.length === 0 && (
-          <div className="bg-amber-900/30 border border-amber-700 rounded-lg p-4 text-amber-300 text-sm mb-4">ควรสร้าง Flag ก่อน เพื่อให้การ์ดมีสังกัด</div>
-        )}
-
-        <div className="flex gap-2 mb-4">
-          <button onClick={() => setFilter("all")} className={`px-3 py-1.5 rounded-lg text-sm transition ${filter === "all" ? "bg-cyan-600" : "bg-slate-800 hover:bg-slate-700"}`}>ทั้งหมด ({cards.length})</button>
+      <div className="panel p-3 md:p-4 mb-6 flex flex-wrap gap-3 items-center">
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setFilter("all")} className={`btn !py-1.5 ${filter === "all" ? "btn-primary" : ""}`}>ทั้งหมด ({cards.length})</button>
           {TYPES.map(t => (
-            <button key={t} onClick={() => setFilter(t)} className={`px-3 py-1.5 rounded-lg text-sm transition ${filter === t ? "bg-cyan-600" : "bg-slate-800 hover:bg-slate-700"}`}>{t} ({cards.filter(c => c.type === t).length})</button>
+            <button key={t} onClick={() => setFilter(t)} className={`btn !py-1.5 ${filter === t ? "btn-primary" : ""}`}>
+              <span className="w-2 h-2 rounded-full" style={{ background: TYPE_DOT[t] }} /> {t} ({cards.filter(c => c.type === t).length})
+            </button>
           ))}
         </div>
-
-        {filtered.length === 0 ? (
-          <div className="text-center py-20 text-slate-500">
-            <p className="text-lg">ยังไม่มีการ์ด</p>
-            <p className="text-sm mt-2">กด "สร้างการ์ด" เพื่อเริ่มสร้างการ์ดของคุณ</p>
+        <div className="flex gap-2 ml-auto flex-wrap">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาชื่อ/สายพันธุ์..." className="bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-sm w-52" />
           </div>
-        ) : (
-          <div className="flex flex-wrap gap-4 justify-center">
-            {filtered.map(c => (
-              <div key={c.id} className="relative group">
-                <CardView card={c} flag={flagOf(c)} size="md" />
-                <div className="absolute inset-0 z-30 bg-slate-950/80 opacity-0 group-hover:opacity-100 transition rounded-lg flex items-center justify-center gap-2">
-                  <button onClick={() => setEditing(c)} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg"><Edit3 size={16} /></button>
-                  <button onClick={() => del(c.id)} className="p-2 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={16} /></button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+          <select value={worldFilter} onChange={e => setWorldFilter(e.target.value)} className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm">
+            <option value="all">ทุก Flag</option>
+            {flags.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+        </div>
       </div>
-    </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState icon={Layers} title={cards.length === 0 ? "ยังไม่มีการ์ด" : "ไม่พบการ์ดที่ตรงกับเงื่อนไข"} hint={cards.length === 0 ? 'กด "สร้างการ์ด" เพื่อเริ่มออกแบบการ์ดใบแรก' : "ลองเปลี่ยนตัวกรองหรือคำค้นหา"} action={cards.length === 0 ? <button onClick={startNew} className="btn btn-primary"><Plus size={16} /> สร้างการ์ดใบแรก</button> : undefined} />
+      ) : (
+        <div className="grid gap-x-5 gap-y-7 justify-items-center" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
+          {filtered.map(c => (
+            <div key={c.id} className="relative group lift rounded-xl" style={{ ["--glow" as string]: `${flagOf(c)?.color ?? "#22d3ee"}88` }}>
+              <CardView card={c} flag={flagOf(c)} size="md" onClick={() => setEditing(c)} />
+              <div className="absolute -bottom-3 inset-x-0 z-30 flex justify-center gap-1.5 opacity-0 group-hover:opacity-100 transition">
+                <button title="แก้ไข" onClick={() => setEditing(c)} className="btn !p-1.5 !rounded-lg"><Edit3 size={14} /></button>
+                <button title="ทำสำเนา" onClick={() => dup(c)} className="btn !p-1.5 !rounded-lg"><Copy size={14} /></button>
+                <button title="ลบ" onClick={() => del(c.id)} className="btn btn-danger !p-1.5 !rounded-lg"><Trash2 size={14} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </ScreenShell>
   );
 }

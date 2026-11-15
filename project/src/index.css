@@ -110,3 +110,71 @@
 @media (prefers-reduced-motion: reduce) {
   .anim-call, .anim-draw, .soul-bob, .soul-pop, .soul-guard-live, .banner-sweep, .banner-text, .btn-nudge, .log-in, .crown-float, .confetti { animation: none !important; }
 }
+
+/* ================= ธีมกลาง: เมนู/หน้าจัดการ ================= */
+body { background: #050816; }
+.menu-bg,
+.min-h-screen.bg-slate-950:not(.bf-root):not(.arena-bg) {
+  background:
+    radial-gradient(900px 520px at 12% -8%, rgba(34,211,238,.14), transparent 60%),
+    radial-gradient(800px 520px at 92% 8%, rgba(167,139,250,.13), transparent 60%),
+    radial-gradient(900px 600px at 50% 125%, rgba(244,63,94,.10), transparent 60%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,.02) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.02) 0 1px, transparent 1px 40px),
+    #050816;
+}
+.page-in { animation: pageIn .38s cubic-bezier(.2,.8,.25,1) both; }
+@keyframes pageIn { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: none; } }
+
+/* ปุ่ม */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .45rem;
+  padding: .5rem 1rem; border-radius: .8rem; font-weight: 600; font-size: .9rem;
+  border: 1px solid rgba(148,163,184,.22); background: rgba(30,41,59,.8); color: #e2e8f0;
+  transition: transform .12s ease, background .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.btn:hover { background: rgba(51,65,85,.9); border-color: rgba(148,163,184,.4); transform: translateY(-1px); }
+.btn:active { transform: translateY(0) scale(.97); }
+.btn-primary { background: linear-gradient(135deg, #0891b2, #2563eb); border-color: rgba(103,232,249,.5); color: #fff; box-shadow: 0 6px 20px rgba(14,165,233,.28); }
+.btn-primary:hover { background: linear-gradient(135deg, #06b6d4, #3b82f6); box-shadow: 0 8px 26px rgba(14,165,233,.45); }
+.btn-danger { background: rgba(127,29,29,.75); border-color: rgba(248,113,113,.4); }
+.btn-danger:hover { background: rgba(153,27,27,.95); }
+.btn-lg { padding: .85rem 1.6rem; font-size: 1.05rem; border-radius: 1rem; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* แผ่น/การ์ดพื้นหลัง */
+.panel { background: rgba(15,23,42,.72); border: 1px solid rgba(148,163,184,.16); border-radius: 1.1rem; backdrop-filter: blur(6px); }
+.lift { transition: transform .18s cubic-bezier(.2,.8,.25,1), box-shadow .18s ease, border-color .18s ease; }
+.lift:hover { transform: translateY(-5px); box-shadow: 0 14px 34px -8px var(--glow, rgba(34,211,238,.35)); }
+.chip { display: inline-flex; align-items: center; gap: .3rem; padding: .18rem .6rem; border-radius: 9999px; font-size: .75rem; background: rgba(51,65,85,.6); border: 1px solid rgba(148,163,184,.18); color: #cbd5e1; }
+
+/* ตัวหนังสือ */
+.hero-title {
+  background: linear-gradient(90deg, #67e8f9, #a78bfa, #fb7185, #67e8f9);
+  background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: shine 7s linear infinite; font-family: Kanit, "Noto Sans Thai", sans-serif; letter-spacing: .01em;
+}
+@keyframes shine { to { background-position: 220% 0; } }
+
+/* การ์ดลอยในหน้าแรก */
+@keyframes floaty { 0%,100% { transform: translateY(0) rotate(var(--r,0deg)); } 50% { transform: translateY(-14px) rotate(var(--r,0deg)); } }
+.floaty { animation: floaty 5s ease-in-out infinite; }
+@keyframes glowPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(34,211,238,.5); } 50% { box-shadow: 0 0 0 12px rgba(34,211,238,0); } }
+.glow-pulse { animation: glowPulse 2s ease-out infinite; }
+
+/* ช่องกรอก */
+input:focus, select:focus, textarea:focus { outline: none; box-shadow: 0 0 0 2px rgba(34,211,238,.45); border-color: rgba(34,211,238,.6) !important; }
+input[type="checkbox"] { accent-color: #06b6d4; }
+
+/* แถบเลื่อน */
+* { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 9px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+/* สวิตช์ */
+.switch { position: relative; width: 2.6rem; height: 1.5rem; border-radius: 9999px; background: #334155; transition: background .2s; flex-shrink: 0; cursor: pointer; }
+.switch::after { content: ""; position: absolute; top: .18rem; left: .18rem; width: 1.14rem; height: 1.14rem; border-radius: 50%; background: #fff; transition: transform .2s; }
+.switch.on { background: linear-gradient(135deg, #06b6d4, #3b82f6); }
+.switch.on::after { transform: translateX(1.1rem); }
+@media (prefers-reduced-motion: reduce) { .floaty, .glow-pulse, .hero-title, .page-in { animation: none !important; } }

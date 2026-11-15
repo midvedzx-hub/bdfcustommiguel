@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import {
   Swords, Heart, Zap, Skull, LogOut, Plus, Minus, Hand, Trash2, RotateCw, Crown,
-  Copy, LogIn, Users, RefreshCw, Wrench, X, Shield, Star, AlertTriangle, Link2, Eye,
+  Copy, LogIn, Users, RefreshCw, Wrench, X, Shield, Star, AlertTriangle, Link2, Eye, Volume2, VolumeX,
 } from "lucide-react";
 import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet, FieldCard } from "@/types";
 import { TRIGGER_LABELS } from "@/types";
@@ -20,6 +20,7 @@ import { getFlagColor, hasCounter, skillLines, keywordBadges, costText, effectTe
 import { mp } from "@/game/multiplayer";
 import { CardView } from "@/components/CardView";
 import { FxLayer, Banner } from "@/components/FxLayer";
+import { playSfx, isMuted, setMuted } from "@/game/sfx";
 
 interface Props {
   mode: "bot" | "multiplayer";
@@ -301,6 +302,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const [, setImgTick] = useState(0);
   const dragRef = useRef<Drag>(null);
   const [inspectMode, setInspectMode] = useState(false);
+  const [muted, setMutedState] = useState(isMuted());
   const [hidden, setHidden] = useState<string[]>([]);
   const [banner, setBanner] = useState<{ key: number; text: string; sub?: string; color: string } | null>(null);
   const bannerTimer = useRef<number | undefined>(undefined);
@@ -447,6 +449,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       nb = { text: "FINAL PHASE", sub: "ใช้ Impact ได้ แล้วจบเทิร์น", color: "#a21caf" };
     }
     if (nb) {
+      playSfx("turn");
       setBanner({ ...nb, key: Date.now() });
       window.clearTimeout(bannerTimer.current);
       bannerTimer.current = window.setTimeout(() => setBanner(null), 1500);
@@ -454,6 +457,10 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.turn, game.phase, game.currentTurn, started]);
   useEffect(() => () => window.clearTimeout(bannerTimer.current), []);
+  // เสียง: ผลแพ้ชนะ และแจ้งเตือนทำไม่ได้
+  useEffect(() => { if (game.winner) playSfx(game.winner === mySide ? "win" : "lose", 300); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game.winner]);
+  useEffect(() => { if (notice) playSfx("error"); }, [notice]);
 
   const hideUnits = (uids: string[], ms: number) => {
     setHidden(h => [...h, ...uids]);
@@ -1246,25 +1253,31 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     <div className="bf-root arena-bg min-h-screen text-white flex flex-col lg:flex-row">
       {/* Main column */}
       <div className="flex-1 min-w-0 p-2 flex flex-col items-center gap-2">
-        <div className="flex items-center justify-between gap-2 flex-wrap w-full" style={{ maxWidth: "var(--mw)" }}>
-          <div className="flex items-center gap-2">
-            <button onClick={onExit} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm flex items-center gap-1"><LogOut size={14} /> ออก</button>
+        <div className="panel !rounded-2xl flex items-center justify-between gap-2 flex-wrap w-full px-3 py-2" style={{ maxWidth: "min(100%, max(var(--mw), 760px))" }}>
+          <div className="flex items-center gap-2 min-w-0">
+            <button onClick={onExit} title="ออกจากเกม" className="btn !py-1.5 !px-3 !text-xs"><LogOut size={14} /> ออก</button>
+            <div className="hidden sm:flex items-center gap-2 text-sm font-display font-bold min-w-0">
+              <span className="truncate max-w-[10rem]" style={{ color: getFlagColor(flagOf(me.flagId)) }}>{flagOf(me.flagId)?.name ?? "คุณ"}</span>
+              <span className="text-slate-500 text-xs">VS</span>
+              <span className="truncate max-w-[10rem]" style={{ color: getFlagColor(flagOf(foe.flagId)) }}>{flagOf(foe.flagId)?.name ?? "ศัตรู"}</span>
+            </div>
             {mode === "bot" && (
-              <select value={guestDeckId} onChange={e => changeBotDeck(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm">
+              <select value={guestDeckId} onChange={e => changeBotDeck(e.target.value)} title="เปลี่ยนเด็คของบอท (เริ่มเกมใหม่)" className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs">
                 {allDecks.map(d => <option key={d.id} value={d.id}>บอทใช้: {d.name}</option>)}
               </select>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {mode === "multiplayer" && !connected && (
-              <button onClick={() => setShowRoomDialog(true)} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm flex items-center gap-1"><Users size={14} /> เชื่อมต่อเพื่อน</button>
+              <button onClick={() => setShowRoomDialog(true)} className="btn btn-primary !py-1.5 !px-3 !text-xs"><Users size={14} /> เชื่อมต่อเพื่อน</button>
             )}
             {mode === "multiplayer" && connected && (<>
-              <span className="text-xs text-green-400">● ห้อง {roomId}</span>
-              <button onClick={requestSync} title="ซิงค์เกมกับเพื่อนใหม่" className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm flex items-center gap-1"><RefreshCw size={14} /> ซิงค์</button>
+              <span className="chip !text-emerald-300 !border-emerald-500/40">● ห้อง {roomId}</span>
+              <button onClick={requestSync} title="ซิงค์เกมกับเพื่อนใหม่" className="btn !py-1.5 !px-2.5 !text-xs"><RefreshCw size={14} /></button>
             </>)}
-            <button onClick={() => setInspectMode(v => !v)} title="เปิดแล้วคลิกการ์ดใบไหนก็ได้เพื่อดูความสามารถ (หรือคลิกขวา/ดับเบิลคลิกที่การ์ด)" className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 ${inspectMode ? "bg-cyan-600 hover:bg-cyan-500" : "bg-slate-800 hover:bg-slate-700"}`}><Eye size={14} /> ดูการ์ด {inspectMode ? "ON" : "OFF"}</button>
-            <button onClick={() => setSandbox(v => !v)} title="เครื่องมือแก้เกมด้วยมือ" className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 ${sandbox ? "bg-fuchsia-700 hover:bg-fuchsia-600" : "bg-slate-800 hover:bg-slate-700"}`}><Wrench size={14} /> Sandbox {sandbox ? "ON" : "OFF"}</button>
+            <button onClick={() => setInspectMode(v => !v)} title="โหมดดูการ์ด: คลิกการ์ดใบไหนก็ได้เพื่อดูความสามารถ (หรือคลิกขวา/ดับเบิลคลิก)" className={`btn !py-1.5 !px-2.5 !text-xs ${inspectMode ? "btn-primary" : ""}`}><Eye size={14} /> <span className="hidden md:inline">ดูการ์ด</span></button>
+            <button onClick={() => setSandbox(v => !v)} title="Sandbox: เครื่องมือแก้เกมด้วยมือ" className={`btn !py-1.5 !px-2.5 !text-xs ${sandbox ? "!bg-fuchsia-700 !border-fuchsia-400/60" : ""}`}><Wrench size={14} /> <span className="hidden md:inline">Sandbox</span></button>
+            <button onClick={() => { const m = !muted; setMuted(m); setMutedState(m); if (!m) playSfx("turn"); }} title={muted ? "เปิดเสียง" : "ปิดเสียง"} className="btn !py-1.5 !px-2.5 !text-xs">{muted ? <VolumeX size={14} /> : <Volume2 size={14} />}</button>
           </div>
         </div>
 

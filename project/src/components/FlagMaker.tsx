@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Plus, Save, Trash2, Download, Upload, Edit3, Copy } from "lucide-react";
+import { Plus, Save, Trash2, Download, Upload, Edit3, Copy, Heart, Hand as HandIcon, Zap, Star, Flag as FlagIcon } from "lucide-react";
+import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Flag } from "@/types";
 import { getFlags, saveFlags, getCards, uid, downloadJSON, importAll } from "@/storage";
 import { CardView } from "@/components/CardView";
@@ -144,44 +145,59 @@ export function FlagMaker({ onBack }: { onBack: () => void }) {
     );
   }
 
+  const allCards = getCards();
   return (
-    <div className="min-h-screen bg-slate-950 text-white p-6">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-cyan-400">Flag Maker</h2>
-          <div className="flex gap-2">
-            <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(flags, null, 2)); setCopied(true); setTimeout(() => setCopied(false), 1500); }} className="px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition flex items-center gap-1 text-sm">{copied ? <Copy size={14} /> : <Copy size={14} />} ก๊อปปี้</button>
-            <button onClick={exportFlags} className="px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition flex items-center gap-1 text-sm"><Download size={14} /> Export</button>
-            <label className="px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition flex items-center gap-1 text-sm cursor-pointer"><Upload size={14} /> Import<input type="file" accept=".json" className="hidden" onChange={handleImport} /></label>
-            <button onClick={startNew} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg transition flex items-center gap-2"><Plus size={16} /> สร้าง Flag</button>
-            <button onClick={onBack} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition">กลับ</button>
-          </div>
-        </div>
-
-        {flags.length === 0 ? (
-          <div className="text-center py-20 text-slate-500">
-            <p className="text-lg">ยังไม่มี Flag</p>
-            <p className="text-sm mt-2">กด "สร้าง Flag" เพื่อเริ่มสร้างธงประจำตัวของคุณ</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {flags.map(f => (
-              <div key={f.id} className="bg-slate-900 border-2 rounded-xl p-4 flex flex-col items-center hover:scale-105 transition" style={{ borderColor: clampColor(f.color) }}>
-                <div className="w-24 h-24 rounded-lg overflow-hidden mb-3 flex items-center justify-center bg-slate-800">
-                  {f.image ? <img src={f.image} alt={f.name} className="w-full h-full object-cover" /> : <span className="text-slate-600 text-xs">No Image</span>}
+    <ScreenShell
+      title="Flag Maker" subtitle="สร้างโลก/ธงประจำเด็ค กำหนด Life เกจ และ Buddy ประจำโลก" icon={FlagIcon} accent="#22d3ee" onBack={onBack}
+      actions={<>
+        <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(flags, null, 2)); setCopied(true); setTimeout(() => setCopied(false), 1500); }} className="btn"><Copy size={14} /> {copied ? "คัดลอกแล้ว" : "ก๊อปปี้"}</button>
+        <button onClick={exportFlags} className="btn"><Download size={14} /> Export</button>
+        <label className="btn cursor-pointer"><Upload size={14} /> Import<input type="file" accept=".json" className="hidden" onChange={handleImport} /></label>
+        <button onClick={startNew} className="btn btn-primary"><Plus size={16} /> สร้าง Flag</button>
+      </>}
+    >
+      {flags.length === 0 ? (
+        <EmptyState icon={FlagIcon} title="ยังไม่มี Flag" hint='กด "สร้าง Flag" เพื่อสร้างธงประจำโลกของคุณ' action={<button onClick={startNew} className="btn btn-primary"><Plus size={16} /> สร้าง Flag แรก</button>} />
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          {flags.map(f => {
+            const col = clampColor(f.color);
+            const buddies = (f.buddyIds ?? []).map(id => allCards.find(c => c.id === id)).filter(Boolean);
+            return (
+              <div key={f.id} className="panel lift group overflow-hidden" style={{ borderColor: `${col}66`, ["--glow" as string]: `${col}66` }}>
+                <div className="relative h-36 overflow-hidden cursor-pointer" onClick={() => setEditing(f)}>
+                  {f.image
+                    ? <img src={f.image} alt={f.name} className="w-full h-full object-cover transition duration-500 group-hover:scale-110" />
+                    : <div className="w-full h-full" style={{ background: `linear-gradient(135deg, ${col}, #0f172a)` }} />}
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
+                  <h3 className="absolute bottom-2 left-3 right-3 font-display text-xl font-bold truncate" style={{ color: col, textShadow: "0 2px 8px #000" }}>{f.name}</h3>
                 </div>
-                <h3 className="font-bold text-center" style={{ color: clampColor(f.color) }}>{f.name}</h3>
-                <div className="text-xs text-slate-400 mt-1 text-center">Life {f.life} | จั่ว {f.startHand} | เกจ {f.startGauge}{(f.buddyIds?.length ?? 0) > 0 ? ` | Buddy ${f.buddyIds!.length}` : ""}</div>
-                {f.effect && <p className="text-xs text-slate-500 mt-2 line-clamp-3 text-center">{f.effect}</p>}
-                <div className="flex gap-2 mt-3">
-                  <button onClick={() => setEditing(f)} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg"><Edit3 size={14} /></button>
-                  <button onClick={() => del(f.id)} className="p-2 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={14} /></button>
+                <div className="p-3.5">
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    <span className="chip text-rose-300"><Heart size={11} fill="currentColor" /> Life {f.life}</span>
+                    <span className="chip"><HandIcon size={11} /> จั่ว {f.startHand}</span>
+                    <span className="chip text-amber-300"><Zap size={11} fill="currentColor" /> เกจ {f.startGauge}</span>
+                  </div>
+                  {f.effect && <p className="text-xs text-slate-400 line-clamp-2 mb-2">{f.effect}</p>}
+                  {buddies.length > 0 && (
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Star size={12} className="text-amber-400" fill="currentColor" />
+                      <div className="flex -space-x-2">
+                        {buddies.slice(0, 5).map(b => <CardView key={b!.id} card={b!} flag={f} width="34px" hideText />)}
+                      </div>
+                      {buddies.length > 5 && <span className="text-xs text-slate-500">+{buddies.length - 5}</span>}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditing(f)} className="btn flex-1 !py-1.5"><Edit3 size={14} /> แก้ไข</button>
+                    <button onClick={() => del(f.id)} className="btn btn-danger !py-1.5 !px-3"><Trash2 size={14} /></button>
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+            );
+          })}
+        </div>
+      )}
+    </ScreenShell>
   );
 }

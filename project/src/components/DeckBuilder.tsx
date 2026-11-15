@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Plus, Save, Trash2, Star, Search, ArrowLeft, ArrowRight, Download, Upload } from "lucide-react";
+import { Plus, Save, Trash2, Star, Search, ArrowLeft, ArrowRight, Download, Upload, BookOpen } from "lucide-react";
+import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Deck, Card, Flag } from "@/types";
 import { getDecks, saveDecks, getCards, getFlags, uid, downloadJSON, importAll } from "@/storage";
 import { CardView } from "@/components/CardView";
@@ -187,49 +188,59 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
     );
   }
 
+  const TYPE_COL: Record<string, string> = { Monster: "#f59e0b", Spell: "#38bdf8", Item: "#34d399", Impact: "#fb7185" };
   return (
-    <div className="min-h-screen bg-slate-950 text-white p-6">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-cyan-400">Deck Builder</h2>
-          <div className="flex gap-2">
-            <button onClick={() => downloadJSON(JSON.stringify(decks, null, 2), "decks.json")} className="px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition flex items-center gap-1 text-sm"><Download size={14} /> Export</button>
-            <label className="px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition flex items-center gap-1 text-sm cursor-pointer"><Upload size={14} /> Import<input type="file" accept=".json" className="hidden" onChange={handleImport} /></label>
-            <button onClick={startNew} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg transition flex items-center gap-2"><Plus size={16} /> สร้างเด็ค</button>
-            <button onClick={onBack} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition">กลับ</button>
-          </div>
-        </div>
-
-        {decks.length === 0 ? (
-          <div className="text-center py-20 text-slate-500">
-            <p className="text-lg">ยังไม่มีเด็ค</p>
-            <p className="text-sm mt-2">กด "สร้างเด็ค" เพื่อเริ่มจัดเด็คของคุณ</p>
-          </div>
-        ) : (
-          <div className="grid md:grid-cols-2 gap-4">
-            {decks.map(d => {
-              const flag = flagOf(d.flagId);
-              const buddy = d.buddyId ? cardOf(d.buddyId) : null;
-              return (
-                <div key={d.id} className="bg-slate-900 border-2 rounded-xl p-4" style={{ borderColor: flag?.color || "#334155" }}>
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h3 className="font-bold text-lg" style={{ color: flag?.color }}>{d.name}</h3>
-                      <p className="text-sm text-slate-400">{flag?.name ?? "ไม่มี Flag"} | {d.cardIds.length} ใบ</p>
-                      {buddy && <p className="text-xs text-amber-400 mt-1 flex items-center gap-1"><Star size={10} fill="currentColor" /> Buddy: {buddy.name}</p>}
+    <ScreenShell
+      title="Deck Builder" subtitle="จัดเด็ค เลือก Flag และ Buddy ประจำเด็ค" icon={BookOpen} accent="#fbbf24" onBack={onBack}
+      actions={<>
+        <button onClick={() => downloadJSON(JSON.stringify(decks, null, 2), "decks.json")} className="btn"><Download size={14} /> Export</button>
+        <label className="btn cursor-pointer"><Upload size={14} /> Import<input type="file" accept=".json" className="hidden" onChange={handleImport} /></label>
+        <button onClick={startNew} className="btn btn-primary"><Plus size={16} /> สร้างเด็ค</button>
+      </>}
+    >
+      {decks.length === 0 ? (
+        <EmptyState icon={BookOpen} title="ยังไม่มีเด็ค" hint='กด "สร้างเด็ค" เพื่อเริ่มจัดเด็คของคุณ' action={<button onClick={startNew} className="btn btn-primary"><Plus size={16} /> สร้างเด็คแรก</button>} />
+      ) : (
+        <div className="grid md:grid-cols-2 gap-5">
+          {decks.map(d => {
+            const flag = flagOf(d.flagId);
+            const col = flag?.color || "#475569";
+            const buddy = d.buddyId ? cardOf(d.buddyId) : null;
+            const counts: Record<string, number> = { Monster: 0, Spell: 0, Item: 0, Impact: 0 };
+            d.cardIds.forEach(id => { const c = cardOf(id); if (c) counts[c.type] = (counts[c.type] ?? 0) + 1; });
+            const total = Math.max(1, d.cardIds.length);
+            return (
+              <div key={d.id} className="panel lift group overflow-hidden flex" style={{ borderColor: `${col}66`, ["--glow" as string]: `${col}66` }}>
+                <div className="relative w-28 shrink-0 cursor-pointer" onClick={() => setEditing(d)}>
+                  {flag?.image ? <img src={flag.image} alt="" className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-110" /> : <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${col}, #0f172a)` }} />}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent to-slate-950/80" />
+                </div>
+                <div className="flex-1 min-w-0 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h3 className="font-display font-bold text-xl truncate" style={{ color: col }}>{d.name}</h3>
+                      <p className="text-sm text-slate-400 truncate">{flag?.name ?? "ไม่มี Flag"}</p>
                     </div>
-                    <div className="flex gap-1">
-                      <button onClick={() => setEditing(d)} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm">แก้ไข</button>
-                      {onPlay && <button onClick={() => onPlay(d)} className="p-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm">เล่น</button>}
-                      <button onClick={() => del(d.id)} className="p-2 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={14} /></button>
-                    </div>
+                    <span className={`chip shrink-0 ${d.cardIds.length === 50 ? "!text-emerald-300 !border-emerald-500/40" : "!text-amber-300 !border-amber-500/40"}`} title="เด็คมาตรฐาน Buddyfight ใช้ 50 ใบ">{d.cardIds.length}/50 ใบ</span>
+                  </div>
+                  <div className="flex h-2 rounded-full overflow-hidden bg-slate-800 my-3" title="สัดส่วนประเภทการ์ด">
+                    {Object.entries(counts).map(([t, n]) => n > 0 && <div key={t} style={{ width: `${(n / total) * 100}%`, background: TYPE_COL[t] }} title={`${t} ${n}`} />)}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mb-3 text-xs">
+                    {Object.entries(counts).map(([t, n]) => <span key={t} className="chip"><span className="w-2 h-2 rounded-full" style={{ background: TYPE_COL[t] }} />{t} {n}</span>)}
+                    {buddy && <span className="chip !text-amber-300"><Star size={10} fill="currentColor" /> {buddy.name}</span>}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditing(d)} className="btn !py-1.5 flex-1">แก้ไข</button>
+                    {onPlay && <button onClick={() => onPlay(d)} className="btn btn-primary !py-1.5">เล่น</button>}
+                    <button onClick={() => del(d.id)} className="btn btn-danger !py-1.5 !px-3"><Trash2 size={14} /></button>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </ScreenShell>
   );
 }
