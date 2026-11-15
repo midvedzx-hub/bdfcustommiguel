@@ -344,10 +344,13 @@ function applyEffects(
 export function createPlayerState(deck: Deck, flag: Flag, _cards: Card[]): PlayerState {
   const allCards = [...deck.cardIds];
   if (deck.buddyId && !allCards.includes(deck.buddyId)) allCards.push(deck.buddyId);
-  const hand = allCards.splice(0, Math.min(flag.startHand, allCards.length));
-  const gaugePile = allCards.splice(0, Math.min(flag.startGauge, allCards.length));
+  // ค่าเริ่มต้นมาจาก Flag (Life / จั่ว / เกจ) — ถ้า Flag เก่าไม่มีค่า ใช้ค่ามาตรฐาน Buddyfight
+  const num = (v: unknown, d: number) => { const n = Math.floor(Number(v)); return Number.isFinite(n) && n >= 0 ? n : d; };
+  const handN = num(flag.startHand, 6), gaugeN = num(flag.startGauge, 2);
+  const hand = allCards.splice(0, Math.min(handN, allCards.length));
+  const gaugePile = allCards.splice(0, Math.min(gaugeN, allCards.length));
   return {
-    life: flag.life,
+    life: num(flag.life, 10) || 10,
     gauge: gaugePile.length,
     gaugePile,
     deck: allCards,
@@ -400,6 +403,10 @@ export function createInitialState(
     log: [`เกมเริ่มต้นแล้ว! ${nameOf(first)} เริ่มก่อน (เทิร์นแรกไม่จั่ว) — เลือก Mulligan ก่อนเริ่มเล่น`],
     winner: null,
   };
+  (["host", "guest"] as Side[]).forEach(s => {
+    const f = s === "host" ? hostFlag : guestFlag;
+    log(g, `${nameOf(s)} (${f?.name ?? "Flag"}): Life ${g[s].life} · มือเริ่มต้น ${g[s].hand.length} ใบ · เกจเริ่มต้น ${g[s].gauge} ใบ · เด็คเหลือ ${g[s].deck.length} ใบ`);
+  });
   startTurn(g, true);
   return g;
 }

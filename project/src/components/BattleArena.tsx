@@ -474,7 +474,13 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     const miss = (d: Deck) => d.cardIds.filter(id => !getCard(id)).length;
     const mine = miss(hostDeck);
     const bot = mode === "bot" ? miss(guestDeck) : 0;
-    if (mine + bot > 0) setNotice({ title: "พบการ์ดที่ถูกลบไปแล้วในเด็ค", msg: `เด็คมีการ์ดที่ไม่มีข้อมูลแล้ว ${mine > 0 ? `${mine} ใบ (เด็คของคุณ)` : ""}${mine > 0 && bot > 0 ? " และ " : ""}${bot > 0 ? `${bot} ใบ (เด็คบอท)` : ""} — ระบบตัดออกจากเกมนี้ให้แล้ว ไปที่ Deck Builder เพื่อลบ/แทนที่การ์ดเหล่านั้นถาวร` });
+    const msgs: string[] = [];
+    if (mine + bot > 0) msgs.push(`เด็คมีการ์ดที่ไม่มีข้อมูลแล้ว ${mine > 0 ? `${mine} ใบ (เด็คของคุณ)` : ""}${mine > 0 && bot > 0 ? " และ " : ""}${bot > 0 ? `${bot} ใบ (เด็คบอท)` : ""} — ระบบตัดออกจากเกมนี้ให้แล้ว ไปที่ Deck Builder เพื่อลบ/แทนที่ถาวร`);
+    // เด็คต้องมีการ์ดพอสำหรับมือเริ่มต้น + เกจเริ่มต้นตาม Flag
+    const valid = hostDeck.cardIds.filter(id => !!getCard(id)).length;
+    const need = (Number(hostFlag?.startHand) || 0) + (Number(hostFlag?.startGauge) || 0);
+    if (hostFlag && valid < need) msgs.push(`เด็คของคุณมีการ์ดที่ใช้ได้เพียง ${valid} ใบ แต่ Flag "${hostFlag.name}" กำหนดมือเริ่มต้น ${hostFlag.startHand} ใบ + เกจ ${hostFlag.startGauge} ใบ (รวม ${need}) จึงได้มือไม่ครบ — เพิ่มการ์ดในเด็คให้พอ (แนะนำ 40+ ใบ)`);
+    if (msgs.length) setNotice({ title: "ตรวจพบปัญหาเด็ค", msg: msgs.join("\n\n") });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1141,7 +1147,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             <AlertTriangle size={22} />
             <h3 className="font-display text-lg font-bold">{notice.title}</h3>
           </div>
-          <p className="text-slate-200 text-sm leading-relaxed mb-4">{notice.msg}</p>
+          <p className="text-slate-200 text-sm leading-relaxed mb-4 whitespace-pre-line">{notice.msg}</p>
           <button autoFocus onClick={() => setNotice(null)} className="w-full py-2 bg-amber-600 hover:bg-amber-500 rounded-lg font-bold">ตกลง</button>
         </div>
       </div>
