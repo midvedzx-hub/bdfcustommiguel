@@ -329,7 +329,7 @@ export function CardStudio({ onBack }: { onBack: () => void }) {
             {filtered.map(c => (
               <div key={c.id} className="relative group">
                 <CardView card={c} flag={flagOf(c)} size="md" />
-                <div className="absolute inset-0 bg-slate-950/80 opacity-0 group-hover:opacity-100 transition rounded-lg flex items-center justify-center gap-2">
+                <div className="absolute inset-0 z-30 bg-slate-950/80 opacity-0 group-hover:opacity-100 transition rounded-lg flex items-center justify-center gap-2">
                   <button onClick={() => setEditing(c)} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg"><Edit3 size={16} /></button>
                   <button onClick={() => del(c.id)} className="p-2 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={16} /></button>
                 </div>

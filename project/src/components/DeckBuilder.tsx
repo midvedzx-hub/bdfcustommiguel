@@ -148,7 +148,7 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
                   {filtered.map(c => (
                     <div key={c.id} className="relative group" onClick={() => addCard(c.id)}>
                       <CardView card={c} flag={flagOf(c.flagId)} size="sm" />
-                      <div className="absolute inset-0 bg-cyan-500/20 opacity-0 group-hover:opacity-100 transition rounded-lg flex items-center justify-center">
+                      <div className="absolute inset-0 z-30 bg-cyan-500/20 opacity-0 group-hover:opacity-100 transition rounded-lg flex items-center justify-center">
                         <Plus className="text-cyan-300" />
                       </div>
                     </div>

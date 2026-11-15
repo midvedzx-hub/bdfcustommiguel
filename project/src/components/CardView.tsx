@@ -84,7 +84,7 @@ export function CardView({
     fontSize: `calc(${w} / 16)`,
     ...style,
   };
-  const common = `relative rounded-[0.7em] overflow-hidden shadow-lg shrink-0 select-none ${onClick ? "cursor-pointer" : ""} ${className}`;
+  const common = `relative isolate rounded-[0.7em] overflow-hidden shadow-lg shrink-0 select-none ${onClick ? "cursor-pointer" : ""} ${className}`;
   const dnd = {
     draggable, onDragStart, onDragEnd,
     onContextMenu: onInspect ? (e: React.MouseEvent) => { e.preventDefault(); onInspect(); } : undefined,
