@@ -119,6 +119,7 @@ export function SandboxPanel({ game, mySide, cardOf, libraryCards, doAction, act
   const [selUid, setSelUid] = useState<string | null>(null);
   const [selSoul, setSelSoul] = useState<number | null>(null);
   const [selLib, setSelLib] = useState<string | null>(null);
+  const [soulSrc, setSoulSrc] = useState<"deck" | "hand" | "drop">("deck");
   const [search, setSearch] = useState("");
   const [collapsed, setCollapsed] = useState(false);
 
@@ -149,6 +150,26 @@ export function SandboxPanel({ game, mySide, cardOf, libraryCards, doAction, act
   }, [libraryCards, search]);
 
   const run = (fn: (s: GameState) => Result) => act("Sandbox", fn);
+  // ถอด Soul ทั้งหมดของการ์ดใบนี้ไปโซนที่เลือก
+  const removeAllSoul = (uid: string, n: number, to: SbDest) => run(s => {
+    let cur = s;
+    for (let i = 0; i < n; i++) {
+      const r = sandboxMove(cur, { side, zone: "soul", uid, index: 0 }, to);
+      if (!r.ok) return i === 0 ? r : { state: cur, ok: true, msg: "" };
+      cur = r.state;
+    }
+    return { state: cur, ok: true, msg: "" };
+  });
+  // เพิ่ม Soul จากใบบนสุดของเด็ค n ใบ (หยุดเมื่อเด็คหมด)
+  const addSoulFromDeck = (uid: string, n: number) => run(s => {
+    let cur = s;
+    for (let i = 0; i < n; i++) {
+      const r = sandboxMove(cur, { side, zone: "deck", index: 0 }, { side, zone: "soul", uid });
+      if (!r.ok) return i === 0 ? r : { state: cur, ok: true, msg: "" };
+      cur = r.state;
+    }
+    return { state: cur, ok: true, msg: "" };
+  });
   const setLife = (d: number) => doAction(s => sandboxSetPlayer(s, side, { life: s[side].life + d }));
 
   const tabBtn = (t: SbTab, l: string) => (
@@ -288,9 +309,54 @@ export function SandboxPanel({ game, mySide, cardOf, libraryCards, doAction, act
 
               <div>
                 <div className={sectionTitle}>Soul ({selFc.soul.length})</div>
-                {selFc.soul.length === 0 ? <div className="text-slate-500">ไม่มี Soul (เพิ่มได้จากแถบย้ายการ์ด → 'ใส่ Soul ของ')</div> : (
+                {selFc.soul.length > 0 && (
+                  <div className="mb-2 p-2 rounded-lg bg-slate-950 border border-rose-500/40 space-y-1.5">
+                    <div className="font-bold text-rose-300">ถอด Soul ทั้งหมด ({selFc.soul.length}) ไป:</div>
+                    <div className="flex flex-wrap gap-1">
+                      <button className={btn} onClick={() => removeAllSoul(selFc.uid, selFc.soul.length, { side, zone: "hand" })}>มือ</button>
+                      <button className={btn} onClick={() => removeAllSoul(selFc.uid, selFc.soul.length, { side, zone: "drop" })}>สุสาน</button>
+                      <button className={btn} onClick={() => removeAllSoul(selFc.uid, selFc.soul.length, { side, zone: "deck" })}>เด็ค (บนสุด)</button>
+                      <button className={btn} onClick={() => removeAllSoul(selFc.uid, selFc.soul.length, { side, zone: "gauge" })}>เกจ</button>
+                    </div>
+                    <div className="text-slate-500">หรือแตะ Soul ทีละใบด้านล่าง แล้วเลือกปลายทาง</div>
+                  </div>
+                )}
+                {selFc.soul.length === 0 ? <div className="text-slate-500">ยังไม่มี Soul</div> : (
                   <div className="flex flex-wrap gap-1.5">
                     {selFc.soul.map((id, i) => <Thumb key={`${i}-${id}`} id={id} card={cardOf(id)} selected={selSoul === i} onClick={() => setSelSoul(selSoul === i ? null : i)} />)}
+                  </div>
+                )}
+                <div className="mt-2 p-2 rounded-lg bg-slate-950 border border-violet-500/40 space-y-1.5">
+                  <div className="font-bold text-violet-300">เพิ่ม Soul ให้การ์ดใบนี้ จาก:</div>
+                  <div className="flex gap-1">
+                    <button className={soulSrc === "deck" ? btnOn : btn} onClick={() => setSoulSrc("deck")}>กองการ์ด ({p.deck.length})</button>
+                    <button className={soulSrc === "hand" ? btnOn : btn} onClick={() => setSoulSrc("hand")}>มือ ({p.hand.length})</button>
+                    <button className={soulSrc === "drop" ? btnOn : btn} onClick={() => setSoulSrc("drop")}>สุสาน ({p.dropZone.length})</button>
+                  </div>
+                  {soulSrc === "deck" && (
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className="text-slate-400">ใบบนสุดของเด็ค:</span>
+                      {[1, 2, 3, 5].map(n => <button key={n} className={btn} onClick={() => addSoulFromDeck(selFc.uid, n)}>+{n} ใบ</button>)}
+                    </div>
+                  )}
+                  <div className="text-slate-500">{soulSrc === "deck" ? "หรือเลือกใบที่ต้องการจากกอง (#1 = บนสุด):" : "แตะการ์ดเพื่อใส่เป็น Soul ทันที:"}</div>
+                  {(soulSrc === "deck" ? p.deck : soulSrc === "hand" ? p.hand : p.dropZone).length === 0 ? (
+                    <div className="text-slate-500 text-center py-1">ไม่มีการ์ดในโซนนี้</div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5 max-h-[150px] overflow-y-auto">
+                      {(soulSrc === "deck" ? p.deck : soulSrc === "hand" ? p.hand : p.dropZone).map((id, i) => (
+                        <Thumb key={`${soulSrc}-${i}-${id}`} id={id} card={cardOf(id)} badge={soulSrc === "deck" ? `#${i + 1}` : undefined}
+                          onClick={() => run(s => sandboxMove(s, { side, zone: soulSrc, index: i }, { side, zone: "soul", uid: selFc.uid }))} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {selSoul !== null && selFc.soul[selSoul] !== undefined && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1">
+                    <span className="text-rose-300 font-bold">ถอดใบนี้ไป:</span>
+                    {([["hand", "มือ"], ["drop", "สุสาน"], ["deck", "เด็ค"], ["gauge", "เกจ"]] as const).map(([z, l]) => (
+                      <button key={z} className={btn} onClick={() => { const ref: SbRef = { side, zone: "soul", uid: selFc.uid, index: selSoul }; if (run(s => sandboxMove(s, ref, { side, zone: z }))) setSelSoul(null); }}>{l}</button>
+                    ))}
                   </div>
                 )}
                 {selSoul !== null && selFc.soul[selSoul] !== undefined && (

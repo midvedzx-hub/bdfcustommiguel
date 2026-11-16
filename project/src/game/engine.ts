@@ -1344,6 +1344,10 @@ export function sandboxMove(state: GameState, from: SbRef, to: SbDest): Result {
   if (taken.fc && taken.fc.soul.length > 0) g[from.side].dropZone.push(...taken.fc.soul);
   const err = sbPut(g, to, taken.cardId);
   if (err) return { state, ok: false, msg: err };
+  if (to.zone === "soul") {
+    const host = findFc(g[to.side], to.uid ?? "");
+    if (host) fx(g, { k: "soulIn", side: to.side, uid: host.uid, pos: posOf(g, to.side, host), n: 1, from: from.zone === "deck" ? "deck" : from.zone === "drop" ? "drop" : undefined });
+  }
   const nm = _cardCache[taken.cardId]?.name ?? "การ์ด";
   log(g, `[Sandbox] ย้าย ${nm}: ${nameOf(from.side)}/${SB_ZONE_NAMES[from.zone]} → ${nameOf(to.side)}/${SB_ZONE_NAMES[to.zone]}`);
   return { state: g, ok: true, msg: "ย้ายแล้ว" };
