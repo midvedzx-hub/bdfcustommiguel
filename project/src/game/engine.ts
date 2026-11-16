@@ -1230,7 +1230,7 @@ export function sandboxFlipRest(state: GameState, side: Side, monsterUid: string
 
 export function sandboxAdjustPower(state: GameState, side: Side, monsterUid: string, delta: number): GameState {
   const g = structuredClone(state);
-  const m = g[side].monsters.find(mo => mo.uid === monsterUid);
+  const m = findFc(g[side], monsterUid);
   if (m) m.tempPower += delta;
   return g;
 }
@@ -1250,4 +1250,216 @@ export function sandboxFreeDraw(state: GameState, side: Side): GameState {
   const g = structuredClone(state);
   mDraw(g, side, 1, false);
   return g;
+}
+
+/* ------------------------------------------------------------------ */
+/* Sandbox: เครื่องมือแก้เกมด้วยมือ (ย้ายการ์ดได้ทุกโซน / แก้ค่าได้ทุกอย่าง) */
+/* ------------------------------------------------------------------ */
+export type SbZone = "hand" | "deck" | "gauge" | "drop" | "set" | "monster" | "item" | "soul";
+// ต้นทาง: zone + index (มือ/เด็ค/เกจ/สุสาน/Set/soul) หรือ uid (การ์ดบนสนาม, soul = uid การ์ดที่ถือ soul)
+export type SbRef = { side: Side; zone: SbZone; index?: number; uid?: string };
+// ปลายทาง: pos = ช่องมอนสเตอร์ 0-2, uid = การ์ดที่จะรับ soul, deckBottom = ใส่ใต้เด็ค
+export type SbDest = { side: Side; zone: SbZone; pos?: number; uid?: string; deckBottom?: boolean };
+
+export function allCachedCards(): Card[] {
+  return Object.values(_cardCache);
+}
+
+const SB_ZONE_NAMES: Record<SbZone, string> = {
+  hand: "มือ", deck: "เด็ค", gauge: "เกจ", drop: "สุสาน", set: "Set", monster: "สนาม(มอนสเตอร์)", item: "ช่องไอเทม", soul: "Soul",
+};
+
+// ดึงการ์ดออกจากต้นทาง (แก้ g โดยตรง) คืน cardId หรือข้อความ error
+function sbTake(g: GameState, ref: SbRef): { cardId: string; fc?: FieldCard } | string {
+  const p = g[ref.side];
+  const byIndex = (arr: string[]): { cardId: string } | string => {
+    const i = ref.index ?? -1;
+    if (i < 0 || i >= arr.length) return "ไม่พบการ์ดที่เลือก (ข้อมูลอาจเปลี่ยนไปแล้ว)";
+    return { cardId: arr.splice(i, 1)[0] };
+  };
+  switch (ref.zone) {
+    case "hand": return byIndex(p.hand);
+    case "deck": return byIndex(p.deck);
+    case "drop": return byIndex(p.dropZone);
+    case "set": return byIndex(p.setZone);
+    case "gauge": { const r = byIndex(p.gaugePile); syncGauge(p); return r; }
+    case "monster": {
+      const m = p.monsters.find(x => x.uid === ref.uid);
+      if (!m) return "ไม่พบมอนสเตอร์";
+      p.monsters = p.monsters.filter(x => x.uid !== m.uid);
+      return { cardId: m.cardId, fc: m };
+    }
+    case "item": {
+      if (!p.item || (ref.uid && p.item.uid !== ref.uid)) return "ไม่พบไอเทม";
+      const it = p.item;
+      p.item = null;
+      return { cardId: it.cardId, fc: it };
+    }
+    case "soul": {
+      const host = findFc(p, ref.uid ?? "");
+      if (!host) return "ไม่พบการ์ดที่ถือ Soul";
+      const i = ref.index ?? -1;
+      if (i < 0 || i >= host.soul.length) return "ไม่พบ Soul ที่เลือก";
+      return { cardId: host.soul.splice(i, 1)[0] };
+    }
+  }
+}
+
+// วางการ์ดที่ปลายทาง คืน null ถ้าสำเร็จ หรือข้อความ error
+function sbPut(g: GameState, dest: SbDest, cardId: string): string | null {
+  const p = g[dest.side];
+  switch (dest.zone) {
+    case "hand": p.hand.push(cardId); return null;
+    case "deck": if (dest.deckBottom) p.deck.push(cardId); else p.deck.unshift(cardId); return null;
+    case "drop": p.dropZone.push(cardId); return null;
+    case "set": p.setZone.push(cardId); return null;
+    case "gauge": p.gaugePile.push(cardId); syncGauge(p); return null;
+    case "monster": {
+      let pos = dest.pos;
+      if (pos === undefined) pos = [1, 0, 2].find(x => !p.monsters.some(m => m.position === x));
+      if (pos === undefined) return "ช่องมอนสเตอร์เต็มทั้ง 3 ช่อง";
+      if (p.monsters.some(m => m.position === pos)) return `ช่อง${POSITION_NAMES[pos]}มีมอนสเตอร์อยู่แล้ว (ย้ายออกก่อน หรือใช้ 'สลับช่อง')`;
+      p.monsters.push(newFieldCard(cardId, pos));
+      return null;
+    }
+    case "item": {
+      if (p.item) { p.dropZone.push(p.item.cardId, ...p.item.soul); }
+      p.item = newFieldCard(cardId, 0);
+      return null;
+    }
+    case "soul": {
+      const host = findFc(p, dest.uid ?? "");
+      if (!host) return "เลือกการ์ดบนสนามที่จะรับ Soul ก่อน";
+      host.soul.push(cardId);
+      return null;
+    }
+  }
+}
+
+export function sandboxMove(state: GameState, from: SbRef, to: SbDest): Result {
+  const g = structuredClone(state);
+  const taken = sbTake(g, from);
+  if (typeof taken === "string") return { state, ok: false, msg: taken };
+  // การ์ดบนสนามที่ย้ายออก: Soul ของมันลงสุสานของเจ้าของ (ย้ายไปช่องอื่นของสนามก็เช่นกัน)
+  if (taken.fc && taken.fc.soul.length > 0) g[from.side].dropZone.push(...taken.fc.soul);
+  const err = sbPut(g, to, taken.cardId);
+  if (err) return { state, ok: false, msg: err };
+  const nm = _cardCache[taken.cardId]?.name ?? "การ์ด";
+  log(g, `[Sandbox] ย้าย ${nm}: ${nameOf(from.side)}/${SB_ZONE_NAMES[from.zone]} → ${nameOf(to.side)}/${SB_ZONE_NAMES[to.zone]}`);
+  return { state: g, ok: true, msg: "ย้ายแล้ว" };
+}
+
+// สร้างสำเนาการ์ดจากคลัง ไปวางที่ใดก็ได้
+export function sandboxSpawn(state: GameState, cardId: string, to: SbDest): Result {
+  if (!_cardCache[cardId]) return { state, ok: false, msg: "ไม่พบการ์ดนี้ในคลัง" };
+  const g = structuredClone(state);
+  const err = sbPut(g, to, cardId);
+  if (err) return { state, ok: false, msg: err };
+  log(g, `[Sandbox] สร้าง ${_cardCache[cardId].name} → ${nameOf(to.side)}/${SB_ZONE_NAMES[to.zone]}`);
+  return { state: g, ok: true, msg: "สร้างการ์ดแล้ว" };
+}
+
+// ลบการ์ดออกจากเกมเลย
+export function sandboxRemoveCard(state: GameState, from: SbRef): Result {
+  const g = structuredClone(state);
+  const taken = sbTake(g, from);
+  if (typeof taken === "string") return { state, ok: false, msg: taken };
+  if (taken.fc && taken.fc.soul.length > 0) g[from.side].dropZone.push(...taken.fc.soul);
+  log(g, `[Sandbox] นำ ${_cardCache[taken.cardId]?.name ?? "การ์ด"} ออกจากเกม`);
+  return { state: g, ok: true, msg: "ลบแล้ว" };
+}
+
+export type SbFieldPatch = Partial<Pick<FieldCard, "state" | "tempPower" | "tempCritical" | "tempDefense" | "attacks" | "nullified" | "guardUsed" | "movedTurn" | "counterUsedTurn">>;
+
+export function sandboxEditField(state: GameState, side: Side, fcUid: string, patch: SbFieldPatch): GameState {
+  const g = structuredClone(state);
+  const fc = findFc(g[side], fcUid);
+  if (!fc) return state;
+  Object.assign(fc, patch);
+  return g;
+}
+
+export function sandboxAdjustStat(state: GameState, side: Side, fcUid: string, stat: "tempPower" | "tempCritical" | "tempDefense", delta: number): GameState {
+  const g = structuredClone(state);
+  const fc = findFc(g[side], fcUid);
+  if (!fc) return state;
+  fc[stat] += delta;
+  return g;
+}
+
+export type SbPlayerPatch = Partial<Pick<PlayerState, "life" | "buddyCalledThisGame" | "soulguardOff">>;
+
+export function sandboxSetPlayer(state: GameState, side: Side, patch: SbPlayerPatch): GameState {
+  const g = structuredClone(state);
+  const p = g[side];
+  if (patch.life !== undefined) {
+    p.life = Math.max(0, Math.round(patch.life));
+    fx(g, { k: "life", side, delta: p.life - state[side].life });
+  }
+  if (patch.buddyCalledThisGame !== undefined) p.buddyCalledThisGame = patch.buddyCalledThisGame;
+  if (patch.soulguardOff !== undefined) p.soulguardOff = patch.soulguardOff;
+  log(g, `[Sandbox] ปรับค่าผู้เล่น ${nameOf(side)}`);
+  checkWin(g);
+  return g;
+}
+
+export type SbGamePatch = {
+  phase?: GameState["phase"];
+  currentTurn?: Side;
+  turn?: number;
+  attacksThisTurn?: number;
+  winner?: Side | null;
+  clearBattle?: boolean;
+};
+
+export function sandboxSetGame(state: GameState, patch: SbGamePatch): GameState {
+  const g = structuredClone(state);
+  if (patch.phase !== undefined) g.phase = patch.phase;
+  if (patch.currentTurn !== undefined) g.currentTurn = patch.currentTurn;
+  if (patch.turn !== undefined) g.turn = Math.max(1, Math.round(patch.turn));
+  if (patch.attacksThisTurn !== undefined) g.attacksThisTurn = Math.max(0, patch.attacksThisTurn);
+  if (patch.clearBattle) { g.battle = null; g.moveWindow = null; }
+  if (patch.winner !== undefined) {
+    g.winner = patch.winner;
+    if (patch.winner === null) {
+      // ยกเลิกผลแพ้ชนะ: คืน Life ขั้นต่ำ 1 ให้ฝั่งที่ Life หมด เพื่อไม่ให้จบเกมซ้ำทันที
+      (["host", "guest"] as Side[]).forEach(s => { if (g[s].life <= 0) g[s].life = 1; });
+    }
+  }
+  log(g, "[Sandbox] ปรับสถานะเกม");
+  return g;
+}
+
+export function sandboxStandAll(state: GameState, side: Side): GameState {
+  const g = structuredClone(state);
+  const p = g[side];
+  [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => { fc.state = "stand"; fc.attacks = 0; });
+  log(g, `[Sandbox] Stand การ์ดทั้งหมดของ ${nameOf(side)}`);
+  return g;
+}
+
+export function sandboxClearBuffs(state: GameState, side: Side): GameState {
+  const g = structuredClone(state);
+  const p = g[side];
+  [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
+    fc.tempPower = 0; fc.tempCritical = 0; fc.tempDefense = 0; fc.nullified = false;
+  });
+  log(g, `[Sandbox] ล้างบัฟชั่วคราวของ ${nameOf(side)}`);
+  return g;
+}
+
+export function sandboxShuffleDeck(state: GameState, side: Side): GameState {
+  const g = structuredClone(state);
+  const d = g[side].deck;
+  for (let i = d.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [d[i], d[j]] = [d[j], d[i]];
+  }
+  log(g, `[Sandbox] สับเด็ค ${nameOf(side)}`);
+  return g;
+}
+
+// สลับ/ย้ายช่องมอนสเตอร์ (ช่องว่างก็ย้ายไปได้)
+export function sandboxSwapSlot(state: GameState, side: Side, fcUid: string, pos: number): GameState {
+  return sandboxMoveToPosition(state, side, fcUid, pos);
 }

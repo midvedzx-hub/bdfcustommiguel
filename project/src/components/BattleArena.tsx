@@ -14,7 +14,7 @@ import { keywordValue,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   type AttackTarget, type CounterOption, type Result,
-  setSoulguardAuto, closeMoveWindow, movableMonsters,
+  setSoulguardAuto, closeMoveWindow, movableMonsters, allCachedCards, sandboxSetGame,
 } from "@/game/engine";
 import { getFlags, getCards, getDecks } from "@/storage";
 import { getFlagColor, hasCounter, skillLines, keywordBadges, costText, effectText, KEYWORD_HELP, TRIGGER_HELP } from "@/game/helpers";
@@ -23,6 +23,7 @@ import { CardView } from "@/components/CardView";
 import { FxLayer, Banner } from "@/components/FxLayer";
 import { playSfx } from "@/game/sfx";
 import { AudioControl } from "@/components/AudioControl";
+import { SandboxPanel, type SbFocus } from "@/components/SandboxPanel";
 
 interface Props {
   mode: "bot" | "multiplayer";
@@ -296,6 +297,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const syncedRef = useRef(mode !== "multiplayer");
   const menuRef = useRef<HTMLDivElement>(null);
   const [sandbox, setSandbox] = useState(false);
+  const [sbFocus, setSbFocus] = useState<SbFocus | null>(null);
   const [atkSels, setAtkSels] = useState<string[]>([]);
   const [linkMode, setLinkMode] = useState(false);
   const [moveSel, setMoveSel] = useState<string | null>(null);
@@ -676,7 +678,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 return setAtkSels(atkSels.length === 1 && atkSels[0] === m.uid ? [] : [m.uid]);
               }
               if (isMine && canMoveThis) return setMoveSel(moveSel === m.uid ? null : m.uid);
-              if (sandbox) return setMenuTarget({ kind: "field", side, uid: m.uid });
+              if (sandbox) return setSbFocus({ tab: "field", side, uid: m.uid });
               // ไม่มีการกระทำที่ทำได้ -> เปิดดูการ์ด พร้อมบอกเหตุผล
               let note = whyBlocked();
               if (!note && isMine) {
@@ -751,7 +753,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         </div>
 
         {/* Gauge */}
-        <RectZone fx={`gauge:${side}`} style={place(2, 11, 14.5, 50, mirror)} label={p.gauge === 0 ? "เกจ" : undefined} className="relative">
+        <RectZone fx={`gauge:${side}`} style={place(2, 11, 14.5, 50, mirror)} label={p.gauge === 0 ? "เกจ" : undefined} className="relative" onClick={() => sandbox && setSbFocus({ tab: "zones", side, zone: "gauge" })}>
           <div className="absolute inset-x-[14%] flex flex-col items-center" style={{ top: mirror ? "auto" : "6%", bottom: mirror ? "6%" : "auto" }}>
             {Array.from({ length: gaugeCards }).map((_, i) => (
               <div key={i} className="rounded-sm bg-slate-600 border border-slate-400/70" style={{ width: "100%", height: "calc(var(--mh) * 0.05)", marginTop: i === 0 ? 0 : "calc(var(--mh) * -0.012)" }} />
@@ -762,8 +764,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           </div>
           {sandbox && (
             <div className="absolute top-0.5 right-0.5 flex gap-0.5 z-20">
-              <button title="Charge +1" onClick={() => doAction(s => addGauge(s, side, 1))} className="p-0.5 bg-amber-800 hover:bg-amber-600 rounded"><Plus size={11} /></button>
-              <button title="จ่ายเกจ 1" onClick={() => doAction(s => sandboxPayGauge(s, side, 1))} className="p-0.5 bg-slate-800 hover:bg-slate-600 rounded"><Minus size={11} /></button>
+              <button title="Charge +1" onClick={(e) => { e.stopPropagation(); doAction(s => addGauge(s, side, 1)); }} className="p-0.5 bg-amber-800 hover:bg-amber-600 rounded"><Plus size={11} /></button>
+              <button title="จ่ายเกจ 1" onClick={(e) => { e.stopPropagation(); doAction(s => sandboxPayGauge(s, side, 1)); }} className="p-0.5 bg-slate-800 hover:bg-slate-600 rounded"><Minus size={11} /></button>
             </div>
           )}
         </RectZone>
@@ -773,13 +775,13 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         {monsterHex(2)}
 
         {/* Deck */}
-        <RectZone fx={`deck:${side}`} style={place(85.5, 11, 12.5, 31, mirror)} onClick={() => sandbox && setMenuTarget({ kind: "deck", side })} label={undefined}>
+        <RectZone fx={`deck:${side}`} style={place(85.5, 11, 12.5, 31, mirror)} onClick={() => sandbox && setSbFocus({ tab: "zones", side, zone: "deck" })} label={undefined}>
           <CardView faceDown width="calc(var(--mh) * 0.2)">
             <div className="absolute inset-0 flex items-center justify-center font-display font-bold text-white drop-shadow" style={{ fontSize: "2.4em" }}><span key={p.deck.length} className="num-pop">{p.deck.length}</span></div>
           </CardView>
         </RectZone>
         {/* Drop */}
-        <RectZone fx={`drop:${side}`} style={place(85.5, 45, 12.5, 31, mirror)} onClick={() => p.dropZone.length > 0 && setMenuTarget({ kind: "drop", side })}>
+        <RectZone fx={`drop:${side}`} style={place(85.5, 45, 12.5, 31, mirror)} onClick={() => { if (sandbox) setSbFocus({ tab: "zones", side, zone: "drop" }); else if (p.dropZone.length > 0) setMenuTarget({ kind: "drop", side }); }}>
           {p.dropZone.length > 0 && cardOf(p.dropZone[p.dropZone.length - 1]) ? (
             <div className="relative opacity-90">
               <CardView card={cardOf(p.dropZone[p.dropZone.length - 1])} flag={flag} width="calc(var(--mh) * 0.2)" hideText />
@@ -789,7 +791,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         </RectZone>
 
         {/* Set */}
-        <RectZone style={place(2, 66, 24, 29, mirror)} onDrop={isMine ? handleDropOnSet : undefined} label={p.setZone.length === 0 ? "เซ็ท" : undefined}>
+        <RectZone style={place(2, 66, 24, 29, mirror)} onDrop={isMine ? handleDropOnSet : undefined} onClick={() => sandbox && setSbFocus({ tab: "zones", side, zone: "set" })} label={p.setZone.length === 0 ? "เซ็ท" : undefined}>
           <div className="flex gap-1 items-center justify-center">
             {p.setZone.map((id, i) => (
               <div key={i} onMouseEnter={() => isMine && cardOf(id) && setHovered({ card: cardOf(id)!, flagId: p.flagId })}>
@@ -827,7 +829,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                   if (linkMode) return setAtkSels(atkSels.includes(p.item.uid) ? atkSels.filter(u => u !== p.item!.uid) : [...atkSels, p.item.uid]);
                   return setAtkSels(atkSels.length === 1 && atkSels[0] === p.item.uid ? [] : [p.item.uid]);
                 }
-                if (sandbox) return setMenuTarget({ kind: "field", side, uid: p.item.uid });
+                if (sandbox) return setSbFocus({ tab: "field", side, uid: p.item.uid });
                 if (itemCard) openInspect(itemCard, p.flagId, p.item, whyBlocked() ?? (p.item.state === "rest" ? `${itemCard.name} อยู่ในสถานะ Rest จะ Stand ตอนต้นเทิร์นของเจ้าของ` : game.phase !== attackPhaseName ? "ไอเทมโจมตีได้ใน Attack Phase" : undefined));
               }}
             >
@@ -1264,6 +1266,11 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           <h2 className="result-in font-display text-6xl font-extrabold mb-3" style={{ color: col, textShadow: `0 0 30px ${col}` }}>{myWin ? "ชนะ!" : "แพ้!"}</h2>
           <p className="text-slate-300 mb-2">{game.log[game.log.length - 1]}</p>
           <button onClick={onExit} className="mt-4 px-8 py-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl transition font-bold hover:scale-105">กลับเมนู</button>
+          {sandbox && (
+            <div>
+              <button onClick={() => doAction(s => sandboxSetGame(s, { winner: null }))} className="mt-3 px-6 py-2 bg-fuchsia-700 hover:bg-fuchsia-600 rounded-xl transition font-bold text-sm">Sandbox: ยกเลิกผลแพ้ชนะ แล้วเล่นต่อ</button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1342,6 +1349,18 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       <FxLayer game={game} cardOf={cardOf} flagOf={flagOf} onHide={hideUnits} />
       {banner && <Banner key={banner.key} text={banner.text} sub={banner.sub} color={banner.color} />}
       {renderMenus()}
+      {sandbox && (
+        <SandboxPanel
+          game={game}
+          mySide={mySide}
+          cardOf={cardOf}
+          libraryCards={allCachedCards()}
+          doAction={doAction}
+          act={act}
+          focus={sbFocus}
+          onClose={() => setSandbox(false)}
+        />
+      )}
       {renderMulligan()}
       {moveWindowMine && !game.battle && !game.winner && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[45] panel !rounded-2xl px-4 py-3 flex items-center gap-3 border-cyan-500/60 shadow-2xl">
