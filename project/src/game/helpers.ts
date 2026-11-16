@@ -1,5 +1,6 @@
 import type { Flag, Card, AutoSkill, AutoEffect } from "@/types";
 import { TRIGGER_LABELS } from "@/types";
+import { KEYWORD_DEFS } from "@/game/keywords";
 
 export function getFlagColor(flag?: Flag | null): string {
   return flag?.color || "#0891b2";
@@ -14,6 +15,8 @@ const KEYWORDS: Record<string, string> = {
   penetrate: "Penetrate",
   doubleAttack: "Double Attack",
   tripleAttack: "Triple Attack",
+  quadrupleAttack: "Quadruple Attack",
+  hextupleAttack: "Hextuple Attack",
   soulguard: "Soulguard",
   lifelink: "Lifelink",
   move: "Move",
@@ -51,6 +54,7 @@ export function effectText(e: AutoEffect): string {
     case "bounceOpponentMonster": return `ดึงมอนสเตอร์ศัตรู ${v} ตัวกลับมือ`;
     case "powerPerSoul": return `Power +${v} ต่อการ์ด 1 ใบใน Soul`;
     case "criticalPerSoul": return `Critical +${v} ต่อการ์ด 1 ใบใน Soul`;
+    case "kw": return e.name ?? "คีย์เวิร์ด";
     default: return KEYWORDS[e.type] ?? e.type;
   }
 }
@@ -59,7 +63,7 @@ export function effectText(e: AutoEffect): string {
 export function skillLines(card: Card): string[] {
   const lines: string[] = [];
   card.autoSkills?.forEach(sk => {
-    const allKeywords = sk.effects.every(e => e.type in KEYWORDS);
+    const allKeywords = sk.effects.every(e => e.type in KEYWORDS || e.type === "kw");
     if ((sk.trigger === "continuous" || sk.trigger === "onAttack") && allKeywords) return; // แสดงเป็นป้ายแดงแทน
     const label = TRIGGER_LABELS.find(t => t.value === sk.trigger)?.label.replace(/ \(.*\)$/, "") ?? sk.trigger;
     lines.push(`【${label}】${sk.effects.map(effectText).join("、")}`);
@@ -73,7 +77,7 @@ export function keywordBadges(card: Card): string[] {
   card.autoSkills?.forEach(sk => {
     if (sk.trigger !== "continuous" && sk.trigger !== "onAttack") return;
     sk.effects.forEach(e => {
-      const k = KEYWORDS[e.type];
+      const k = e.type === "kw" ? (e.name ?? "") : KEYWORDS[e.type];
       if (!k) return;
       const v = Math.max(1, Math.floor(e.value));
       // Lifelink แสดงค่าดาเมจเสมอ (Soulguard ถอด Soul 1 ใบเสมอ จึงไม่มีตัวเลข)
@@ -127,13 +131,7 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
 
 // คำอธิบายคีย์เวิร์ด/ตัวกระตุ้น ใช้แสดงในหน้าต่างดูการ์ด
 export const KEYWORD_HELP: Record<string, string> = {
-  Penetrate: "ถ้าโจมตีแล้วทำลายมอนสเตอร์ช่องกลางของศัตรูได้ จะทำดาเมจใส่ผู้เล่นเท่า Critical",
-  "Double Attack": "โจมตีได้ 2 ครั้งในเทิร์นเดียว (หลังโจมตีครั้งแรกจะ Stand กลับมา)",
-  "Triple Attack": "โจมตีได้ 3 ครั้งในเทิร์นเดียว",
-  Soulguard: "เมื่อการ์ดนี้กำลังจะออกจากสนาม (ถูกทำลาย ดึงกลับมือ ส่งลงสุสาน หรือใส่กลับเด็ค) เลือกถอดการ์ดจาก Soul ของมัน 1 ใบลงสุสาน เพื่อยกเลิกการออกจากสนามได้ (ต้องมี Soul) — ถ้าการ์ดถูก Nullify จะไม่ทำงาน · ปุ่ม 🛡 Soulguard ออโต้ ใช้เปิด/ปิดการใช้",
-  Lifelink: "เมื่อการ์ดนี้ตาย (ถูกทำลาย) เจ้าของจะโดนดาเมจตามตัวเลข Lifelink (Soulguard กันตายได้จึงไม่โดน)",
-  Move: "ย้ายไปช่องมอนสเตอร์อื่นได้ 1 ครั้งต่อเทิร์นใน Main Phase (ถ้ามีตัวอยู่จะสลับกัน)",
-  Counterattack: "เมื่อถูกโจมตี ถ้า Power ของการ์ดนี้ ≥ Defense ของผู้โจมตี ผู้โจมตีจะถูกทำลาย (ถ้าไม่มี Counterattack ผู้โจมตีจะไม่ถูกทำลายกลับ)",
+  ...Object.fromEntries(KEYWORD_DEFS.map(k => [k.id, k.help])),
   "Ignore Center": "ตีผู้เล่นได้แม้ศัตรูมีมอนสเตอร์ช่องกลาง",
   "Battle Proof": "ไม่ถูกทำลายจากการต่อสู้",
 };

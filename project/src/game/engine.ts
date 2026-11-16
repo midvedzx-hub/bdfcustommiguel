@@ -179,6 +179,8 @@ export function maxAttacks(card: Card): number {
     s.effects.forEach(e => {
       if (e.type === "doubleAttack") n = Math.max(n, 2);
       if (e.type === "tripleAttack") n = Math.max(n, 3);
+      if (e.type === "quadrupleAttack") n = Math.max(n, 4);
+      if (e.type === "hextupleAttack") n = Math.max(n, 6);
       if (e.type === "multiAttack") n = Math.max(n, Math.floor(e.value) || 1);
     });
   });
@@ -482,6 +484,7 @@ function startTurn(g: GameState, skipDraw: boolean) {
   if (p.item) { p.item.state = "stand"; p.item.attacks = 0; }
   g.attacksThisTurn = 0;
   g.battle = null;
+  g.moveWindow = null;
   // ลำดับเทิร์น: Stand → Draw → Charge & Draw → Main → Attack → Final (ข้าม Draw เฉพาะเมื่อปิดกติกา "ผู้เล่นคนแรกจั่วด้วย")
   g.phase = skipDraw ? "charge" : "draw";
   log(g, `— เทิร์น ${g.turn}: ${nameOf(side)} (Stand${skipDraw ? " · เทิร์นแรกไม่จั่ว" : ""}) —`);
@@ -505,6 +508,7 @@ export function createInitialState(
     rules: r,
     mulligan: { host: false, guest: false },
     battle: null,
+    moveWindow: null,
     firstPlayer: first,
     attacksThisTurn: 0,
     rev: 0,
@@ -627,12 +631,19 @@ export function goToAttack(state: GameState, side: Side): Result {
   const g = structuredClone(state);
   g.phase = "attack";
   log(g, `${nameOf(side)} เข้าสู่ Attack Phase`);
+  // Move: ตอนเริ่ม Attack Phase ฝั่งป้องกันที่มีมอนสเตอร์ [Move] ย้ายไปช่องว่างได้ก่อนเริ่มโจมตี
+  const defender = other(side);
+  if (g.rules.useAttackPhase && movableMonsters(g, defender).length > 0) {
+    g.moveWindow = defender;
+    log(g, `รอ ${nameOf(defender)} เลือกว่าจะใช้ Move หรือไม่...`);
+  }
   return { state: g, ok: true, msg: "Attack Phase" };
 }
 
 export function goToFinal(state: GameState, side: Side): Result {
   const bg = baseGuard(state, side);
   if (bg) return { state, ok: false, msg: bg };
+  if (state.moveWindow) return { state, ok: false, msg: "กำลังรอฝั่งตรงข้ามเลือก Move ก่อน" };
   if (state.battle) return { state, ok: false, msg: "กำลังรอ Counter" };
   if (state.phase === "final") return { state, ok: false, msg: "อยู่ Final Phase แล้ว" };
   if (state.phase === "draw" || state.phase === "charge") return { state, ok: false, msg: "ต้องผ่านช่วง Draw และ Charge & Draw ก่อน" };
@@ -647,7 +658,7 @@ export function goToFinal(state: GameState, side: Side): Result {
 }
 
 export function endTurn(state: GameState): GameState {
-  if (state.battle || !mulliganDone(state)) return state;
+  if (state.battle || state.moveWindow || !mulliganDone(state)) return state;
   const g = structuredClone(state);
   if (g.winner) return g;
   (["host", "guest"] as Side[]).forEach(s => {
@@ -668,6 +679,7 @@ function guardTurn(state: GameState, side: Side, needPhase: "main" | "final" | "
   const bg = baseGuard(state, side);
   if (bg) return bg;
   if (state.battle) return "กำลังรอฝั่งตรงข้ามตัดสินใจ Counter";
+  if (state.moveWindow) return "กำลังรอฝั่งตรงข้ามเลือก Move (ตอนเริ่ม Attack Phase) ก่อน จึงจะโจมตีได้";
   if (state.phase === "draw") return "ยังอยู่ใน Draw Phase — ต้องจั่วการ์ดก่อน (กดปุ่ม 'Draw') แล้วผ่าน Charge & Draw จึงจะลงการ์ดได้";
   if (state.phase === "charge") return "ต้องผ่านช่วง Charge & Draw ก่อน (กด 'ข้าม' ถ้าไม่ Charge)";
   if (needPhase === "main" && state.phase !== "main") return "ลงการ์ด/ร่ายเวทได้เฉพาะ Main Phase";
@@ -787,24 +799,54 @@ export function equipItem(state: GameState, side: Side, handIndex: number): Resu
   return { state: g, ok: true, msg: `ติดตั้ง ${card.name}` };
 }
 
-// Move: ย้ายมอนสเตอร์ไปช่องอื่น (ถ้ามีตัวอยู่ จะสลับกัน) 1 ครั้งต่อเทิร์น ใน Main Phase
+// Move: ตอนเริ่ม Attack Phase ของผู้เล่นแต่ละฝ่าย (ก่อนมีการโจมตี) ย้ายมอนสเตอร์ที่มี [Move] ไป "ช่องที่ว่าง" ได้ 1 ครั้งต่อเทิร์น
+function moveWindowOpen(state: GameState): boolean {
+  const phaseName = state.rules.useAttackPhase ? "attack" : "main";
+  return state.phase === phaseName && state.attacksThisTurn === 0 && !state.battle;
+}
+
+export function movableMonsters(state: GameState, side: Side): FieldCard[] {
+  const p = state[side];
+  const hasFree = [0, 1, 2].some(pos => !p.monsters.some(m => m.position === pos));
+  if (!hasFree) return [];
+  return p.monsters.filter(m => {
+    const c = getCard(m.cardId);
+    return !!c && !m.nullified && hasKeyword(c, "move") && m.movedTurn !== state.turn;
+  });
+}
+
 export function moveMonster(state: GameState, side: Side, monsterUid: string, position: number): Result {
-  const err = guardTurn(state, side, "main");
-  if (err) return { state, ok: false, msg: err };
+  if (state.winner) return { state, ok: false, msg: "เกมจบแล้ว" };
+  if (!mulliganDone(state)) return { state, ok: false, msg: "ต้องรอให้ทั้งสองฝั่งเลือก Mulligan ให้เสร็จก่อน" };
+  if (state.battle) return { state, ok: false, msg: "กำลังรอ Counter" };
+  if (!moveWindowOpen(state))
+    return { state, ok: false, msg: `Move ใช้ได้ตอนเริ่ม ${state.rules.useAttackPhase ? "Attack Phase" : "Main Phase"} ก่อนมีการโจมตีเท่านั้น (ของทั้งสองฝั่ง)` };
+  if (state.currentTurn !== side && state.moveWindow !== side)
+    return { state, ok: false, msg: "ตอนนี้ยังไม่ใช่ช่วงที่คุณย้ายได้" };
   const g = structuredClone(state);
   const p = g[side];
   const m = p.monsters.find(x => x.uid === monsterUid);
   const card = m ? getCard(m.cardId) : undefined;
   if (!m || !card) return { state, ok: false, msg: "ไม่พบมอนสเตอร์" };
   if (!hasKeyword(card, "move")) return { state, ok: false, msg: `${card.name} ไม่มีความสามารถ Move` };
+  if (m.nullified) return { state, ok: false, msg: `${card.name} ถูก Nullify จึงใช้ Move ไม่ได้` };
   if (m.movedTurn === g.turn) return { state, ok: false, msg: `${card.name} ใช้ Move ไปแล้วในเทิร์นนี้` };
   if (m.position === position) return { state, ok: false, msg: "มอนสเตอร์อยู่ช่องนั้นอยู่แล้ว" };
-  const occ = p.monsters.find(x => x.position === position);
-  if (occ) occ.position = m.position;
+  if (p.monsters.some(x => x.position === position))
+    return { state, ok: false, msg: `Move ย้ายได้เฉพาะไปยัง "ช่องมอนสเตอร์ที่ว่าง" แต่ช่อง${POSITION_NAMES[position]}มีมอนสเตอร์อยู่` };
   m.position = position;
   m.movedTurn = g.turn;
-  log(g, `${card.name} Move ไปช่อง${POSITION_NAMES[position]}${occ ? " (สลับตำแหน่ง)" : ""}`);
+  log(g, `${card.name} Move ไปช่อง${POSITION_NAMES[position]}`);
   return { state: g, ok: true, msg: "Move" };
+}
+
+// ฝั่งป้องกันเลือกจบช่วง Move (ไม่ย้ายต่อ) เพื่อให้ฝั่งโจมตีเริ่มโจมตีได้
+export function closeMoveWindow(state: GameState, side: Side): Result {
+  if (state.moveWindow !== side) return { state, ok: false, msg: "ไม่มีช่วง Move ให้ปิด" };
+  const g = structuredClone(state);
+  g.moveWindow = null;
+  log(g, `${nameOf(side)} จบช่วง Move`);
+  return { state: g, ok: true, msg: "จบช่วง Move" };
 }
 
 // Set: วางการ์ด Counter Act คว่ำไว้ในช่อง Set (จ่ายค่าใช้จ่ายตอน Set) แล้วใช้ตอนศัตรูโจมตีได้
@@ -1080,16 +1122,16 @@ function resolveBattle(g: GameState) {
       log(g, `Power ${total.power} < Def ${tgtStats.defense} → ${tgtName} รอด${linkNote}`);
     }
 
-    // ตอบโต้: เฉพาะเป้าหมายที่มี Counterattack เท่านั้น ถึงจะทำลายผู้โจมตีกลับได้
-    if (tgtCard && !tgt.nullified && hasKeyword(tgtCard, "counterattack") && !g.winner) {
-      parts.forEach(({ fc, card, isItem }) => {
-        if (isItem || (!fc.nullified && hasKeyword(card, "indestructibleBattle"))) return;
-        const st = statsOf(fc);
-        if (tgtStats.power >= st.defense) {
-          log(g, `Counterattack! ${tgtName} Power ${tgtStats.power} ≥ Def ${st.defense} → ${card.name} ถูกทำลาย`);
-          mDestroyMonster(g, side, fc.uid);
-        }
-      });
+    // Counterattack: ถ้าเป้าหมายที่ถูกโจมตียังอยู่บนสนามหลังการโจมตี เลือกผู้โจมตี 1 ตัวที่ Defense ≤ Power ของเป้า แล้วทำลาย
+    if (tgtCard && !tgt.nullified && hasKeyword(tgtCard, "counterattack") && !g.winner && foe.monsters.some(m => m.uid === tgt.uid)) {
+      const victims = parts
+        .filter(({ fc, card, isItem }) => !isItem && me.monsters.some(m => m.uid === fc.uid) && !(!fc.nullified && hasKeyword(card, "indestructibleBattle")) && statsOf(fc).defense <= tgtStats.power)
+        .sort((x, y) => statsOf(y.fc).critical - statsOf(x.fc).critical);
+      if (victims.length > 0) {
+        const v = victims[0];
+        log(g, `Counterattack! ${tgtName} (Power ${tgtStats.power}) ยังอยู่บนสนาม → ทำลาย ${v.card.name} (Def ${statsOf(v.fc).defense})`);
+        mDestroyMonster(g, side, v.fc.uid);
+      }
     }
 
     if (targetDestroyed) {

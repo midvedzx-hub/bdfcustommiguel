@@ -30,6 +30,9 @@ export type AutoEffectType =
   | "penetrate"               // ทำลายมอนสเตอร์กลางได้ -> ทำดาเมจใส่ผู้เล่น
   | "doubleAttack"            // โจมตีแล้ว Stand กลับ (ครั้งที่ 2)
   | "tripleAttack"            // โจมตีได้ 3 ครั้ง
+  | "quadrupleAttack"         // โจมตีได้ 4 ครั้ง
+  | "hextupleAttack"          // โจมตีได้ 6 ครั้ง
+  | "kw"                      // ป้ายคีย์เวิร์ดอย่างเดียว (ชื่ออยู่ใน name) เกมไม่บังคับผลอัตโนมัติ
   | "multiAttack"             // (เก่า) value = จำนวนครั้งที่โจมตีได้
   | "soulguard"               // จะถูกนำออกจากสนาม (ทำลาย/ดึงกลับมือ) → ถอด Soul N ใบลงสุสานแทน แล้วอยู่ต่อ
   | "lifelink"                // เมื่อการ์ดนี้ตาย (ถูกทำลาย) เจ้าของโดนดาเมจเท่าค่านี้
@@ -82,6 +85,9 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "penetrate", label: "Penetrate (ทะลวง)", hint: "ใส่ 1" },
   { value: "doubleAttack", label: "Double Attack", hint: "ใส่ 1" },
   { value: "tripleAttack", label: "Triple Attack", hint: "ใส่ 1" },
+  { value: "quadrupleAttack", label: "Quadruple Attack (โจมตี 4 ครั้ง)", hint: "ใส่ 1" },
+  { value: "hextupleAttack", label: "Hextuple Attack (โจมตี 6 ครั้ง)", hint: "ใส่ 1" },
+  { value: "kw", label: "ป้ายคีย์เวิร์ด (เลือกชื่อ)", hint: "ใส่ 1" },
   { value: "multiAttack", label: "โจมตีหลายครั้ง (กำหนดเอง)", hint: "จำนวนครั้ง" },
   { value: "soulguard", label: "Soulguard (ถอด Soul 1 ใบ กันออกจากสนาม)", hint: "ใส่ 1" },
   { value: "lifelink", label: "Lifelink (ตายแล้วเจ้าของโดนดาเมจ)", hint: "ดาเมจที่เจ้าของโดนตอนการ์ดนี้ตาย" },
@@ -118,6 +124,7 @@ export interface AutoEffect {
   type: AutoEffectType;
   value: number;
   filter?: CardFilter; // ใช้กับเอฟเฟกต์ที่ดึงการ์ดจากสุสาน
+  name?: string;       // ชื่อคีย์เวิร์ด (ใช้กับ type "kw")
 }
 
 export interface AutoSkill {
@@ -238,7 +245,8 @@ export interface GameState {
   phase: "draw" | "charge" | "main" | "attack" | "final";
   rules: RuleSet;
   mulligan: { host: boolean; guest: boolean }; // เลือกเปลี่ยนมือเริ่มต้นเสร็จแล้วหรือยัง
-  battle: BattleState | null; // การโจมตีที่กำลังรอ Counter
+  battle: BattleState | null;
+  moveWindow?: "host" | "guest" | null; // ฝั่งป้องกันกำลังเลือก Move ตอนเริ่ม Attack Phase // การโจมตีที่กำลังรอ Counter
   firstPlayer: "host" | "guest";
   attacksThisTurn: number; // ใช้จำกัดเทิร์นแรกของผู้เล่นคนแรก
   rev: number; // เลขเวอร์ชัน state ใช้กันข้อมูลทับกันตอนออนไลน์

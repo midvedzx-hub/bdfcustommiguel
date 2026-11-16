@@ -14,7 +14,7 @@ import { keywordValue,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   type AttackTarget, type CounterOption, type Result,
-  setSoulguardAuto,
+  setSoulguardAuto, closeMoveWindow, movableMonsters,
 } from "@/game/engine";
 import { getFlags, getCards, getDecks } from "@/storage";
 import { getFlagColor, hasCounter, skillLines, keywordBadges, costText, effectText, KEYWORD_HELP, TRIGGER_HELP } from "@/game/helpers";
@@ -196,6 +196,8 @@ export function botStep(s: GameState): GameState {
   if (s.winner) return s;
   if (!s.mulligan.guest) return mulligan(s, "guest", []).state;
   if (!s.mulligan.host) return s; // รอมนุษย์เลือก Mulligan
+  if (s.moveWindow === "host") return s; // รอมนุษย์เลือก Move
+  if (s.moveWindow === "guest") return closeMoveWindow(s, "guest").state;
 
   // บอทเป็นฝ่ายป้องกัน: ตัดสินใจ Counter
   if (s.battle) {
@@ -297,6 +299,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const [atkSels, setAtkSels] = useState<string[]>([]);
   const [linkMode, setLinkMode] = useState(false);
   const [moveSel, setMoveSel] = useState<string | null>(null);
+  const [moveMode, setMoveMode] = useState(false);
   const [handSel, setHandSel] = useState<number | null>(null);
   const [chargePick, setChargePick] = useState(false);
   const [mullSel, setMullSel] = useState<number[]>([]);
@@ -319,6 +322,10 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const attackPhaseName = game.rules.useAttackPhase ? "attack" : "main";
   const canAttackNow = isMyTurn && game.phase === attackPhaseName && !game.battle;
   const canPlayNow = isMyTurn && game.phase === "main" && !game.battle;
+  // Move: ตอนเริ่ม Attack Phase ของทั้งสองฝั่ง ก่อนมีการโจมตี (ฝั่งป้องกันย้ายได้ในช่วงที่ระบบเปิดให้)
+  const canMoveNow = started && !game.winner && !game.battle && game.phase === attackPhaseName && game.attacksThisTurn === 0 &&
+    (isMyTurn || game.moveWindow === mySide);
+  const moveWindowMine = game.moveWindow === mySide;
   const iAmDefender = !!game.battle && game.battle.attackerSide !== mySide;
   const waitingCounter = !!game.battle && game.battle.attackerSide === mySide;
 
@@ -399,7 +406,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     return () => { document.removeEventListener("mousedown", handleClick); document.removeEventListener("keydown", handleKey); };
   }, []);
 
-  useEffect(() => { setAtkSels([]); setHandSel(null); setChargePick(false); setMoveSel(null); setLinkMode(false); }, [game.phase, game.currentTurn]);
+  useEffect(() => { setAtkSels([]); setHandSel(null); setChargePick(false); setMoveSel(null); setMoveMode(false); setLinkMode(false); }, [game.phase, game.currentTurn]);
   useEffect(() => {
     if (atkSels.length === 0) return;
     const ok = atkSels.filter(u => {
@@ -643,10 +650,10 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       const card = m ? cardOf(m.cardId) : null;
       const isTarget = !isMine && legal.some(t => t.kind === "monster" && t.position === pos);
       const callable = isMine && canPlayNow && handSel !== null && !m && cardOf(me.hand[handSel] ?? "")?.type === "Monster";
-      const moveTarget = isMine && canPlayNow && moveSel !== null && (!m || m.uid !== moveSel);
+      const moveTarget = isMine && canMoveNow && moveSel !== null && !m;
       const selected = isMine && !!m && atkSels.includes(m.uid);
       const glow = isTarget ? "glow-target" : (callable || moveTarget) ? "glow-slot" : selected ? "glow-sel" : "";
-      const canMoveThis = isMine && !!m && !!card && canPlayNow && hasKeyword(card, "move");
+      const canMoveThis = isMine && !!m && !!card && canMoveNow && hasKeyword(card, "move") && movableMonsters(game, mySide).some(x => x.uid === m.uid);
       return (
         <HexZone
           key={pos}
@@ -663,6 +670,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             // เลือกผู้โจมตีไว้แล้วแต่กดช่องที่ตีไม่ได้ -> ให้กติกาบอกเหตุผล
             if (!isMine && atkSels.length > 0) return tryAttack({ kind: "monster", position: pos });
             if (m && card) {
+              if (isMine && canMoveThis && moveMode) return setMoveSel(moveSel === m.uid ? null : m.uid);
               if (isMine && canAttackNow && m.state === "stand") {
                 if (linkMode) return setAtkSels(atkSels.includes(m.uid) ? atkSels.filter(u => u !== m.uid) : [...atkSels, m.uid]);
                 return setAtkSels(atkSels.length === 1 && atkSels[0] === m.uid ? [] : [m.uid]);
@@ -943,11 +951,13 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     if (game.winner) hint = "";
     else if (!started) hint = "รอทั้งสองฝั่งเลือก Mulligan...";
     else if (waitingCounter) hint = "รอฝั่งตรงข้ามเลือกว่าจะใช้ Counter Act หรือไม่...";
+    else if (moveWindowMine) hint = "ศัตรูเริ่ม Attack Phase — คลิกมอนสเตอร์ [Move] ของคุณ แล้วเลือกช่องว่างเพื่อย้ายได้ (หรือกด 'จบช่วง Move')";
+    else if (game.moveWindow === oppSide) hint = "รอฝั่งตรงข้ามเลือกว่าจะใช้ Move หรือไม่ (ก่อนเริ่มโจมตี)...";
     else if (!isMyTurn) hint = "เทิร์นของฝั่งตรงข้าม";
     else if (game.phase === "draw") hint = "Draw Phase: จั่วการ์ด 1 ใบ แล้วไป Charge & Draw";
     else if (game.phase === "charge") hint = chargePick ? "เลือกการ์ดในมือ 1 ใบเพื่อใส่เกจ (แล้วจั่ว 1)" : "Charge & Draw: ใส่การ์ดจากมือลงเกจแล้วจั่ว 1 ใบ (ข้ามได้)";
-    else if (game.phase === "main") hint = moveSel ? "เลือกช่องที่จะ Move ไป" : handSel !== null ? "เลือกช่องว่างเพื่อลงมอนสเตอร์ หรือใช้ปุ่มด้านล่าง" : "Main: ลงมอนสเตอร์ / ติดตั้งไอเทม / ร่ายเวท / Set แล้วกด 'ไป Attack'";
-    else if (game.phase === "attack") hint = atkSels.length > 0 ? `เลือกเป้าหมาย (${atkSels.length > 1 ? `Link Attack ${atkSels.length} ตัว — ` : ""}ช่องศัตรูที่เรืองแสงแดง หรือ Life/Flag) หรือลากผู้โจมตีไปวางบนเป้า` : "Attack: คลิกมอนสเตอร์ที่ Stand เพื่อเลือกผู้โจมตี (เปิด Link Attack เพื่อเลือกหลายตัว)";
+    else if (game.phase === "main") hint = handSel !== null ? "เลือกช่องว่างเพื่อลงมอนสเตอร์ หรือใช้ปุ่มด้านล่าง" : "Main: ลงมอนสเตอร์ / ติดตั้งไอเทม / ร่ายเวท / Set แล้วกด 'ไป Attack'";
+    else if (game.phase === "attack") hint = moveSel ? "เลือก \"ช่องว่าง\" ที่จะ Move ไป" : atkSels.length > 0 ? `เลือกเป้าหมาย (${atkSels.length > 1 ? `Link Attack ${atkSels.length} ตัว — ` : ""}ช่องศัตรูที่เรืองแสงแดง หรือ Life/Flag) หรือลากผู้โจมตีไปวางบนเป้า` : game.attacksThisTurn === 0 && movableMonsters(game, mySide).length > 0 ? "Attack: มีมอนสเตอร์ [Move] — คลิกเพื่อ Move ไปช่องว่างก่อนโจมตีได้ หรือคลิกมอนสเตอร์ที่ Stand เพื่อโจมตี" : "Attack: คลิกมอนสเตอร์ที่ Stand เพื่อเลือกผู้โจมตี (เปิด Link Attack เพื่อเลือกหลายตัว)";
     else if (game.phase === "final") hint = "Final: ใช้ Impact ได้ แล้วกดจบเทิร์น";
 
     const standCount = [...me.monsters, ...(me.item ? [me.item] : [])].filter(m => m.state === "stand").length;
@@ -981,6 +991,9 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         </>)}
         {isMyTurn && !game.battle && game.phase === "main" && game.rules.useAttackPhase && (
           <button onClick={doGoAttack} className={`${b} bg-rose-600 hover:bg-rose-500 flex items-center gap-1 transition`}><Swords size={14} /> ไป Attack Phase</button>
+        )}
+        {canMoveNow && isMyTurn && movableMonsters(game, mySide).length > 0 && (
+          <button onClick={() => { setMoveMode(v => !v); setMoveSel(null); setAtkSels([]); }} title="Move: ย้ายมอนสเตอร์ที่มีคีย์เวิร์ด Move ไปช่องว่าง (ตอนเริ่ม Attack Phase ก่อนโจมตี)" className={`${b} flex items-center gap-1 ${moveMode ? "bg-cyan-500 text-slate-900" : "bg-cyan-800 hover:bg-cyan-700"}`}>Move {moveMode ? "ON" : "OFF"}</button>
         )}
         {canAttackNow && standCount >= 2 && (
           <button onClick={() => setLinkMode(v => !v)} className={`${b} flex items-center gap-1 ${linkMode ? "bg-violet-500 text-white" : "bg-violet-800 hover:bg-violet-700"}`}><Link2 size={14} /> Link Attack {linkMode ? "ON" : "OFF"}</button>
@@ -1330,6 +1343,12 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       {banner && <Banner key={banner.key} text={banner.text} sub={banner.sub} color={banner.color} />}
       {renderMenus()}
       {renderMulligan()}
+      {moveWindowMine && !game.battle && !game.winner && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[45] panel !rounded-2xl px-4 py-3 flex items-center gap-3 border-cyan-500/60 shadow-2xl">
+          <div className="text-sm"><b className="text-cyan-300">ช่วง Move</b> — ศัตรูเริ่ม Attack Phase คุณย้ายมอนสเตอร์ [Move] ไปช่องว่างได้ก่อนเริ่มโจมตี</div>
+          <button onClick={() => { act("ปิดช่วง Move ไม่ได้", st => closeMoveWindow(st, mySide)); setMoveSel(null); }} className="btn btn-primary !py-1.5 whitespace-nowrap">จบช่วง Move</button>
+        </div>
+      )}
       {renderCounterModal()}
       {renderInspect()}
       {renderNotice()}

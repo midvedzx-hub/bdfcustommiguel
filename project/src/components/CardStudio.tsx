@@ -8,6 +8,7 @@ import { getCards, saveCards, getFlags, saveFlags, getDecks, saveDecks, uid, dow
 import { ImageUpload } from "@/components/ImageUpload";
 import { CardView } from "@/components/CardView";
 import { SKILL_TEMPLATES } from "@/game/helpers";
+import { KEYWORD_DEFS, KW_CATEGORIES, type KeywordDef } from "@/game/keywords";
 
 const TYPES: CardType[] = ["Monster", "Spell", "Item", "Impact"];
 const TYPE_DOT: Record<string, string> = { Monster: "#f59e0b", Spell: "#38bdf8", Item: "#34d399", Impact: "#fb7185" };
@@ -70,6 +71,36 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
     // ลบการ์ดออกจากทุกเด็ค/Buddy ของ Flag ด้วย ไม่งั้นจะค้างเป็นการ์ดคว่ำที่ใช้ไม่ได้ตอนเล่น
     saveDecks(getDecks().map(d => ({ ...d, cardIds: d.cardIds.filter(x => x !== id), buddyId: d.buddyId === id ? null : d.buddyId })));
     saveFlags(getFlags().map(f => ({ ...f, buddyIds: (f.buddyIds ?? []).filter(x => x !== id) })));
+  }
+
+  // ---- คีย์เวิร์ด: เก็บเป็นสกิลถาวร (continuous) 1 เอฟเฟกต์ต่อคีย์เวิร์ด ----
+  const kwMatch = (e: AutoEffect, d: KeywordDef) => (d.engine ? e.type === d.effect : e.type === "kw" && e.name === d.id);
+  const findKw = (d: KeywordDef): AutoEffect | undefined => {
+    for (const sk of editing?.autoSkills ?? []) {
+      if (sk.trigger !== "continuous" && sk.trigger !== "onAttack") continue;
+      const e = sk.effects.find(x => kwMatch(x, d));
+      if (e) return e;
+    }
+    return undefined;
+  };
+  function toggleKw(d: KeywordDef) {
+    if (!editing) return;
+    if (findKw(d)) {
+      const skills = editing.autoSkills
+        .map(sk => (sk.trigger === "continuous" || sk.trigger === "onAttack") ? { ...sk, effects: sk.effects.filter(e => !kwMatch(e, d)) } : sk)
+        .filter(sk => sk.effects.length > 0);
+      setEditing({ ...editing, autoSkills: skills });
+    } else {
+      const eff: AutoEffect = d.engine ? { type: d.effect as AutoEffectType, value: 1 } : { type: "kw", name: d.id, value: 1 };
+      setEditing({ ...editing, autoSkills: [...editing.autoSkills, { trigger: "continuous", effects: [eff] }] });
+    }
+  }
+  function setKwValue(d: KeywordDef, v: number) {
+    if (!editing) return;
+    setEditing({
+      ...editing,
+      autoSkills: editing.autoSkills.map(sk => ({ ...sk, effects: sk.effects.map(e => (kwMatch(e, d) ? { ...e, value: Math.max(1, v) } : e)) })),
+    });
   }
 
   function addTemplate(idx: number) {
@@ -265,7 +296,32 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
               </div>
 
               <div className="border-t border-slate-800 pt-4">
-                <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-amber-300 flex items-center gap-2 mb-1"><Zap size={16} /> คีย์เวิร์ด</h3>
+                <p className="text-xs text-slate-500 mb-3">กดเพื่อเปิด/ปิด · <span className="text-emerald-300">● เกมบังคับผลอัตโนมัติ</span> · <span className="text-slate-400">○ ป้ายคีย์เวิร์ด (ใส่สกิลอัตโนมัติควบคู่เพื่อให้ทำงานจริง)</span> · ชี้ที่ปุ่มเพื่ออ่านคำอธิบาย</p>
+                <div className="space-y-3 mb-5">
+                  {KW_CATEGORIES.map(cat => (
+                    <div key={cat.key}>
+                      <div className="text-xs font-bold text-slate-400 mb-1.5">{cat.label}</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {KEYWORD_DEFS.filter(k => k.cat === cat.key).map(k => {
+                          const on = findKw(k);
+                          return (
+                            <span key={k.id} className="inline-flex items-center gap-1">
+                              <button type="button" title={k.help} onClick={() => toggleKw(k)} className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition ${on ? "bg-red-600 border-red-300 text-white" : "bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-500"}`}>
+                                <span className={k.engine ? "text-emerald-300" : "text-slate-500"}>{k.engine ? "●" : "○"}</span> {k.id}
+                              </button>
+                              {on && k.param && (
+                                <input type="number" min={1} value={on.value} title="ตัวเลขกำกับ" onChange={e => setKwValue(k, parseInt(e.target.value) || 1)} className="w-14 bg-slate-800 border border-slate-700 rounded-lg px-2 py-0.5 text-xs" />
+                              )}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between mb-3 border-t border-slate-800 pt-4">
                   <h3 className="font-bold text-cyan-400 flex items-center gap-2"><Zap size={16} /> ระบบสกิลอัตโนมัติ (Auto-Trigger)</h3>
                   <button onClick={addSkill} className="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm flex items-center gap-1"><Plus size={14} /> เพิ่มสกิล</button>
                 </div>
@@ -292,6 +348,12 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                         <select value={eff.type} onChange={e => updateEffect(si, ei, { ...eff, type: e.target.value as AutoEffectType })} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm flex-1">
                           {EFFECT_TYPES.map(et => <option key={et.value} value={et.value}>{et.label}</option>)}
                         </select>
+                        {eff.type === "kw" && (
+                          <select value={eff.name ?? ""} onChange={e => updateEffect(si, ei, { ...eff, name: e.target.value })} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm">
+                            <option value="">เลือกคีย์เวิร์ด…</option>
+                            {KEYWORD_DEFS.filter(k => !k.engine).map(k => <option key={k.id} value={k.id}>{k.id}</option>)}
+                          </select>
+                        )}
                         {(eff.type === "dropToSoul" || eff.type === "recoverFromDrop") && (
                           <select value={eff.filter ?? "any"} onChange={e => updateEffect(si, ei, { ...eff, filter: e.target.value as CardFilter })} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" title="เลือกชนิดการ์ดที่จะดึงจากสุสาน (เอาใบที่ลงสุสานล่าสุดก่อน)">
                             {DROP_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
