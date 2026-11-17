@@ -812,17 +812,57 @@ export function callMonster(state: GameState, side: Side, handIndex: number, pos
   return { state: g, ok: true, msg: `${card.name} ลงสนามสำเร็จ` };
 }
 
+// การ์ดที่มีคีย์เวิร์ด Set (ป้าย "Set" ทั้งแบบคีย์เวิร์ดและแบบกำหนดเอง)
+function hasSetKeyword(card: Card): boolean {
+  return (card.autoSkills ?? []).some(s => s.name === "Set" || s.effects.some(e => e.type === "kw" && e.name === "Set"));
+}
+// สกิลที่ทำงาน "ตอนใช้เวท": onCast; ถ้าผู้ออกแบบเลือกทริกเกอร์ "เมื่อลงสนาม/ติดตั้ง" (onCall) ให้การ์ดเวท ก็ถือเป็นผลตอนใช้เช่นกัน
+function castTrigger(card: Card): AutoTrigger | null {
+  const sk = card.autoSkills ?? [];
+  if (sk.some(s => s.trigger === "onCast")) return "onCast";
+  if (sk.some(s => s.trigger === "onCall")) return "onCall";
+  return null;
+}
+const isCounterOnly = (card: Card) =>
+  (card.autoSkills ?? []).some(s => s.trigger === "onCounter") && castTrigger(card) === null;
+
 export function castSpell(state: GameState, side: Side, handIndex: number): Result {
   const card0 = getCard(state[side].hand[handIndex]);
   const isImpact = card0?.type === "Impact";
   const err = guardTurn(state, side, isImpact ? "final" : "main");
   if (err) return { state, ok: false, msg: err };
+
+  // เวท Counter ล้วน: ห้ามแค่ทิ้งลงสุสานเฉย ๆ — ใช้ผลทันทีถ้าทำได้ ไม่งั้นแจ้งและไม่เสียการ์ด
+  if (card0 && isCounterOnly(card0)) {
+    const opt: CounterOption = { zone: "hand", index: handIndex };
+    if (freeCounterOptions(state, side).some(o => sameOption(o, opt))) return useCounterAnytime(state, side, opt);
+    return {
+      state, ok: false,
+      msg: `${card0.name} เป็นการ์ด Counter — ใช้ตอนศัตรูโจมตี/ร่ายเวท หรือกด Set (วางคว่ำ) ไว้ก่อน (ตอนนี้ใช้ทันทีไม่ได้ เช่น เกจ/Life ไม่พอ หรือผลมีความหมายเฉพาะตอนศัตรูโจมตี/ร่ายเวท)`,
+    };
+  }
+
   const g = structuredClone(state);
   const p = g[side];
   const cardId = p.hand[handIndex];
   const card = cardId ? getCard(cardId) : undefined;
   if (!card) return { state, ok: false, msg: "ไม่พบการ์ดใบนี้ในมือ" };
   if (card.type !== "Spell" && card.type !== "Impact") return { state, ok: false, msg: `${card.name} ไม่ใช่เวทมนตร์/Impact` };
+
+  // เวทที่มีคีย์เวิร์ด Set: วางลงช่อง Set (ไม่ลงสุสาน) แล้วผลทำงานตอนวาง
+  if (card.type === "Spell" && hasSetKeyword(card)) {
+    if (p.setZone.length >= g.rules.maxSet)
+      return { state, ok: false, msg: `ช่อง Set เต็มแล้ว (สูงสุด ${g.rules.maxSet} ใบ)` };
+    const costErr = payCost(g, side, card);
+    if (costErr) return { state, ok: false, msg: `Set ${card.name} ไม่ได้ — ${costErr}` };
+    p.hand.splice(handIndex, 1);
+    p.setZone.push(cardId);
+    log(g, `${nameOf(side)} Set ${card.name} ลงช่อง Set`);
+    fx(g, { k: "cast", side, cardId, label: "SET!" });
+    const trig = castTrigger(card);
+    if (trig) applyEffects(g, side, card, trig);
+    return { state: g, ok: true, msg: `Set ${card.name}` };
+  }
 
   const costErr = payCost(g, side, card);
   if (costErr) return { state, ok: false, msg: `ร่าย ${card.name} ไม่ได้ — ${costErr}` };
@@ -922,15 +962,22 @@ export function setCard(state: GameState, side: Side, handIndex: number): Result
   const cardId = p.hand[handIndex];
   const card = cardId ? getCard(cardId) : undefined;
   if (!card) return { state, ok: false, msg: "ไม่พบการ์ดใบนี้ในมือ" };
-  if (!card.autoSkills?.some(s => s.trigger === "onCounter"))
-    return { state, ok: false, msg: `${card.name} ไม่มีสกิล Counter Act จึง Set ไม่ได้` };
+  const counterCard = card.autoSkills?.some(s => s.trigger === "onCounter");
+  if (!counterCard && !(card.type === "Spell" && hasSetKeyword(card)))
+    return { state, ok: false, msg: `${card.name} ไม่มีสกิล Counter Act หรือคีย์เวิร์ด Set จึง Set ไม่ได้` };
   if (p.setZone.length >= g.rules.maxSet)
     return { state, ok: false, msg: `ช่อง Set เต็มแล้ว (สูงสุด ${g.rules.maxSet} ใบ)` };
   const costErr = payCost(g, side, card);
   if (costErr) return { state, ok: false, msg: `Set ${card.name} ไม่ได้ — ${costErr}` };
   p.hand.splice(handIndex, 1);
   p.setZone.push(cardId);
-  log(g, `${nameOf(side)} Set การ์ด 1 ใบ (คว่ำ)`);
+  if (counterCard) log(g, `${nameOf(side)} Set การ์ด 1 ใบ (คว่ำ)`);
+  else {
+    log(g, `${nameOf(side)} Set ${card.name} ลงช่อง Set`);
+    fx(g, { k: "cast", side, cardId, label: "SET!" });
+    const trig = castTrigger(card);
+    if (trig) applyEffects(g, side, card, trig);
+  }
   return { state: g, ok: true, msg: `Set ${card.name}` };
 }
 
@@ -1100,7 +1147,9 @@ function resolveSpell(g: GameState) {
   const card = getCard(w.cardId);
   if (!card) return;
   if (w.negated) { log(g, `${card.name} ถูกยกเลิก ไม่มีผล`); return; }
-  applyEffects(g, w.casterSide, card, "onCast");
+  const trig = castTrigger(card);
+  if (!trig) { log(g, `${card.name} ไม่มีผลที่ทำงานตอนร่าย`); return; }
+  applyEffects(g, w.casterSide, card, trig);
 }
 
 // หลังใช้ Counter 1 ใบ: ถ้ามีการเลือกการ์ดค้างให้รอก่อน ไม่งั้นถ้าไม่มี Counter เหลือให้ปิดจังหวะ
