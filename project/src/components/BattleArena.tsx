@@ -14,7 +14,7 @@ import { keywordValue,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   type AttackTarget, type CounterOption, type Result,
-  setSoulguardAuto, closeMoveWindow, movableMonsters, allCachedCards, sandboxSetGame,
+  setSoulguardAuto, closeMoveWindow, movableMonsters, resolveLook,
 } from "@/game/engine";
 import { getFlags, getCards, getDecks } from "@/storage";
 import { getFlagColor, hasCounter, skillLines, keywordBadges, costText, effectText, KEYWORD_HELP, TRIGGER_HELP } from "@/game/helpers";
@@ -23,7 +23,6 @@ import { CardView } from "@/components/CardView";
 import { FxLayer, Banner } from "@/components/FxLayer";
 import { playSfx } from "@/game/sfx";
 import { AudioControl } from "@/components/AudioControl";
-import { SandboxPanel, type SbFocus } from "@/components/SandboxPanel";
 
 interface Props {
   mode: "bot" | "multiplayer";
@@ -193,20 +192,35 @@ function botAttack(s: GameState): GameState | null {
   return null;
 }
 
+// บอทเลือกการ์ดหลังดูกอง: เอาใบที่ดีที่สุด (มอนสเตอร์พลังสูง > เวท > อื่นๆ) ขึ้นมือตามจำนวนที่ได้
+function botPickLook(pl: NonNullable<GameState["pendingLook"]>): { hand: number[]; drop: number[]; bottom: number[] } {
+  const score = (id: string) => {
+    const c = getCard(id);
+    if (!c) return 0;
+    return (c.type === "Monster" ? 3 : c.type === "Spell" ? 2 : 1) * 100000 + c.power + c.critical * 1000;
+  };
+  const order = pl.cards.map((id, i) => ({ i, sc: score(id) })).sort((a, b) => b.sc - a.sc).map(x => x.i);
+  return { hand: order.slice(0, pl.toHand), drop: [], bottom: [] };
+}
+
 export function botStep(s: GameState): GameState {
   if (s.winner) return s;
   if (!s.mulligan.guest) return mulligan(s, "guest", []).state;
   if (!s.mulligan.host) return s; // รอมนุษย์เลือก Mulligan
+  if (s.pendingLook) {
+    if (s.pendingLook.side === "host") return s; // รอมนุษย์เลือกการ์ด
+    return resolveLook(s, "guest", botPickLook(s.pendingLook)).state;
+  }
   if (s.moveWindow === "host") return s; // รอมนุษย์เลือก Move
   if (s.moveWindow === "guest") return closeMoveWindow(s, "guest").state;
 
   // บอทเป็นฝ่ายป้องกัน: ตัดสินใจ Counter
-  if (s.battle) {
-    if (s.battle.attackerSide === "guest") return s; // รอมนุษย์
+  if (s.battle || s.spellWindow) {
+    if (s.battle?.attackerSide === "guest" || s.spellWindow?.casterSide === "guest") return s; // รอมนุษย์
     const opts = counterOptions(s, "guest");
     if (opts.length > 0) {
       const r = counterAct(s, "guest", opts[0]);
-      if (r.ok) return r.state.battle ? passCounter(r.state, "guest").state : r.state;
+      if (r.ok) return (r.state.battle || r.state.spellWindow) && !r.state.pendingLook ? passCounter(r.state, "guest").state : r.state;
     }
     return passCounter(s, "guest").state;
   }
@@ -297,11 +311,11 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const syncedRef = useRef(mode !== "multiplayer");
   const menuRef = useRef<HTMLDivElement>(null);
   const [sandbox, setSandbox] = useState(false);
-  const [sbFocus, setSbFocus] = useState<SbFocus | null>(null);
   const [atkSels, setAtkSels] = useState<string[]>([]);
   const [linkMode, setLinkMode] = useState(false);
   const [moveSel, setMoveSel] = useState<string | null>(null);
   const [moveMode, setMoveMode] = useState(false);
+  const [lookSel, setLookSel] = useState<{ hand: number[]; drop: number[]; bottom: number[] }>({ hand: [], drop: [], bottom: [] });
   const [handSel, setHandSel] = useState<number | null>(null);
   const [chargePick, setChargePick] = useState(false);
   const [mullSel, setMullSel] = useState<number[]>([]);
@@ -322,14 +336,18 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const started = game.mulligan.host && game.mulligan.guest;
   const isMyTurn = game.currentTurn === mySide && !game.winner && started;
   const attackPhaseName = game.rules.useAttackPhase ? "attack" : "main";
-  const canAttackNow = isMyTurn && game.phase === attackPhaseName && !game.battle;
-  const canPlayNow = isMyTurn && game.phase === "main" && !game.battle;
+  const sw = game.spellWindow ?? null;
+  const iAmDefender = (!!game.battle && game.battle.attackerSide !== mySide) || (!!sw && sw.casterSide !== mySide);
+  const waitingCounter = (!!game.battle && game.battle.attackerSide === mySide) || (!!sw && sw.casterSide === mySide);
+  const myLook = game.pendingLook && game.pendingLook.side === mySide ? game.pendingLook : null;
+  const oppLooking = !!game.pendingLook && game.pendingLook.side !== mySide;
+  const busy = !!game.battle || !!sw || !!game.pendingLook;
+  const canAttackNow = isMyTurn && game.phase === attackPhaseName && !busy;
+  const canPlayNow = isMyTurn && game.phase === "main" && !busy;
   // Move: ตอนเริ่ม Attack Phase ของทั้งสองฝั่ง ก่อนมีการโจมตี (ฝั่งป้องกันย้ายได้ในช่วงที่ระบบเปิดให้)
-  const canMoveNow = started && !game.winner && !game.battle && game.phase === attackPhaseName && game.attacksThisTurn === 0 &&
+  const canMoveNow = started && !game.winner && !busy && game.phase === attackPhaseName && game.attacksThisTurn === 0 &&
     (isMyTurn || game.moveWindow === mySide);
   const moveWindowMine = game.moveWindow === mySide;
-  const iAmDefender = !!game.battle && game.battle.attackerSide !== mySide;
-  const waitingCounter = !!game.battle && game.battle.attackerSide === mySide;
 
   function commit(next: GameState) {
     gameRef.current = next;
@@ -471,6 +489,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   useEffect(() => { if (game.winner) playSfx(game.winner === mySide ? "win" : "lose", 300); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.winner]);
   useEffect(() => { if (notice) playSfx("error"); }, [notice]);
+  useEffect(() => { setLookSel({ hand: [], drop: [], bottom: [] }); }, [game.pendingLook?.cardId, game.pendingLook?.cards.join(",")]);
 
   const hideUnits = (uids: string[], ms: number) => {
     setHidden(h => [...h, ...uids]);
@@ -505,9 +524,10 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   useEffect(() => {
     if (mode !== "bot" || game.winner) return;
     const botMull = !game.mulligan.guest;
-    const botDefending = !!game.battle && game.battle.attackerSide === "host";
-    const botTurn = game.currentTurn === "guest" && !game.battle && game.mulligan.host && game.mulligan.guest;
-    if (!botMull && !botDefending && !botTurn) return;
+    const botDefending = (!!game.battle && game.battle.attackerSide === "host") || (!!game.spellWindow && game.spellWindow.casterSide === "host");
+    const botLook = game.pendingLook?.side === "guest";
+    const botTurn = game.currentTurn === "guest" && !game.battle && !game.spellWindow && !game.pendingLook && game.mulligan.host && game.mulligan.guest;
+    if (!botMull && !botDefending && !botTurn && !botLook) return;
     const t = setTimeout(() => doAction(s => botStep(s)), botMull ? 100 : botDefending ? 900 : 850);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -583,7 +603,9 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   function whyBlocked(): string | undefined {
     if (game.winner) return undefined;
     if (!started) return "ยังเริ่มเกมไม่ได้: รอทั้งสองฝั่งเลือก Mulligan ก่อน";
-    if (game.battle) return iAmDefender ? "กำลังมีการโจมตี: เลือกใช้ Counter Act หรือกด 'ไม่ใช้ Counter' ก่อน" : "กำลังรอฝั่งตรงข้ามตัดสินใจ Counter";
+    if (myLook) return "กำลังเลือกการ์ดหลังดูกอง: เลือกให้เสร็จก่อน";
+    if (oppLooking) return "กำลังรอฝั่งตรงข้ามเลือกการ์ดหลังดูกอง";
+    if (game.battle || sw) return iAmDefender ? "กำลังมี" + (sw ? "การร่ายเวท" : "การโจมตี") + ": เลือกใช้ Counter หรือกด 'ไม่ใช้ Counter' ก่อน" : "กำลังรอฝั่งตรงข้ามตัดสินใจ Counter";
     if (!isMyTurn) return "ยังไม่ใช่เทิร์นของคุณ จึงสั่งการ์ดไม่ได้";
     return undefined;
   }
@@ -678,7 +700,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 return setAtkSels(atkSels.length === 1 && atkSels[0] === m.uid ? [] : [m.uid]);
               }
               if (isMine && canMoveThis) return setMoveSel(moveSel === m.uid ? null : m.uid);
-              if (sandbox) return setSbFocus({ tab: "field", side, uid: m.uid });
+              if (sandbox) return setMenuTarget({ kind: "field", side, uid: m.uid });
               // ไม่มีการกระทำที่ทำได้ -> เปิดดูการ์ด พร้อมบอกเหตุผล
               let note = whyBlocked();
               if (!note && isMine) {
@@ -753,7 +775,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         </div>
 
         {/* Gauge */}
-        <RectZone fx={`gauge:${side}`} style={place(2, 11, 14.5, 50, mirror)} label={p.gauge === 0 ? "เกจ" : undefined} className="relative" onClick={() => sandbox && setSbFocus({ tab: "zones", side, zone: "gauge" })}>
+        <RectZone fx={`gauge:${side}`} style={place(2, 11, 14.5, 50, mirror)} label={p.gauge === 0 ? "เกจ" : undefined} className="relative">
           <div className="absolute inset-x-[14%] flex flex-col items-center" style={{ top: mirror ? "auto" : "6%", bottom: mirror ? "6%" : "auto" }}>
             {Array.from({ length: gaugeCards }).map((_, i) => (
               <div key={i} className="rounded-sm bg-slate-600 border border-slate-400/70" style={{ width: "100%", height: "calc(var(--mh) * 0.05)", marginTop: i === 0 ? 0 : "calc(var(--mh) * -0.012)" }} />
@@ -764,8 +786,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           </div>
           {sandbox && (
             <div className="absolute top-0.5 right-0.5 flex gap-0.5 z-20">
-              <button title="Charge +1" onClick={(e) => { e.stopPropagation(); doAction(s => addGauge(s, side, 1)); }} className="p-0.5 bg-amber-800 hover:bg-amber-600 rounded"><Plus size={11} /></button>
-              <button title="จ่ายเกจ 1" onClick={(e) => { e.stopPropagation(); doAction(s => sandboxPayGauge(s, side, 1)); }} className="p-0.5 bg-slate-800 hover:bg-slate-600 rounded"><Minus size={11} /></button>
+              <button title="Charge +1" onClick={() => doAction(s => addGauge(s, side, 1))} className="p-0.5 bg-amber-800 hover:bg-amber-600 rounded"><Plus size={11} /></button>
+              <button title="จ่ายเกจ 1" onClick={() => doAction(s => sandboxPayGauge(s, side, 1))} className="p-0.5 bg-slate-800 hover:bg-slate-600 rounded"><Minus size={11} /></button>
             </div>
           )}
         </RectZone>
@@ -775,13 +797,13 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         {monsterHex(2)}
 
         {/* Deck */}
-        <RectZone fx={`deck:${side}`} style={place(85.5, 11, 12.5, 31, mirror)} onClick={() => sandbox && setSbFocus({ tab: "zones", side, zone: "deck" })} label={undefined}>
+        <RectZone fx={`deck:${side}`} style={place(85.5, 11, 12.5, 31, mirror)} onClick={() => sandbox && setMenuTarget({ kind: "deck", side })} label={undefined}>
           <CardView faceDown width="calc(var(--mh) * 0.2)">
             <div className="absolute inset-0 flex items-center justify-center font-display font-bold text-white drop-shadow" style={{ fontSize: "2.4em" }}><span key={p.deck.length} className="num-pop">{p.deck.length}</span></div>
           </CardView>
         </RectZone>
         {/* Drop */}
-        <RectZone fx={`drop:${side}`} style={place(85.5, 45, 12.5, 31, mirror)} onClick={() => { if (sandbox) setSbFocus({ tab: "zones", side, zone: "drop" }); else if (p.dropZone.length > 0) setMenuTarget({ kind: "drop", side }); }}>
+        <RectZone fx={`drop:${side}`} style={place(85.5, 45, 12.5, 31, mirror)} onClick={() => p.dropZone.length > 0 && setMenuTarget({ kind: "drop", side })}>
           {p.dropZone.length > 0 && cardOf(p.dropZone[p.dropZone.length - 1]) ? (
             <div className="relative opacity-90">
               <CardView card={cardOf(p.dropZone[p.dropZone.length - 1])} flag={flag} width="calc(var(--mh) * 0.2)" hideText />
@@ -791,7 +813,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         </RectZone>
 
         {/* Set */}
-        <RectZone style={place(2, 66, 24, 29, mirror)} onDrop={isMine ? handleDropOnSet : undefined} onClick={() => sandbox && setSbFocus({ tab: "zones", side, zone: "set" })} label={p.setZone.length === 0 ? "เซ็ท" : undefined}>
+        <RectZone style={place(2, 66, 24, 29, mirror)} onDrop={isMine ? handleDropOnSet : undefined} label={p.setZone.length === 0 ? "เซ็ท" : undefined}>
           <div className="flex gap-1 items-center justify-center">
             {p.setZone.map((id, i) => (
               <div key={i} onMouseEnter={() => isMine && cardOf(id) && setHovered({ card: cardOf(id)!, flagId: p.flagId })}>
@@ -829,7 +851,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                   if (linkMode) return setAtkSels(atkSels.includes(p.item.uid) ? atkSels.filter(u => u !== p.item!.uid) : [...atkSels, p.item.uid]);
                   return setAtkSels(atkSels.length === 1 && atkSels[0] === p.item.uid ? [] : [p.item.uid]);
                 }
-                if (sandbox) return setSbFocus({ tab: "field", side, uid: p.item.uid });
+                if (sandbox) return setMenuTarget({ kind: "field", side, uid: p.item.uid });
                 if (itemCard) openInspect(itemCard, p.flagId, p.item, whyBlocked() ?? (p.item.state === "rest" ? `${itemCard.name} อยู่ในสถานะ Rest จะ Stand ตอนต้นเทิร์นของเจ้าของ` : game.phase !== attackPhaseName ? "ไอเทมโจมตีได้ใน Attack Phase" : undefined));
               }}
             >
@@ -952,7 +974,9 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     let hint = "";
     if (game.winner) hint = "";
     else if (!started) hint = "รอทั้งสองฝั่งเลือก Mulligan...";
-    else if (waitingCounter) hint = "รอฝั่งตรงข้ามเลือกว่าจะใช้ Counter Act หรือไม่...";
+    else if (myLook) hint = "เลือกการ์ดจากการดูกอง แล้วกดยืนยัน";
+    else if (oppLooking) hint = "รอฝั่งตรงข้ามเลือกการ์ดหลังดูกอง...";
+    else if (waitingCounter) hint = "รอฝั่งตรงข้ามเลือกว่าจะใช้ Counter หรือไม่...";
     else if (moveWindowMine) hint = "ศัตรูเริ่ม Attack Phase — คลิกมอนสเตอร์ [Move] ของคุณ แล้วเลือกช่องว่างเพื่อย้ายได้ (หรือกด 'จบช่วง Move')";
     else if (game.moveWindow === oppSide) hint = "รอฝั่งตรงข้ามเลือกว่าจะใช้ Move หรือไม่ (ก่อนเริ่มโจมตี)...";
     else if (!isMyTurn) hint = "เทิร์นของฝั่งตรงข้าม";
@@ -1044,28 +1068,43 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
 
   function renderCounterModal() {
     const b = game.battle;
-    if (!b || !iAmDefender || game.winner) return null;
-    const atkP = game[b.attackerSide];
-    const leadFc = atkP.monsters.find(m => m.uid === b.attackerUid) ?? (atkP.item?.uid === b.attackerUid ? atkP.item : null);
-    const parts = b.linkUids.map(u => atkP.monsters.find(m => m.uid === u) ?? (atkP.item?.uid === u ? atkP.item : null)).filter(Boolean);
-    const tgtText = b.target.kind === "fighter" ? "คุณ (ผู้เล่น)" : `มอนสเตอร์ช่อง${POSITION_NAMES[b.target.position]}ของคุณ`;
+    if ((!b && !sw) || !iAmDefender || game.winner || game.pendingLook) return null;
     const opts = counterOptions(game, mySide);
-    const total = parts.reduce((a, fc) => { const s = statsOf(fc!); return { p: a.p + s.power, c: a.c + s.critical }; }, { p: 0, c: 0 });
-    const zoneLabel = (o: CounterOption) => o.zone === "hand" ? "จากมือ" : o.zone === "set" ? "จากช่อง Set" : "ความสามารถบนสนาม";
+    const zoneLabel = (o: CounterOption) => o.zone === "hand" ? "【Counter】 จากมือ" : o.zone === "set" ? "【Counter】 จากช่อง Set" : "Counter 【Act】 บนสนาม";
+    let header: React.ReactNode;
+    let sub: React.ReactNode;
+    let cardsRow: React.ReactNode = null;
+    if (b) {
+      const atkP = game[b.attackerSide];
+      const parts = b.linkUids.map(u => atkP.monsters.find(m => m.uid === u) ?? (atkP.item?.uid === u ? atkP.item : null)).filter(Boolean);
+      const tgtText = b.target.kind === "fighter" ? "คุณ (ผู้เล่น)" : `มอนสเตอร์ช่อง${POSITION_NAMES[b.target.position]}ของคุณ`;
+      const total = parts.reduce((a2, fc) => { const st = statsOf(fc!); return { p: a2.p + st.power, c: a2.c + st.critical }; }, { p: 0, c: 0 });
+      header = <>ศัตรูโจมตี!{parts.length > 1 ? " (Link Attack)" : ""}</>;
+      cardsRow = parts.map(fc => {
+        const c = cardOf(fc!.cardId);
+        return c ? <CardView key={fc!.uid} card={c} flag={flagOf(atkP.flagId)} size="sm" stats={statsOf(fc!)} /> : null;
+      });
+      sub = (<>
+        <div>กำลังโจมตี <span className="font-bold text-white">{tgtText}</span></div>
+        <div className="text-xs text-slate-400 mt-1">Power รวม {total.p} · Critical รวม {total.c}</div>
+        <div className="text-xs text-slate-400 mt-2">เลือกใช้ Counter หรือปล่อยให้ต่อสู้ตามปกติ</div>
+      </>);
+    } else if (sw) {
+      const sc = cardOf(sw.cardId);
+      header = <>ศัตรูกำลังร่ายเวท!</>;
+      cardsRow = sc ? <CardView card={sc} flag={flagOf(game[sw.casterSide].flagId)} size="sm" /> : null;
+      sub = (<>
+        <div>ศัตรูร่าย <span className="font-bold text-white">{sc?.name}</span></div>
+        <div className="text-xs text-slate-400 mt-2">เลือกใช้ Counter เพื่อยกเลิกเวท หรือปล่อยให้เวทมีผลตามปกติ</div>
+      </>);
+    }
     return (
       <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4">
         <div className="bg-slate-900 border-2 border-sky-500 rounded-2xl p-5 max-w-3xl w-full max-h-[92vh] overflow-y-auto">
-          <h3 className="font-display text-xl font-bold text-sky-300 flex items-center gap-2 mb-2"><Shield size={20} /> ศัตรูโจมตี!{parts.length > 1 ? " (Link Attack)" : ""}</h3>
+          <h3 className="font-display text-xl font-bold text-sky-300 flex items-center gap-2 mb-2"><Shield size={20} /> {header}</h3>
           <div className="flex items-center gap-3 mb-4 flex-wrap">
-            {parts.map(fc => {
-              const c = cardOf(fc!.cardId);
-              return c ? <CardView key={fc!.uid} card={c} flag={flagOf(atkP.flagId)} size="sm" stats={statsOf(fc!)} /> : null;
-            })}
-            <div className="text-sm text-slate-300">
-              <div>กำลังโจมตี <span className="font-bold text-white">{tgtText}</span></div>
-              {leadFc && <div className="text-xs text-slate-400 mt-1">Power รวม {total.p} · Critical รวม {total.c}</div>}
-              <div className="text-xs text-slate-400 mt-2">เลือกใช้ Counter Act หรือปล่อยให้ต่อสู้ตามปกติ</div>
-            </div>
+            {cardsRow}
+            <div className="text-sm text-slate-300">{sub}</div>
           </div>
           <div className="flex flex-wrap gap-3 mb-4">
             {opts.map((o, k) => {
@@ -1080,7 +1119,64 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               );
             })}
           </div>
-          <button onClick={doPassCounter} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">ไม่ใช้ Counter — ต่อสู้เลย</button>
+          <button onClick={doPassCounter} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">ไม่ใช้ Counter — {b ? "ต่อสู้เลย" : "ให้เวทมีผล"}</button>
+        </div>
+      </div>
+    );
+  }
+
+  // เลือกการ์ดหลังดูกอง: ขึ้นมือ / ลงดรอป / ใต้สุดของกอง (ที่ไม่ได้เลือกจะวางกลับบนกอง)
+  function renderLookModal() {
+    const pl = myLook;
+    if (!pl || game.winner) return null;
+    const src = cardOf(pl.cardId);
+    const cnt = { hand: lookSel.hand.length, drop: lookSel.drop.length, bottom: lookSel.bottom.length };
+    const setDest = (i: number, dest: "hand" | "drop" | "bottom" | null) => {
+      const next = { hand: lookSel.hand.filter(x => x !== i), drop: lookSel.drop.filter(x => x !== i), bottom: lookSel.bottom.filter(x => x !== i) };
+      if (dest) next[dest] = [...next[dest], i];
+      setLookSel(next);
+    };
+    const lim = { hand: pl.toHand, drop: pl.toDrop, bottom: pl.toBottom };
+    const btn = (i: number, dest: "hand" | "drop" | "bottom", label: string, color: string) => {
+      const on = lookSel[dest].includes(i);
+      const full = !on && cnt[dest] >= lim[dest];
+      if (lim[dest] <= 0) return null;
+      return (
+        <button key={dest} disabled={full} onClick={() => setDest(i, on ? null : dest)} className={`px-2 py-1 rounded-md text-[11px] font-bold border transition ${on ? `${color} text-white border-white/60` : "bg-slate-800 border-slate-600 text-slate-300 hover:border-slate-400"} ${full ? "opacity-40" : ""}`}>{label}</button>
+      );
+    };
+    return (
+      <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+        <div className="bg-slate-900 border-2 border-amber-400 rounded-2xl p-5 max-w-4xl w-full max-h-[94vh] overflow-y-auto">
+          <h3 className="font-display text-xl font-bold text-amber-300 mb-1">ดูการ์ดบนสุดของกอง {pl.cards.length} ใบ{src ? ` — ${src.name}` : ""}</h3>
+          <p className="text-sm text-slate-400 mb-4">
+            เลือกได้สูงสุด:
+            {pl.toHand > 0 && <> ขึ้นมือ <b className="text-emerald-300">{cnt.hand}/{pl.toHand}</b></>}
+            {pl.toDrop > 0 && <> · ลงดรอป <b className="text-rose-300">{cnt.drop}/{pl.toDrop}</b></>}
+            {pl.toBottom > 0 && <> · ใต้สุดของกอง <b className="text-sky-300">{cnt.bottom}/{pl.toBottom}</b></>}
+            {pl.toHand + pl.toDrop + pl.toBottom === 0 && " (ดูอย่างเดียว)"} · ใบที่ไม่ได้เลือกจะวางกลับบนกองตามลำดับเดิม
+          </p>
+          <div className="flex flex-wrap gap-4 justify-center mb-5">
+            {pl.cards.map((id, i) => {
+              const c = cardOf(id);
+              if (!c) return null;
+              const dest = lookSel.hand.includes(i) ? "hand" : lookSel.drop.includes(i) ? "drop" : lookSel.bottom.includes(i) ? "bottom" : null;
+              return (
+                <div key={i} className={`flex flex-col items-center gap-2 rounded-xl p-1 ${dest === "hand" ? "ring-4 ring-emerald-400" : dest === "drop" ? "ring-4 ring-rose-500 opacity-70" : dest === "bottom" ? "ring-4 ring-sky-400" : ""}`}>
+                  <span className="text-[11px] text-slate-500">ใบที่ {i + 1} จากบน</span>
+                  <CardView card={c} flag={flagOf(me.flagId)} size="md" onInspect={() => openInspect(c, me.flagId)} onClick={() => openInspect(c, me.flagId)} />
+                  <div className="flex gap-1">
+                    {btn(i, "hand", "ขึ้นมือ", "bg-emerald-600")}
+                    {btn(i, "drop", "ลงดรอป", "bg-rose-600")}
+                    {btn(i, "bottom", "ใต้กอง", "bg-sky-600")}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <button onClick={() => { act("เลือกการ์ดไม่ได้", st => resolveLook(st, mySide, lookSel)); }} className="btn btn-primary w-full btn-lg">
+            ยืนยัน {cnt.hand + cnt.drop + cnt.bottom > 0 ? `(ขึ้นมือ ${cnt.hand} · ดรอป ${cnt.drop} · ใต้กอง ${cnt.bottom})` : "(ไม่เลือก วางกลับทั้งหมด)"}
+          </button>
         </div>
       </div>
     );
@@ -1266,11 +1362,6 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           <h2 className="result-in font-display text-6xl font-extrabold mb-3" style={{ color: col, textShadow: `0 0 30px ${col}` }}>{myWin ? "ชนะ!" : "แพ้!"}</h2>
           <p className="text-slate-300 mb-2">{game.log[game.log.length - 1]}</p>
           <button onClick={onExit} className="mt-4 px-8 py-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl transition font-bold hover:scale-105">กลับเมนู</button>
-          {sandbox && (
-            <div>
-              <button onClick={() => doAction(s => sandboxSetGame(s, { winner: null }))} className="mt-3 px-6 py-2 bg-fuchsia-700 hover:bg-fuchsia-600 rounded-xl transition font-bold text-sm">Sandbox: ยกเลิกผลแพ้ชนะ แล้วเล่นต่อ</button>
-            </div>
-          )}
         </div>
       </div>
     );
@@ -1349,18 +1440,6 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       <FxLayer game={game} cardOf={cardOf} flagOf={flagOf} onHide={hideUnits} />
       {banner && <Banner key={banner.key} text={banner.text} sub={banner.sub} color={banner.color} />}
       {renderMenus()}
-      {sandbox && (
-        <SandboxPanel
-          game={game}
-          mySide={mySide}
-          cardOf={cardOf}
-          libraryCards={allCachedCards()}
-          doAction={doAction}
-          act={act}
-          focus={sbFocus}
-          onClose={() => setSandbox(false)}
-        />
-      )}
       {renderMulligan()}
       {moveWindowMine && !game.battle && !game.winner && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[45] panel !rounded-2xl px-4 py-3 flex items-center gap-3 border-cyan-500/60 shadow-2xl">
@@ -1369,6 +1448,10 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         </div>
       )}
       {renderCounterModal()}
+      {renderLookModal()}
+      {oppLooking && !game.winner && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[44] panel !rounded-2xl px-4 py-2 text-sm text-amber-200 border-amber-500/50">ศัตรูกำลังดูการ์ดบนกองและเลือกการ์ด...</div>
+      )}
       {renderInspect()}
       {renderNotice()}
 

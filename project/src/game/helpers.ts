@@ -54,6 +54,14 @@ export function effectText(e: AutoEffect): string {
     case "bounceOpponentMonster": return `ดึงมอนสเตอร์ศัตรู ${v} ตัวกลับมือ`;
     case "powerPerSoul": return `Power +${v} ต่อการ์ด 1 ใบใน Soul`;
     case "criticalPerSoul": return `Critical +${v} ต่อการ์ด 1 ใบใน Soul`;
+    case "negateSpell": return `ยกเลิกเวทที่ศัตรูกำลังร่าย`;
+    case "lookTop": {
+      const opts: string[] = [];
+      if ((e.toHand ?? 0) > 0) opts.push(`ขึ้นมือ ${e.toHand} ใบ`);
+      if ((e.toDrop ?? 0) > 0) opts.push(`ลงดรอป ${e.toDrop} ใบ`);
+      if ((e.toBottom ?? 0) > 0) opts.push(`ใส่ใต้สุดของกอง ${e.toBottom} ใบ`);
+      return `ดูการ์ด ${v} ใบจากบนสุดของกอง${opts.length ? ` แล้วเลือก: ${opts.join(" / ")}` : ""}`;
+    }
     case "kw": return e.name ?? "คีย์เวิร์ด";
     default: return KEYWORDS[e.type] ?? e.type;
   }
@@ -65,8 +73,13 @@ export function skillLines(card: Card): string[] {
   card.autoSkills?.forEach(sk => {
     const allKeywords = sk.effects.every(e => e.type in KEYWORDS || e.type === "kw");
     if ((sk.trigger === "continuous" || sk.trigger === "onAttack") && allKeywords) return; // แสดงเป็นป้ายแดงแทน
-    const label = TRIGGER_LABELS.find(t => t.value === sk.trigger)?.label.replace(/ \(.*\)$/, "") ?? sk.trigger;
-    lines.push(`【${label}】${sk.effects.map(effectText).join("、")}`);
+    const trig = TRIGGER_LABELS.find(t => t.value === sk.trigger)?.label.replace(/ \(.*\)$/, "") ?? sk.trigger;
+    const timing = (sk.trigger === "onCounter" || sk.trigger === "onCounterAct")
+      ? ((sk.timing ?? "attack") === "any" ? " (ตอนศัตรูโจมตีหรือร่ายเวท)" : (sk.timing ?? "attack") === "cast" ? " (ตอนศัตรูร่ายเวท)" : " (ตอนศัตรูโจมตี)")
+      : "";
+    const body = sk.effects.map(effectText).join("、");
+    if (sk.name) lines.push(`【${sk.name}】${sk.trigger === "continuous" ? "" : `${trig}${timing}: `}${body}`);
+    else lines.push(`【${trig}】${timing ? timing.trim() + " " : ""}${body}`);
   });
   return lines;
 }
@@ -75,6 +88,7 @@ export function skillLines(card: Card): string[] {
 export function keywordBadges(card: Card): string[] {
   const out: string[] = [];
   card.autoSkills?.forEach(sk => {
+    if (sk.name && !out.includes(sk.name)) out.push(sk.name); // คีย์เวิร์ดกำหนดเอง
     if (sk.trigger !== "continuous" && sk.trigger !== "onAttack") return;
     sk.effects.forEach(e => {
       const k = e.type === "kw" ? (e.name ?? "") : KEYWORDS[e.type];
@@ -97,7 +111,7 @@ export function costText(card: Card): string {
 }
 
 export function hasCounter(card: Card): boolean {
-  return !!card.autoSkills?.some(s => s.trigger === "onCounter");
+  return !!card.autoSkills?.some(s => s.trigger === "onCounter" || s.trigger === "onCounterAct");
 }
 
 // เทมเพลตสกิลกดเพิ่มทีเดียว ทำให้ออกแบบการ์ดง่ายขึ้น
@@ -119,7 +133,14 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
   { label: "ลงสนาม: ดาเมจ 1", skill: { trigger: "onCall", effects: [{ type: "reduceLife", value: 1 }] } },
   { label: "ถูกทำลาย: จั่ว 1", skill: { trigger: "onDestroyed", effects: [{ type: "draw", value: 1 }] } },
   { label: "โจมตี: Power +5000", skill: { trigger: "onAttack", effects: [{ type: "buffPower", value: 5000 }] } },
-  { label: "ถอด Soul 1 → Counter Stand ตัวเอง", skill: { trigger: "onCounter", effects: [{ type: "removeSoul", value: 1 }, { type: "standSelf", value: 1 }] } },
+  { label: "Counter 【Act】: ถอด Soul 1 → Stand ตัวเอง", skill: { trigger: "onCounterAct", effects: [{ type: "removeSoul", value: 1 }, { type: "standSelf", value: 1 }] } },
+  { label: "ร่าย: ดูกอง 3 ใบ เลือก 1 ขึ้นมือ", skill: { trigger: "onCast", effects: [{ type: "lookTop", value: 3, toHand: 1, toDrop: 0, toBottom: 0 }] } },
+  { label: "ร่าย: ดูกอง 5 ใบ → 1 ขึ้นมือ / 1 ลงดรอป / 1 ใต้กอง", skill: { trigger: "onCast", effects: [{ type: "lookTop", value: 5, toHand: 1, toDrop: 1, toBottom: 1 }] } },
+  { label: "ร่าย: ถอด Soul 1 → Life +2", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "addLife", value: 2 }] } },
+  { label: "ร่าย: ถอด Soul 1 → Attack +5000", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "buffPower", value: 5000 }] } },
+  { label: "ร่าย: ถอด Soul 1 → Defense +5000", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "buffDefense", value: 5000 }] } },
+  { label: "ร่าย: ถอด Soul 1 → จั่ว 1", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "draw", value: 1 }] } },
+  { label: "Counter: ยกเลิกเวทที่ศัตรูร่าย", skill: { trigger: "onCounter", timing: "cast", effects: [{ type: "negateSpell", value: 1 }] } },
   { label: "ถอด Soul → ดาเมจ 1", skill: { trigger: "onSoulRemoved", effects: [{ type: "reduceLife", value: 1 }] } },
   { label: "Buddy Call: จั่ว 1", skill: { trigger: "onBuddyCall", effects: [{ type: "draw", value: 1 }] } },
   { label: "Counter: ยกเลิกโจมตี", skill: { trigger: "onCounter", effects: [{ type: "negateAttack", value: 1 }] } },
@@ -143,7 +164,8 @@ export const TRIGGER_HELP: Record<string, string> = {
   onDestroyed: "ทำงานเมื่อการ์ดนี้ถูกทำลาย",
   onDestroyEnemy: "ทำงานเมื่อทำลายมอนสเตอร์ศัตรูได้",
   onDamage: "ทำงานเมื่อทำดาเมจใส่ผู้เล่นศัตรู",
-  onCounter: "Counter Act: ใช้ได้ตอนศัตรูโจมตี (จากมือ/ช่อง Set/บนสนาม)",
+  onCounter: "【Counter】: ใช้จากมือ (จ่ายค่าใช้จ่ายตามปกติ) หรือจากช่อง Set ในเทิร์นของศัตรู ตอนศัตรูโจมตีหรือร่ายเวท (ตามที่เลือกจังหวะ)",
+  onCounterAct: "Counter 【Act】: ความสามารถของการ์ดบนสนาม กดใช้ได้ 1 ครั้งต่อเทิร์น จ่ายตามที่เขียนในสกิล เช่น ถอด Soul",
   onSoulRemoved: "ทำงานเมื่อ Soul ของการ์ดนี้ถูกถอด",
   onBuddyCall: "ทำงานเมื่อลงสนามด้วย Buddy Call",
   onTurnStart: "ทำงานต้นเทิร์นของเรา",

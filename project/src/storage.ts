@@ -1,4 +1,4 @@
-import type { Card, Flag, Deck, RuleSet } from "./types";
+import type { Card, Flag, Deck, RuleSet, CustomKeyword } from "./types";
 import { DEFAULT_RULES } from "./types";
 
 const KEYS = {
@@ -34,8 +34,31 @@ export function saveFlags(flags: Flag[]): boolean {
   return save(KEYS.flags, flags);
 }
 
+// ย้ายการ์ดเก่า: เดิม Counter ทุกแบบใช้ trigger เดียว ตอนนี้แยก 【Counter】 (มือ/Set) กับ Counter 【Act】 (บนสนาม)
+// มอนสเตอร์/ไอเทมที่ใช้ "ถอด Soul / Stand ตัวเอง" เป็น Counter ถือเป็น Counter 【Act】 ทำครั้งเดียวแล้วจำไว้
+function migrateCounterAct(cards: Card[]): Card[] {
+  try {
+    if (localStorage.getItem("cbf_mig_counter_act") === "1") return cards;
+    let changed = false;
+    const out = cards.map(c => {
+      if (c.type !== "Monster" && c.type !== "Item") return c;
+      const skills = (c.autoSkills ?? []).map(sk => {
+        if (sk.trigger === "onCounter" && sk.effects.some(e => e.type === "removeSoul" || e.type === "standSelf")) {
+          changed = true;
+          return { ...sk, trigger: "onCounterAct" as const };
+        }
+        return sk;
+      });
+      return changed ? { ...c, autoSkills: skills } : c;
+    });
+    localStorage.setItem("cbf_mig_counter_act", "1");
+    if (changed) localStorage.setItem(KEYS.cards, JSON.stringify(out));
+    return out;
+  } catch { return cards; }
+}
+
 export function getCards(): Card[] {
-  return load<Card>(KEYS.cards);
+  return migrateCounterAct(load<Card>(KEYS.cards));
 }
 
 export function saveCards(cards: Card[]): boolean {
@@ -67,9 +90,20 @@ export function uid(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 }
 
+export function getCustomKeywords(): CustomKeyword[] {
+  try {
+    const raw = localStorage.getItem("cbf_custom_kw");
+    return raw ? (JSON.parse(raw) as CustomKeyword[]) : [];
+  } catch { return []; }
+}
+
+export function saveCustomKeywords(list: CustomKeyword[]): void {
+  try { localStorage.setItem("cbf_custom_kw", JSON.stringify(list)); } catch { /* ignore */ }
+}
+
 export function exportAll(): string {
   return JSON.stringify(
-    { flags: getFlags(), cards: getCards(), decks: getDecks() },
+    { flags: getFlags(), cards: getCards(), decks: getDecks(), customKeywords: getCustomKeywords() },
     null,
     2
   );
@@ -80,6 +114,7 @@ export function importAll(json: string): { flags: number; cards: number; decks: 
   if (data.flags) saveFlags(data.flags);
   if (data.cards) saveCards(data.cards);
   if (data.decks) saveDecks(data.decks);
+  if (data.customKeywords) saveCustomKeywords(data.customKeywords);
   return {
     flags: data.flags?.length ?? 0,
     cards: data.cards?.length ?? 0,

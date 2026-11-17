@@ -8,6 +8,8 @@ import { getCards, saveCards, getFlags, saveFlags, getDecks, saveDecks, uid, dow
 import { ImageUpload } from "@/components/ImageUpload";
 import { CardView } from "@/components/CardView";
 import { SKILL_TEMPLATES } from "@/game/helpers";
+import { EffectRow, CounterOptions } from "@/components/SkillEditor";
+import { CustomKeywordPanel } from "@/components/CustomKeywords";
 import { KEYWORD_DEFS, KW_CATEGORIES, type KeywordDef } from "@/game/keywords";
 
 const TYPES: CardType[] = ["Monster", "Spell", "Item", "Impact"];
@@ -321,6 +323,8 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                   ))}
                 </div>
 
+                <CustomKeywordPanel skills={editing.autoSkills} onChange={sk => setEditing({ ...editing, autoSkills: sk })} />
+
                 <div className="flex items-center justify-between mb-3 border-t border-slate-800 pt-4">
                   <h3 className="font-bold text-cyan-400 flex items-center gap-2"><Zap size={16} /> ระบบสกิลอัตโนมัติ (Auto-Trigger)</h3>
                   <button onClick={addSkill} className="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm flex items-center gap-1"><Plus size={14} /> เพิ่มสกิล</button>
@@ -343,29 +347,10 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                       </select>
                       <button onClick={() => removeSkill(si)} className="ml-auto p-1 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={14} /></button>
                     </div>
+                    <CounterOptions skill={skill} onChange={sk => updateSkill(si, sk)} />
                     {skill.effects.map((eff, ei) => (
-                      <div key={ei} className="flex items-center gap-2 mb-2">
-                        <select value={eff.type} onChange={e => updateEffect(si, ei, { ...eff, type: e.target.value as AutoEffectType })} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm flex-1">
-                          {EFFECT_TYPES.map(et => <option key={et.value} value={et.value}>{et.label}</option>)}
-                        </select>
-                        {eff.type === "kw" && (
-                          <select value={eff.name ?? ""} onChange={e => updateEffect(si, ei, { ...eff, name: e.target.value })} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm">
-                            <option value="">เลือกคีย์เวิร์ด…</option>
-                            {KEYWORD_DEFS.filter(k => !k.engine).map(k => <option key={k.id} value={k.id}>{k.id}</option>)}
-                          </select>
-                        )}
-                        {(eff.type === "dropToSoul" || eff.type === "recoverFromDrop") && (
-                          <select value={eff.filter ?? "any"} onChange={e => updateEffect(si, ei, { ...eff, filter: e.target.value as CardFilter })} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" title="เลือกชนิดการ์ดที่จะดึงจากสุสาน (เอาใบที่ลงสุสานล่าสุดก่อน)">
-                            {DROP_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-                          </select>
-                        )}
-                        <input type="number" min={1} title={EFFECT_TYPES.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => updateEffect(si, ei, { ...eff, value: parseInt(e.target.value) || 1 })} className="w-16 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm" />
-                        <button onClick={() => removeEffect(si, ei)} className="p-1 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={12} /></button>
-                      </div>
+                      <EffectRow key={ei} eff={eff} onChange={e2 => updateEffect(si, ei, e2)} onRemove={() => removeEffect(si, ei)} />
                     ))}
-                    {skill.trigger === "onCounter" && (
-                      <p className="text-[11px] text-sky-300 mb-1">Counter Act: ใช้จากมือตอนศัตรูโจมตี ใช้ได้กับทุกประเภทการ์ด (ใช้แล้วการ์ดลงสุสาน) จ่ายค่า Cost ตามปกติ</p>
-                    )}
                     <button onClick={() => addEffect(si)} className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1"><Plus size={12} /> เพิ่มผลลัพธ์</button>
                   </div>
                 ))}

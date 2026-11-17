@@ -7,7 +7,8 @@ export type AutoTrigger =
   | "onDestroyed"   // เมื่อถูกทำลาย
   | "onDestroyEnemy"// เมื่อทำลายมอนสเตอร์ศัตรูได้
   | "onDamage"      // เมื่อทำดาเมจใส่ผู้เล่นศัตรู
-  | "onCounter"     // Counter Act: ใช้จากมือ/สนาม/ช่อง Set ตอนศัตรูโจมตี
+  | "onCounter"     // 【Counter】: ใช้จากมือ/ช่อง Set ตอนศัตรูโจมตีหรือร่ายเวท
+  | "onCounterAct"  // Counter 【Act】: ความสามารถของการ์ดบนสนาม กดใช้ตอนศัตรูโจมตีหรือร่ายเวท
   | "onSoulRemoved" // เมื่อโซลของการ์ดนี้ถูกถอดออก
   | "onBuddyCall"   // เมื่อลงสนามด้วย Buddy Call
   | "onTurnStart"   // ต้นเทิร์นของเรา
@@ -41,6 +42,8 @@ export type AutoEffectType =
   | "negateAttack"            // (Counter) ยกเลิกการโจมตีนั้น
   | "destroyAttacker"         // (Counter) ทำลายผู้โจมตี
   | "restAttacker"            // (Counter) Rest ผู้โจมตี
+  | "negateSpell"             // (Counter) ยกเลิกความสามารถของเวทที่ศัตรูกำลังร่าย
+  | "lookTop"                 // ดูการ์ดบนสุดของกอง X ใบ แล้วเลือก: ขึ้นมือ / ลงดรอป / ใต้สุดของกอง
   | "move"                    // Move: ย้ายมอนสเตอร์ไปช่องอื่นได้ (1 ครั้ง/เทิร์น ใน Main Phase)
   | "counterattack"           // ถูกโจมตีแล้วตอบโต้: ถ้า Power ≥ Defense ผู้โจมตี ผู้โจมตีจะถูกทำลาย
   | "addSoul"                 // นำการ์ดบนเด็ค N ใบเข้าโซลของการ์ดนี้
@@ -61,7 +64,8 @@ export const TRIGGER_LABELS: { value: AutoTrigger; label: string }[] = [
   { value: "onDestroyEnemy", label: "เมื่อทำลายมอนสเตอร์ศัตรู" },
   { value: "onDamage", label: "เมื่อทำดาเมจใส่ผู้เล่น" },
   { value: "onDestroyed", label: "เมื่อถูกทำลาย" },
-  { value: "onCounter", label: "Counter Act (ใช้จากมือตอนศัตรูโจมตี)" },
+  { value: "onCounter", label: "Counter (ใช้จากมือ/ช่อง Set)" },
+  { value: "onCounterAct", label: "Counter 【Act】 (ความสามารถบนสนาม)" },
   { value: "onSoulRemoved", label: "เมื่อโซลถูกถอด" },
   { value: "onBuddyCall", label: "เมื่อลงสนามด้วย Buddy Call" },
   { value: "onTurnStart", label: "ต้นเทิร์นของเรา" },
@@ -96,6 +100,8 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "negateAttack", label: "[Counter] ยกเลิกการโจมตี", hint: "ใส่ 1" },
   { value: "destroyAttacker", label: "[Counter] ทำลายผู้โจมตี", hint: "ใส่ 1" },
   { value: "restAttacker", label: "[Counter] Rest ผู้โจมตี", hint: "ใส่ 1" },
+  { value: "negateSpell", label: "[Counter] ยกเลิกเวทที่ศัตรูร่าย", hint: "ใส่ 1" },
+  { value: "lookTop", label: "ดูการ์ดบนสุดของกอง X ใบ (แล้วเลือกได้)", hint: "ดูกี่ใบ" },
   { value: "move", label: "Move (ย้ายช่องได้)", hint: "ใส่ 1" },
   { value: "counterattack", label: "Counterattack (ตอบโต้ผู้โจมตี)", hint: "ใส่ 1" },
   { value: "addSoul", label: "เพิ่ม Soul (เด็ค→โซลการ์ดนี้)", hint: "จำนวนใบ" },
@@ -125,11 +131,18 @@ export interface AutoEffect {
   value: number;
   filter?: CardFilter; // ใช้กับเอฟเฟกต์ที่ดึงการ์ดจากสุสาน
   name?: string;       // ชื่อคีย์เวิร์ด (ใช้กับ type "kw")
+  toHand?: number;     // lookTop: เลือกขึ้นมือได้สูงสุดกี่ใบ
+  toDrop?: number;     // lookTop: เลือกลงดรอปได้สูงสุดกี่ใบ
+  toBottom?: number;   // lookTop: เลือกใส่ใต้สุดของกองได้สูงสุดกี่ใบ
 }
+
+export type CounterTiming = "attack" | "cast" | "any"; // จังหวะที่ Counter ใช้ได้: ตอนศัตรูโจมตี / ตอนศัตรูร่ายเวท / ทั้งสอง
 
 export interface AutoSkill {
   trigger: AutoTrigger;
   effects: AutoEffect[];
+  name?: string;          // ชื่อคีย์เวิร์ดกำหนดเอง (แสดงเป็น 【ชื่อ】)
+  timing?: CounterTiming; // ใช้กับ Counter / Counter Act (ค่าเริ่มต้น = ตอนศัตรูโจมตี)
 }
 
 export interface Card {
@@ -189,6 +202,26 @@ export const DEFAULT_RULES: RuleSet = {
 
 export type AttackTarget = { kind: "monster"; position: number } | { kind: "fighter" };
 
+// คีย์เวิร์ดกำหนดเอง: ตั้งชื่อ + จังหวะที่ทำงาน + ชุดเอฟเฟกต์ แล้วกดใส่ในการ์ดใบไหนก็ได้
+export interface CustomKeyword {
+  id: string;
+  name: string;
+  trigger: AutoTrigger;
+  timing?: CounterTiming;
+  effects: AutoEffect[];
+  help?: string;
+}
+
+export interface SpellWindow { casterSide: "host" | "guest"; cardId: string; negated: boolean }
+export interface PendingLook {
+  side: "host" | "guest";
+  cardId: string;          // การ์ดที่ใช้ความสามารถนี้
+  cards: string[];         // การ์ดบนสุดของกองที่ถูกดู (ตามลำดับ)
+  toHand: number; toDrop: number; toBottom: number;
+  cont: { skills: AutoSkill[]; fcUid?: string } | null; // เอฟเฟกต์ที่เหลือหลังเลือกเสร็จ
+  resumeCounter?: boolean; // ถ้าเกิดระหว่าง Counter ให้ไปต่อ (ต่อสู้/ปิดเวท) หลังเลือกเสร็จ
+}
+
 export interface BattleState {
   attackerSide: "host" | "guest";
   attackerUid: string;     // ตัวนำ
@@ -246,6 +279,8 @@ export interface GameState {
   rules: RuleSet;
   mulligan: { host: boolean; guest: boolean }; // เลือกเปลี่ยนมือเริ่มต้นเสร็จแล้วหรือยัง
   battle: BattleState | null;
+  spellWindow?: SpellWindow | null; // รอฝั่งตรงข้ามตัดสินใจ Counter ต่อเวทที่เพิ่งร่าย
+  pendingLook?: PendingLook | null; // รอผู้เล่นเลือกการ์ดหลังดูกอง
   moveWindow?: "host" | "guest" | null; // ฝั่งป้องกันกำลังเลือก Move ตอนเริ่ม Attack Phase // การโจมตีที่กำลังรอ Counter
   firstPlayer: "host" | "guest";
   attacksThisTurn: number; // ใช้จำกัดเทิร์นแรกของผู้เล่นคนแรก
