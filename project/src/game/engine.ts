@@ -731,13 +731,14 @@ export function endTurn(state: GameState): GameState {
 /* ------------------------------------------------------------------ */
 /* Playing cards                                                       */
 /* ------------------------------------------------------------------ */
-function guardTurn(state: GameState, side: Side, needPhase: "main" | "final" | "attack"): string | null {
+function guardTurn(state: GameState, side: Side, needPhase: "main" | "final" | "attack", anyActivePhase = false): string | null {
   const bg = baseGuard(state, side);
   if (bg) return bg;
   if (state.battle) return "กำลังรอฝั่งตรงข้ามตัดสินใจ Counter";
   if (state.moveWindow) return "กำลังรอฝั่งตรงข้ามเลือก Move (ตอนเริ่ม Attack Phase) ก่อน จึงจะโจมตีได้";
   if (state.phase === "draw") return "ยังอยู่ใน Draw Phase — ต้องจั่วการ์ดก่อน (กดปุ่ม 'Draw') แล้วผ่าน Charge & Draw จึงจะลงการ์ดได้";
   if (state.phase === "charge") return "ต้องผ่านช่วง Charge & Draw ก่อน (กด 'ข้าม' ถ้าไม่ Charge)";
+  if (anyActivePhase) return null;
   if (needPhase === "main" && state.phase !== "main") return "ลงการ์ด/ร่ายเวทได้เฉพาะ Main Phase";
   if (needPhase === "attack" && state.phase !== (state.rules.useAttackPhase ? "attack" : "main"))
     return state.rules.useAttackPhase ? "โจมตีได้เฉพาะ Attack Phase" : "โจมตีได้เฉพาะ Main Phase";
@@ -913,7 +914,8 @@ export function closeMoveWindow(state: GameState, side: Side): Result {
 
 // Set: วางการ์ด Counter Act คว่ำไว้ในช่อง Set (จ่ายค่าใช้จ่ายตอน Set) แล้วใช้ตอนศัตรูโจมตีได้
 export function setCard(state: GameState, side: Side, handIndex: number): Result {
-  const err = guardTurn(state, side, "main");
+  // Set ได้ทุกเฟสหลัก (Main / Attack / Final) ของเทิร์นตัวเอง
+  const err = guardTurn(state, side, "main", true);
   if (err) return { state, ok: false, msg: err };
   const g = structuredClone(state);
   const p = g[side];
@@ -1026,10 +1028,11 @@ const timingOk = (sk: AutoSkill, timing: CounterTiming) => {
   const t = sk.timing ?? "attack";
   return t === "any" || t === timing;
 };
-const counterSkills = (card: Card, trig: AutoTrigger, timing: CounterTiming) =>
-  (card.autoSkills ?? []).filter(sk => sk.trigger === trig && timingOk(sk, timing));
+// timing = null → ใช้นอกจังหวะโจมตี/ร่ายเวท (ใช้ได้ทุกเวลา) ไม่กรองตามจังหวะ
+const counterSkills = (card: Card, trig: AutoTrigger, timing: CounterTiming | null) =>
+  (card.autoSkills ?? []).filter(sk => sk.trigger === trig && (timing === null || timingOk(sk, timing)));
 
-function skillNeedsSoul(card: Card, timing: CounterTiming): number {
+function skillNeedsSoul(card: Card, timing: CounterTiming | null): number {
   let need = 0;
   counterSkills(card, "onCounterAct", timing).forEach(s => {
     let n = 0;
@@ -1108,14 +1111,8 @@ function afterCounter(g: GameState, side: Side) {
   if (counterOptions(g, side).length === 0) finishWindow(g);
 }
 
-export function counterAct(state: GameState, side: Side, opt: CounterOption): Result {
-  const timing = counterTiming(state);
-  if (!timing) return { state, ok: false, msg: "ไม่มีจังหวะให้ Counter" };
-  if (state.pendingLook || state.pendingSoul) return { state, ok: false, msg: "กำลังรอเลือกการ์ด (ดูกอง / ถอด Soul)" };
-  if (state.battle && state.battle.attackerSide === side) return { state, ok: false, msg: "Counter ได้เฉพาะฝั่งที่ถูกโจมตี" };
-  if (state.spellWindow && state.spellWindow.casterSide === side) return { state, ok: false, msg: "Counter ได้เฉพาะฝั่งตรงข้ามของผู้ร่ายเวท" };
-  if (!counterOptions(state, side).some(o => sameOption(o, opt))) return { state, ok: false, msg: "ใช้การ์ดนี้เป็น Counter ไม่ได้ในตอนนี้ (เช่น เกจ/Soul ไม่พอ ใช้ไปแล้วในเทิร์นนี้ หรือจังหวะไม่ตรงกับการ์ด)" };
-  const g = structuredClone(state);
+// ทำงานของ Counter 1 ใบ (ใช้ร่วมกันทั้งตอนอยู่ในจังหวะโจมตี/ร่ายเวท และตอนใช้ได้ทุกเวลา)
+function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: CounterTiming | null): string | null {
   const p = g[side];
   const b = g.battle;
   const tgt = b && b.target.kind === "monster" ? p.monsters.find(m => m.position === (b.target as { position: number }).position) : undefined;
@@ -1124,7 +1121,7 @@ export function counterAct(state: GameState, side: Side, opt: CounterOption): Re
     const cardId = p.hand[opt.index];
     const card = getCard(cardId)!;
     const costErr = payCost(g, side, card);
-    if (costErr) return { state, ok: false, msg: costErr };
+    if (costErr) return costErr;
     p.hand.splice(opt.index, 1);
     p.dropZone.push(cardId);
     log(g, `🛡 ${nameOf(side)} ใช้ Counter จากมือ: ${card.name}!`);
@@ -1145,7 +1142,67 @@ export function counterAct(state: GameState, side: Side, opt: CounterOption): Re
     log(g, `🛡 ${nameOf(side)} ใช้ Counter 【Act】 ของ ${card.name} บนสนาม!`);
     runSkills(g, side, card, counterSkills(card, "onCounterAct", timing), { fc });
   }
+  return null;
+}
+
+export function counterAct(state: GameState, side: Side, opt: CounterOption): Result {
+  const timing = counterTiming(state);
+  if (!timing) return { state, ok: false, msg: "ไม่มีจังหวะให้ Counter" };
+  if (state.pendingLook || state.pendingSoul) return { state, ok: false, msg: "กำลังรอเลือกการ์ด (ดูกอง / ถอด Soul)" };
+  if (state.battle && state.battle.attackerSide === side) return { state, ok: false, msg: "Counter ได้เฉพาะฝั่งที่ถูกโจมตี" };
+  if (state.spellWindow && state.spellWindow.casterSide === side) return { state, ok: false, msg: "Counter ได้เฉพาะฝั่งตรงข้ามของผู้ร่ายเวท" };
+  if (!counterOptions(state, side).some(o => sameOption(o, opt))) return { state, ok: false, msg: "ใช้การ์ดนี้เป็น Counter ไม่ได้ในตอนนี้ (เช่น เกจ/Soul ไม่พอ ใช้ไปแล้วในเทิร์นนี้ หรือจังหวะไม่ตรงกับการ์ด)" };
+  const g = structuredClone(state);
+  const err = runCounterOption(g, side, opt, timing);
+  if (err) return { state, ok: false, msg: err };
   afterCounter(g, side);
+  return { state: g, ok: true, msg: "ใช้ Counter" };
+}
+
+/* ------------------------------------------------------------------ */
+/* Counter ใช้ได้ทุกเวลา: Main / Attack / Final ของเทิร์นใครก็ได้       */
+/* (นอกจังหวะที่กำลังรอ Counter ของการโจมตี/เวท)                       */
+/* ------------------------------------------------------------------ */
+// เอฟเฟกต์ที่มีความหมายเฉพาะตอนมีการโจมตี/เวทกำลังรอ — ใช้นอกจังหวะไม่ได้ผล จึงไม่เสนอให้กดใช้ลอย ๆ
+const WINDOW_ONLY_EFFECTS = new Set<string>(["negateAttack", "destroyAttacker", "restAttacker", "negateSpell"]);
+const usableAnytime = (card: Card, trig: AutoTrigger) =>
+  counterSkills(card, trig, null).some(sk => sk.effects.some(e => !WINDOW_ONLY_EFFECTS.has(e.type)));
+
+export function freeCounterOptions(state: GameState, side: Side): CounterOption[] {
+  if (!state.rules.enableCounter || state.winner || !mulliganDone(state)) return [];
+  if (state.battle || state.spellWindow || state.pendingLook || state.pendingSoul || state.moveWindow) return [];
+  const p = state[side];
+  const out: CounterOption[] = [];
+  p.hand.forEach((id, i) => {
+    const c = getCard(id);
+    if (!c || !usableAnytime(c, "onCounter")) return;
+    const afford = c.callCostType === "Gauge" ? p.gaugePile.length >= c.callCost : p.life > c.callCost;
+    if (afford) out.push({ zone: "hand", index: i });
+  });
+  p.setZone.forEach((id, i) => {
+    const c = getCard(id);
+    if (c && usableAnytime(c, "onCounter")) out.push({ zone: "set", index: i });
+  });
+  [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
+    const c = getCard(fc.cardId);
+    if (!c || fc.nullified || !usableAnytime(c, "onCounterAct")) return;
+    if (fc.counterUsedTurn === state.turn) return;
+    if (fc.soul.length < skillNeedsSoul(c, null)) return;
+    out.push({ zone: "field", uid: fc.uid });
+  });
+  return out;
+}
+
+export function useCounterAnytime(state: GameState, side: Side, opt: CounterOption): Result {
+  if (state.winner) return { state, ok: false, msg: "เกมจบแล้ว" };
+  if (!mulliganDone(state)) return { state, ok: false, msg: "ต้องรอให้ทั้งสองฝั่งเลือก Mulligan ให้เสร็จก่อน" };
+  if (state.battle || state.spellWindow) return { state, ok: false, msg: "กำลังอยู่ในจังหวะ Counter ของการโจมตี/เวท — ใช้ผ่านหน้าต่าง Counter" };
+  if (state.pendingLook || state.pendingSoul || state.moveWindow) return { state, ok: false, msg: "กำลังรอการตัดสินใจ (เลือกการ์ด / Move) ก่อน" };
+  if (!freeCounterOptions(state, side).some(o => sameOption(o, opt)))
+    return { state, ok: false, msg: "ใช้ Counter ใบนี้ไม่ได้ในตอนนี้ (เกจ/Life/Soul ไม่พอ ใช้ไปแล้วในเทิร์นนี้ หรือสกิลมีผลเฉพาะตอนศัตรูโจมตี/ร่ายเวท)" };
+  const g = structuredClone(state);
+  const err = runCounterOption(g, side, opt, null);
+  if (err) return { state, ok: false, msg: err };
   return { state: g, ok: true, msg: "ใช้ Counter" };
 }
 

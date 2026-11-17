@@ -10,7 +10,7 @@ import { DEFAULT_RULES } from "@/types";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
   callMonster, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
-  goToAttack, goToFinal, mulligan, legalTargets, statsOf, counterOptions, counterCardOf, counterAct,
+  goToAttack, goToFinal, mulligan, legalTargets, statsOf, counterOptions, counterCardOf, counterAct, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   type AttackTarget, type CounterOption, type Result,
@@ -325,6 +325,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const [lookSel, setLookSel] = useState<{ hand: number[]; drop: number[]; bottom: number[] }>({ hand: [], drop: [], bottom: [] });
   const [handSel, setHandSel] = useState<number | null>(null);
   const [chargePick, setChargePick] = useState(false);
+  const [showFreeCounter, setShowFreeCounter] = useState(false);
   const [mullSel, setMullSel] = useState<number[]>([]);
   const [notice, setNotice] = useState<{ title: string; msg: string } | null>(null);
   const [, setImgTick] = useState(0);
@@ -566,6 +567,12 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const doEndTurn = () => doAction(s => endTurn(s));
   const doCounter = (opt: CounterOption) => act("ใช้ Counter ไม่ได้", s => counterAct(s, mySide, opt));
   const doPassCounter = () => act("ผิดพลาด", s => passCounter(s, mySide));
+  // Counter ใช้ได้ทุกเวลา (Main / Attack / Final ของเทิร์นใครก็ได้ ที่ไม่ได้อยู่ในจังหวะรอ Counter)
+  const freeOpts = freeCounterOptions(game, mySide);
+  const doFreeCounter = (opt: CounterOption) => {
+    const ok = act("ใช้ Counter ไม่ได้", s => useCounterAnytime(s, mySide, opt));
+    if (ok) setShowFreeCounter(false);
+  };
   function requestSync() {
     if (roleRef.current === "guest") mp.send({ type: "requestSync" });
     else mp.send({ type: "state", state: gameRef.current });
@@ -961,6 +968,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             {card.type === "Spell" && <button onClick={() => tryCast(handSel)} className={`${btn} ${counterOnly ? "bg-slate-700" : "bg-sky-600 hover:bg-sky-500"}`}>ร่ายเวท</button>}
             {card.type === "Item" && <button onClick={() => tryEquip(handSel)} className={`${btn} bg-emerald-600 hover:bg-emerald-500`}>ติดตั้งไอเทม</button>}
             {card.type === "Impact" && <button onClick={() => tryCast(handSel)} className={`${btn} bg-rose-600 hover:bg-rose-500`}>ใช้ Impact (Final Phase)</button>}
+            {freeOpts.some(o => o.zone === "hand" && o.index === handSel) && <button onClick={() => { const o = freeOpts.find(x => x.zone === "hand" && x.index === handSel); if (o) { doFreeCounter(o); setHandSel(null); } }} className={`${btn} bg-sky-600 hover:bg-sky-500`}>⚡ ใช้ Counter ทันที</button>}
             {hasCounter(card) && <button onClick={() => trySet(handSel)} className={`${btn} bg-violet-600 hover:bg-violet-500`}>Set (วางคว่ำ)</button>}
             {sandbox && (<>
               <button onClick={() => { doAction(s => sandboxMoveCard(s, mySide, "hand", "dropZone", handSel)); setHandSel(null); }} className={`${btn} bg-slate-800 hover:bg-slate-700 flex items-center gap-1`}><Trash2 size={12} /> สุสาน</button>
@@ -1021,6 +1029,13 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           title="เปิด: การ์ด Soulguard ที่จะออกจากสนามจะถอด Soul 1 ใบกันให้ทันที · ปิด: ไม่ใช้ Soulguard (ปล่อยให้ออกจากสนามตามปกติ)"
           className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${me.soulguardOff ? "bg-slate-800 border-slate-600 text-slate-400" : "bg-violet-700/80 border-violet-300 text-white shadow-[0_0_10px_rgba(168,85,247,.6)]"}`}
         >🛡 Soulguard {me.soulguardOff ? "ปิด" : "ใช้อัตโนมัติ"}</button>
+        {freeOpts.length > 0 && !game.winner && (
+          <button
+            onClick={() => setShowFreeCounter(true)}
+            title="การ์ด Counter / Counter Act ใช้ได้ทุกเวลา ไม่ว่าจะเป็น Main / Attack / Final Phase"
+            className="px-3 py-1.5 rounded-lg text-xs font-bold border bg-sky-700/80 border-sky-300 text-white shadow-[0_0_10px_rgba(56,189,248,.6)] hover:bg-sky-600 transition"
+          >⚡ Counter ({freeOpts.length})</button>
+        )}
         {isMyTurn && !game.battle && game.phase === "draw" && (
           <button onClick={doDraw} className={`${b} bg-cyan-600 hover:bg-cyan-500 btn-nudge transition`}>Draw</button>
         )}
@@ -1074,6 +1089,34 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               {mullSel.length > 0 ? `เปลี่ยน ${mullSel.length} ใบ` : "เก็บมือเดิม"}
             </button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderFreeCounterModal() {
+    if (!showFreeCounter || game.winner) return null;
+    if (freeOpts.length === 0) return null;
+    const zoneLabel = (o: CounterOption) => o.zone === "hand" ? "【Counter】 จากมือ" : o.zone === "set" ? "【Counter】 จากช่อง Set" : "Counter 【Act】 บนสนาม";
+    return (
+      <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4" onClick={() => setShowFreeCounter(false)}>
+        <div className="bg-slate-900 border-2 border-sky-500 rounded-2xl p-5 max-w-3xl w-full max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <h3 className="font-display text-xl font-bold text-sky-300 flex items-center gap-2 mb-1"><Shield size={20} /> ใช้ Counter</h3>
+          <div className="text-xs text-slate-400 mb-4">Counter / Counter 【Act】 ใช้ได้ทุกเวลา (Main / Attack / Final) ทั้งเทิร์นคุณและเทิร์นศัตรู</div>
+          <div className="flex flex-wrap gap-3 mb-4">
+            {freeOpts.map((o, k) => {
+              const c = counterCardOf(game, mySide, o);
+              if (!c) return null;
+              return (
+                <div key={k} className="flex flex-col items-center gap-1">
+                  <CardView card={c} flag={flagOf(me.flagId)} size="md" onClick={() => doFreeCounter(o)} onInspect={() => openInspect(c, me.flagId)} className="hover:ring-4 hover:ring-sky-400" />
+                  <span className="text-[11px] text-sky-300">{zoneLabel(o)}</span>
+                  <button onClick={() => doFreeCounter(o)} className="px-3 py-1 bg-sky-600 hover:bg-sky-500 rounded-lg text-xs font-bold">ใช้ Counter{o.zone === "hand" ? ` (Cost ${c.callCost})` : ""}</button>
+                </div>
+              );
+            })}
+          </div>
+          <button onClick={() => setShowFreeCounter(false)} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">ปิด</button>
         </div>
       </div>
     );
@@ -1491,6 +1534,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         </div>
       )}
       {renderCounterModal()}
+      {renderFreeCounterModal()}
       {renderLookModal()}
       {renderSoulModal()}
       {oppSoulPick && !game.winner && (
