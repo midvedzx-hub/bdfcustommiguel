@@ -14,7 +14,7 @@ import { keywordValue,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   type AttackTarget, type CounterOption, type Result,
-  setSoulguardAuto, closeMoveWindow, movableMonsters, resolveLook,
+  setSoulguardAuto, closeMoveWindow, movableMonsters, resolveLook, resolveSoulChoice,
 } from "@/game/engine";
 import { getFlags, getCards, getDecks } from "@/storage";
 import { getFlagColor, hasCounter, skillLines, keywordBadges, costText, effectText, KEYWORD_HELP, TRIGGER_HELP } from "@/game/helpers";
@@ -211,6 +211,13 @@ export function botStep(s: GameState): GameState {
     if (s.pendingLook.side === "host") return s; // รอมนุษย์เลือกการ์ด
     return resolveLook(s, "guest", botPickLook(s.pendingLook)).state;
   }
+  if (s.pendingSoul) {
+    if (s.pendingSoul.side === "host") return s;
+    // บอทเลือกถอด Soul จากการ์ดที่มี Soul มากที่สุด
+    const ps = s.pendingSoul;
+    const best = [...s.guest.monsters, ...(s.guest.item ? [s.guest.item] : [])].filter(m => ps.candidates.includes(m.uid)).sort((a, b) => b.soul.length - a.soul.length)[0];
+    return resolveSoulChoice(s, "guest", best ? best.uid : null).state;
+  }
   if (s.moveWindow === "host") return s; // รอมนุษย์เลือก Move
   if (s.moveWindow === "guest") return closeMoveWindow(s, "guest").state;
 
@@ -341,7 +348,9 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const waitingCounter = (!!game.battle && game.battle.attackerSide === mySide) || (!!sw && sw.casterSide === mySide);
   const myLook = game.pendingLook && game.pendingLook.side === mySide ? game.pendingLook : null;
   const oppLooking = !!game.pendingLook && game.pendingLook.side !== mySide;
-  const busy = !!game.battle || !!sw || !!game.pendingLook;
+  const mySoulPick = game.pendingSoul && game.pendingSoul.side === mySide ? game.pendingSoul : null;
+  const oppSoulPick = !!game.pendingSoul && game.pendingSoul.side !== mySide;
+  const busy = !!game.battle || !!sw || !!game.pendingLook || !!game.pendingSoul;
   const canAttackNow = isMyTurn && game.phase === attackPhaseName && !busy;
   const canPlayNow = isMyTurn && game.phase === "main" && !busy;
   // Move: ตอนเริ่ม Attack Phase ของทั้งสองฝั่ง ก่อนมีการโจมตี (ฝั่งป้องกันย้ายได้ในช่วงที่ระบบเปิดให้)
@@ -525,8 +534,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     if (mode !== "bot" || game.winner) return;
     const botMull = !game.mulligan.guest;
     const botDefending = (!!game.battle && game.battle.attackerSide === "host") || (!!game.spellWindow && game.spellWindow.casterSide === "host");
-    const botLook = game.pendingLook?.side === "guest";
-    const botTurn = game.currentTurn === "guest" && !game.battle && !game.spellWindow && !game.pendingLook && game.mulligan.host && game.mulligan.guest;
+    const botLook = game.pendingLook?.side === "guest" || game.pendingSoul?.side === "guest";
+    const botTurn = game.currentTurn === "guest" && !game.battle && !game.spellWindow && !game.pendingLook && !game.pendingSoul && game.mulligan.host && game.mulligan.guest;
     if (!botMull && !botDefending && !botTurn && !botLook) return;
     const t = setTimeout(() => doAction(s => botStep(s)), botMull ? 100 : botDefending ? 900 : 850);
     return () => clearTimeout(t);
@@ -603,6 +612,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   function whyBlocked(): string | undefined {
     if (game.winner) return undefined;
     if (!started) return "ยังเริ่มเกมไม่ได้: รอทั้งสองฝั่งเลือก Mulligan ก่อน";
+    if (mySoulPick) return "กำลังเลือกการ์ดที่จะถอด Soul: เลือกให้เสร็จก่อน";
+    if (oppSoulPick) return "กำลังรอฝั่งตรงข้ามเลือกการ์ดที่จะถอด Soul";
     if (myLook) return "กำลังเลือกการ์ดหลังดูกอง: เลือกให้เสร็จก่อน";
     if (oppLooking) return "กำลังรอฝั่งตรงข้ามเลือกการ์ดหลังดูกอง";
     if (game.battle || sw) return iAmDefender ? "กำลังมี" + (sw ? "การร่ายเวท" : "การโจมตี") + ": เลือกใช้ Counter หรือกด 'ไม่ใช้ Counter' ก่อน" : "กำลังรอฝั่งตรงข้ามตัดสินใจ Counter";
@@ -974,6 +985,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     let hint = "";
     if (game.winner) hint = "";
     else if (!started) hint = "รอทั้งสองฝั่งเลือก Mulligan...";
+    else if (mySoulPick) hint = "เลือกการ์ดของคุณที่จะถอด Soul (หรือเลือกไม่ถอด)";
+    else if (oppSoulPick) hint = "รอฝั่งตรงข้ามเลือกการ์ดที่จะถอด Soul...";
     else if (myLook) hint = "เลือกการ์ดจากการดูกอง แล้วกดยืนยัน";
     else if (oppLooking) hint = "รอฝั่งตรงข้ามเลือกการ์ดหลังดูกอง...";
     else if (waitingCounter) hint = "รอฝั่งตรงข้ามเลือกว่าจะใช้ Counter หรือไม่...";
@@ -1068,7 +1081,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
 
   function renderCounterModal() {
     const b = game.battle;
-    if ((!b && !sw) || !iAmDefender || game.winner || game.pendingLook) return null;
+    if ((!b && !sw) || !iAmDefender || game.winner || game.pendingLook || game.pendingSoul) return null;
     const opts = counterOptions(game, mySide);
     const zoneLabel = (o: CounterOption) => o.zone === "hand" ? "【Counter】 จากมือ" : o.zone === "set" ? "【Counter】 จากช่อง Set" : "Counter 【Act】 บนสนาม";
     let header: React.ReactNode;
@@ -1120,6 +1133,36 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             })}
           </div>
           <button onClick={doPassCounter} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">ไม่ใช้ Counter — {b ? "ต่อสู้เลย" : "ให้เวทมีผล"}</button>
+        </div>
+      </div>
+    );
+  }
+
+  // เลือกการ์ดของเราที่จะถอด Soul (หรือเลือกไม่ถอด)
+  function renderSoulModal() {
+    const ps = mySoulPick;
+    if (!ps || game.winner) return null;
+    const src = cardOf(ps.cardId);
+    const cands = [...me.monsters, ...(me.item ? [me.item] : [])].filter(m => ps.candidates.includes(m.uid));
+    return (
+      <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+        <div className="bg-slate-900 border-2 border-violet-400 rounded-2xl p-5 max-w-3xl w-full max-h-[94vh] overflow-y-auto">
+          <h3 className="font-display text-xl font-bold text-violet-300 mb-1">เลือกการ์ดที่จะถอด Soul {ps.n} ใบ{src ? ` — ${src.name}` : ""}</h3>
+          <p className="text-sm text-slate-400 mb-4">เลือกการ์ดของคุณ 1 ใบที่มี Soul พอ ถ้าถอดได้ เอฟเฟกต์ถัดไปของการ์ดนี้ (เช่น Life / Attack / Defense / จั่ว) จะทำงานกับการ์ดใบที่เลือก ถ้าไม่ต้องการให้กด "ไม่ถอด"</p>
+          <div className="flex flex-wrap gap-4 justify-center mb-5">
+            {cands.map(m => {
+              const c = cardOf(m.cardId);
+              if (!c) return null;
+              return (
+                <div key={m.uid} className="flex flex-col items-center gap-2">
+                  <CardView card={c} flag={flagOf(me.flagId)} size="md" stats={statsOf(m)} onClick={() => act("ถอด Soul ไม่ได้", st => resolveSoulChoice(st, mySide, m.uid))} onInspect={() => openInspect(c, me.flagId, m)} className="hover:ring-4 hover:ring-violet-400" />
+                  <span className="chip !text-violet-300">SOUL {m.soul.length}</span>
+                  <button onClick={() => act("ถอด Soul ไม่ได้", st => resolveSoulChoice(st, mySide, m.uid))} className="btn btn-primary !py-1 !text-xs">ถอด Soul การ์ดใบนี้</button>
+                </div>
+              );
+            })}
+          </div>
+          <button onClick={() => act("ผิดพลาด", st => resolveSoulChoice(st, mySide, null))} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">ไม่ถอด Soul</button>
         </div>
       </div>
     );
@@ -1449,6 +1492,10 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       )}
       {renderCounterModal()}
       {renderLookModal()}
+      {renderSoulModal()}
+      {oppSoulPick && !game.winner && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[44] panel !rounded-2xl px-4 py-2 text-sm text-violet-200 border-violet-500/50">ศัตรูกำลังเลือกการ์ดที่จะถอด Soul...</div>
+      )}
       {oppLooking && !game.winner && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[44] panel !rounded-2xl px-4 py-2 text-sm text-amber-200 border-amber-500/50">ศัตรูกำลังดูการ์ดบนกองและเลือกการ์ด...</div>
       )}

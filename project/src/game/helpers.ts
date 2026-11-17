@@ -54,6 +54,7 @@ export function effectText(e: AutoEffect): string {
     case "bounceOpponentMonster": return `ดึงมอนสเตอร์ศัตรู ${v} ตัวกลับมือ`;
     case "powerPerSoul": return `Power +${v} ต่อการ์ด 1 ใบใน Soul`;
     case "criticalPerSoul": return `Critical +${v} ต่อการ์ด 1 ใบใน Soul`;
+    case "chooseRemoveSoul": return `เลือกการ์ดของเรา 1 ใบ ถอด Soul ${v} ใบ (ถ้าถอดได้ จึงทำต่อ)`;
     case "negateSpell": return `ยกเลิกเวทที่ศัตรูกำลังร่าย`;
     case "lookTop": {
       const opts: string[] = [];
@@ -136,6 +137,10 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
   { label: "Counter 【Act】: ถอด Soul 1 → Stand ตัวเอง", skill: { trigger: "onCounterAct", effects: [{ type: "removeSoul", value: 1 }, { type: "standSelf", value: 1 }] } },
   { label: "ร่าย: ดูกอง 3 ใบ เลือก 1 ขึ้นมือ", skill: { trigger: "onCast", effects: [{ type: "lookTop", value: 3, toHand: 1, toDrop: 0, toBottom: 0 }] } },
   { label: "ร่าย: ดูกอง 5 ใบ → 1 ขึ้นมือ / 1 ลงดรอป / 1 ใต้กอง", skill: { trigger: "onCast", effects: [{ type: "lookTop", value: 5, toHand: 1, toDrop: 1, toBottom: 1 }] } },
+  { label: "ร่าย: เลือกการ์ดถอด Soul 1 → Life +2", skill: { trigger: "onCast", effects: [{ type: "chooseRemoveSoul", value: 1 }, { type: "addLife", value: 2 }] } },
+  { label: "ร่าย: เลือกการ์ดถอด Soul 1 → Attack +5000", skill: { trigger: "onCast", effects: [{ type: "chooseRemoveSoul", value: 1 }, { type: "buffPower", value: 5000 }] } },
+  { label: "ร่าย: เลือกการ์ดถอด Soul 1 → Defense +5000 / จั่ว 1", skill: { trigger: "onCast", effects: [{ type: "chooseRemoveSoul", value: 1 }, { type: "buffDefense", value: 5000 }, { type: "draw", value: 1 }] } },
+  { label: "Counter: เลือกการ์ดถอด Soul 1 → ยกเลิกโจมตี", skill: { trigger: "onCounter", effects: [{ type: "chooseRemoveSoul", value: 1 }, { type: "negateAttack", value: 1 }] } },
   { label: "ร่าย: ถอด Soul 1 → Life +2", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "addLife", value: 2 }] } },
   { label: "ร่าย: ถอด Soul 1 → Attack +5000", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "buffPower", value: 5000 }] } },
   { label: "ร่าย: ถอด Soul 1 → Defense +5000", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "buffDefense", value: 5000 }] } },

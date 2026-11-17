@@ -12,6 +12,7 @@ const QUICK: { label: string; eff: AutoEffect }[] = [
   { label: "+ Defense", eff: { type: "buffDefense", value: 5000 } },
   { label: "+ จั่วการ์ด", eff: { type: "draw", value: 1 } },
   { label: "+ ถอด Soul (เป็นเงื่อนไข)", eff: { type: "removeSoul", value: 1 } },
+  { label: "+ เลือกการ์ดถอด Soul", eff: { type: "chooseRemoveSoul", value: 1 } },
   { label: "+ ดูกอง", eff: { type: "lookTop", value: 3, toHand: 1, toDrop: 0, toBottom: 0 } },
 ];
 

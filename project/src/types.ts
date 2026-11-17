@@ -43,6 +43,7 @@ export type AutoEffectType =
   | "destroyAttacker"         // (Counter) ทำลายผู้โจมตี
   | "restAttacker"            // (Counter) Rest ผู้โจมตี
   | "negateSpell"             // (Counter) ยกเลิกความสามารถของเวทที่ศัตรูกำลังร่าย
+  | "chooseRemoveSoul"        // เลือกการ์ดของเรา 1 ใบ แล้วถอด Soul N ใบ (เลือกไม่ถอดได้) ถ้าถอดได้ค่อยทำเอฟเฟกต์ถัดไป
   | "lookTop"                 // ดูการ์ดบนสุดของกอง X ใบ แล้วเลือก: ขึ้นมือ / ลงดรอป / ใต้สุดของกอง
   | "move"                    // Move: ย้ายมอนสเตอร์ไปช่องอื่นได้ (1 ครั้ง/เทิร์น ใน Main Phase)
   | "counterattack"           // ถูกโจมตีแล้วตอบโต้: ถ้า Power ≥ Defense ผู้โจมตี ผู้โจมตีจะถูกทำลาย
@@ -101,6 +102,7 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "destroyAttacker", label: "[Counter] ทำลายผู้โจมตี", hint: "ใส่ 1" },
   { value: "restAttacker", label: "[Counter] Rest ผู้โจมตี", hint: "ใส่ 1" },
   { value: "negateSpell", label: "[Counter] ยกเลิกเวทที่ศัตรูร่าย", hint: "ใส่ 1" },
+  { value: "chooseRemoveSoul", label: "ถอด Soul ของการ์ดที่เลือก 1 ใบ (ถ้าถอดได้ ทำเอฟเฟกต์ถัดไป)", hint: "ถอดกี่ใบ" },
   { value: "lookTop", label: "ดูการ์ดบนสุดของกอง X ใบ (แล้วเลือกได้)", hint: "ดูกี่ใบ" },
   { value: "move", label: "Move (ย้ายช่องได้)", hint: "ใส่ 1" },
   { value: "counterattack", label: "Counterattack (ตอบโต้ผู้โจมตี)", hint: "ใส่ 1" },
@@ -222,6 +224,15 @@ export interface PendingLook {
   resumeCounter?: boolean; // ถ้าเกิดระหว่าง Counter ให้ไปต่อ (ต่อสู้/ปิดเวท) หลังเลือกเสร็จ
 }
 
+export interface PendingSoul {
+  side: "host" | "guest";
+  cardId: string;          // การ์ดที่ใช้ความสามารถนี้
+  n: number;               // ถอดกี่ใบ
+  candidates: string[];    // uid ของการ์ดของเรา (มอนสเตอร์/ไอเทม) ที่มี Soul พอ
+  cont: { skills: AutoSkill[]; fcUid?: string; firstIsRest: boolean } | null; // เอฟเฟกต์ที่เหลือ (firstIsRest = รายการแรกคือส่วนที่เหลือของสกิลเดียวกัน ซึ่งจะไม่ทำถ้าไม่ถอด)
+  resumeCounter?: boolean;
+}
+
 export interface BattleState {
   attackerSide: "host" | "guest";
   attackerUid: string;     // ตัวนำ
@@ -281,6 +292,7 @@ export interface GameState {
   battle: BattleState | null;
   spellWindow?: SpellWindow | null; // รอฝั่งตรงข้ามตัดสินใจ Counter ต่อเวทที่เพิ่งร่าย
   pendingLook?: PendingLook | null; // รอผู้เล่นเลือกการ์ดหลังดูกอง
+  pendingSoul?: PendingSoul | null; // รอผู้เล่นเลือกการ์ดที่จะถอด Soul
   moveWindow?: "host" | "guest" | null; // ฝั่งป้องกันกำลังเลือก Move ตอนเริ่ม Attack Phase // การโจมตีที่กำลังรอ Counter
   firstPlayer: "host" | "guest";
   attacksThisTurn: number; // ใช้จำกัดเทิร์นแรกของผู้เล่นคนแรก

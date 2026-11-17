@@ -443,6 +443,18 @@ function runSkills(
         case "negateSpell":
           if (g.spellWindow) { g.spellWindow.negated = true; log(g, `${card.name} ยกเลิกเวทที่ศัตรูร่าย!`); }
           break;
+        case "chooseRemoveSoul": {
+          const cands = [...g[side].monsters, ...(g[side].item ? [g[side].item] : [])].filter(m => m.soul.length >= Math.max(1, n));
+          if (cands.length === 0) { abort = true; log(g, `${card.name}: ไม่มีการ์ดที่มี Soul พอให้ถอด เอฟเฟกต์ที่เหลือไม่ทำงาน`); break; }
+          const restOfSkill = skill.effects.slice(ei + 1);
+          const restSkills: AutoSkill[] = [...(restOfSkill.length > 0 ? [{ ...skill, effects: restOfSkill }] : []), ...skills.slice(si + 1)];
+          g.pendingSoul = {
+            side, cardId: card.id, n: Math.max(1, n), candidates: cands.map(c => c.uid),
+            cont: restSkills.length > 0 ? { skills: restSkills, fcUid: ctx.fc?.uid, firstIsRest: restOfSkill.length > 0 } : null,
+          };
+          log(g, `${card.name}: ${nameOf(side)} เลือกการ์ดที่จะถอด Soul ${Math.max(1, n)} ใบ`);
+          return;
+        }
         case "lookTop": {
           const cards = g[side].deck.slice(0, Math.max(1, n));
           if (cards.length === 0) { log(g, `${card.name}: เด็คไม่มีการ์ดให้ดู`); break; }
@@ -522,6 +534,7 @@ function startTurn(g: GameState, skipDraw: boolean) {
   g.moveWindow = null;
   g.spellWindow = null;
   g.pendingLook = null;
+  g.pendingSoul = null;
   // ลำดับเทิร์น: Stand → Draw → Charge & Draw → Main → Attack → Final (ข้าม Draw เฉพาะเมื่อปิดกติกา "ผู้เล่นคนแรกจั่วด้วย")
   g.phase = skipDraw ? "charge" : "draw";
   log(g, `— เทิร์น ${g.turn}: ${nameOf(side)} (Stand${skipDraw ? " · เทิร์นแรกไม่จั่ว" : ""}) —`);
@@ -548,6 +561,7 @@ export function createInitialState(
     moveWindow: null,
     spellWindow: null,
     pendingLook: null,
+    pendingSoul: null,
     firstPlayer: first,
     attacksThisTurn: 0,
     rev: 0,
@@ -626,6 +640,7 @@ function baseGuard(state: GameState, side: Side): string | null {
   if (state.winner) return "เกมจบแล้ว";
   if (!mulliganDone(state)) return "ต้องรอให้ทั้งสองฝั่งเลือก Mulligan ให้เสร็จก่อน";
   if (state.pendingLook) return `กำลังรอ${nameOf(state.pendingLook.side)}เลือกการ์ดหลังดูกอง`;
+  if (state.pendingSoul) return `กำลังรอ${nameOf(state.pendingSoul.side)}เลือกการ์ดที่จะถอด Soul`;
   if (state.spellWindow) return "กำลังรอฝั่งตรงข้ามตัดสินใจ Counter ต่อเวทที่ร่าย";
   if (state.currentTurn !== side) return "ยังไม่ใช่เทิร์นของคุณ";
   return null;
@@ -699,7 +714,7 @@ export function goToFinal(state: GameState, side: Side): Result {
 }
 
 export function endTurn(state: GameState): GameState {
-  if (state.battle || state.moveWindow || state.spellWindow || state.pendingLook || !mulliganDone(state)) return state;
+  if (state.battle || state.moveWindow || state.spellWindow || state.pendingLook || state.pendingSoul || !mulliganDone(state)) return state;
   const g = structuredClone(state);
   if (g.winner) return g;
   (["host", "guest"] as Side[]).forEach(s => {
@@ -865,7 +880,7 @@ export function movableMonsters(state: GameState, side: Side): FieldCard[] {
 export function moveMonster(state: GameState, side: Side, monsterUid: string, position: number): Result {
   if (state.winner) return { state, ok: false, msg: "เกมจบแล้ว" };
   if (!mulliganDone(state)) return { state, ok: false, msg: "ต้องรอให้ทั้งสองฝั่งเลือก Mulligan ให้เสร็จก่อน" };
-  if (state.battle || state.spellWindow || state.pendingLook) return { state, ok: false, msg: "กำลังรอการตัดสินใจ (Counter / เลือกการ์ด) ก่อน" };
+  if (state.battle || state.spellWindow || state.pendingLook || state.pendingSoul) return { state, ok: false, msg: "กำลังรอการตัดสินใจ (Counter / เลือกการ์ด) ก่อน" };
   if (!moveWindowOpen(state))
     return { state, ok: false, msg: `Move ใช้ได้ตอนเริ่ม ${state.rules.useAttackPhase ? "Attack Phase" : "Main Phase"} ก่อนมีการโจมตีเท่านั้น (ของทั้งสองฝั่ง)` };
   if (state.currentTurn !== side && state.moveWindow !== side)
@@ -1088,6 +1103,7 @@ function resolveSpell(g: GameState) {
 // หลังใช้ Counter 1 ใบ: ถ้ามีการเลือกการ์ดค้างให้รอก่อน ไม่งั้นถ้าไม่มี Counter เหลือให้ปิดจังหวะ
 function afterCounter(g: GameState, side: Side) {
   if (g.pendingLook) { g.pendingLook.resumeCounter = true; return; }
+  if (g.pendingSoul) { g.pendingSoul.resumeCounter = true; return; }
   if (g.winner) { g.battle = null; g.spellWindow = null; return; }
   if (counterOptions(g, side).length === 0) finishWindow(g);
 }
@@ -1095,7 +1111,7 @@ function afterCounter(g: GameState, side: Side) {
 export function counterAct(state: GameState, side: Side, opt: CounterOption): Result {
   const timing = counterTiming(state);
   if (!timing) return { state, ok: false, msg: "ไม่มีจังหวะให้ Counter" };
-  if (state.pendingLook) return { state, ok: false, msg: "กำลังรอเลือกการ์ดหลังดูกอง" };
+  if (state.pendingLook || state.pendingSoul) return { state, ok: false, msg: "กำลังรอเลือกการ์ด (ดูกอง / ถอด Soul)" };
   if (state.battle && state.battle.attackerSide === side) return { state, ok: false, msg: "Counter ได้เฉพาะฝั่งที่ถูกโจมตี" };
   if (state.spellWindow && state.spellWindow.casterSide === side) return { state, ok: false, msg: "Counter ได้เฉพาะฝั่งตรงข้ามของผู้ร่ายเวท" };
   if (!counterOptions(state, side).some(o => sameOption(o, opt))) return { state, ok: false, msg: "ใช้การ์ดนี้เป็น Counter ไม่ได้ในตอนนี้ (เช่น เกจ/Soul ไม่พอ ใช้ไปแล้วในเทิร์นนี้ หรือจังหวะไม่ตรงกับการ์ด)" };
@@ -1135,13 +1151,40 @@ export function counterAct(state: GameState, side: Side, opt: CounterOption): Re
 
 export function passCounter(state: GameState, side: Side): Result {
   if (!counterTiming(state)) return { state, ok: false, msg: "ไม่มีจังหวะให้ตัดสินใจ" };
-  if (state.pendingLook) return { state, ok: false, msg: "กำลังรอเลือกการ์ดหลังดูกอง" };
+  if (state.pendingLook || state.pendingSoul) return { state, ok: false, msg: "กำลังรอเลือกการ์ด (ดูกอง / ถอด Soul)" };
   if (state.battle && state.battle.attackerSide === side) return { state, ok: false, msg: "ไม่ใช่ฝั่งป้องกัน" };
   if (state.spellWindow && state.spellWindow.casterSide === side) return { state, ok: false, msg: "ไม่ใช่ฝั่งที่ต้องตัดสินใจ" };
   const g = structuredClone(state);
   log(g, `${nameOf(side)} ไม่ใช้ Counter`);
   finishWindow(g);
   return { state: g, ok: true, msg: "ดำเนินต่อ" };
+}
+
+// เลือกการ์ดที่จะถอด Soul (targetUid = null คือไม่ถอด: ข้ามเอฟเฟกต์ที่ขึ้นกับการถอดของสกิลนี้)
+export function resolveSoulChoice(state: GameState, side: Side, targetUid: string | null): Result {
+  const ps = state.pendingSoul;
+  if (!ps || ps.side !== side) return { state, ok: false, msg: "ไม่มีการเลือกถอด Soul ที่รอคุณอยู่" };
+  if (targetUid !== null && !ps.candidates.includes(targetUid)) return { state, ok: false, msg: "การ์ดใบนี้ถอด Soul ไม่ได้ (Soul ไม่พอ)" };
+  const g = structuredClone(state);
+  const p = g[side];
+  g.pendingSoul = null;
+  const card = getCard(ps.cardId);
+  let chosen: FieldCard | undefined;
+  let skills = ps.cont?.skills ?? [];
+  if (targetUid === null) {
+    log(g, `${nameOf(side)} เลือกไม่ถอด Soul`);
+    if (ps.cont?.firstIsRest) skills = skills.slice(1);
+  } else {
+    chosen = findFc(p, targetUid) ?? undefined;
+    if (chosen) mRemoveSoul(g, side, chosen, ps.n);
+    else if (ps.cont?.firstIsRest) skills = skills.slice(1);
+  }
+  if (card && skills.length > 0 && !g.winner) {
+    const baseFc = ps.cont?.fcUid ? findFc(p, ps.cont.fcUid) ?? undefined : undefined;
+    runSkills(g, side, card, skills, { fc: chosen ?? baseFc });
+  }
+  if (ps.resumeCounter) afterCounter(g, side);
+  return { state: g, ok: true, msg: "เลือกเสร็จแล้ว" };
 }
 
 // ดูการ์ดบนสุดของกองแล้วเลือก: ขึ้นมือ / ลงดรอป / ใต้สุดของกอง (ที่ไม่ได้เลือกจะวางกลับบนสุดตามลำดับเดิม)
