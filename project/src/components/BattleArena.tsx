@@ -14,7 +14,7 @@ import { keywordValue,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   type AttackTarget, type CounterOption, type Result,
-  setSoulguardAuto, closeMoveWindow, movableMonsters, resolveLook, resolveSoulChoice,
+  setSoulguardAuto, closeMoveWindow, movableMonsters, recalcAuras, hasSetKeyword, activeSetCards, sandboxDestroySet, resolveLook, resolveSoulChoice,
 } from "@/game/engine";
 import { getFlags, getCards, getDecks } from "@/storage";
 import { getFlagColor, hasCounter, skillLines, keywordBadges, costText, effectText, KEYWORD_HELP, TRIGGER_HELP } from "@/game/helpers";
@@ -255,6 +255,9 @@ export function botStep(s: GameState): GameState {
         } else if (card.type === "Item" && !state.guest.item && !counterOnly) {
           const r = equipItem(state, "guest", i);
           if (r.ok) state = r.state;
+        } else if (card.type === "Spell" && hasSetKeyword(card)) {
+          const r = castSpell(state, "guest", i); // Set: วางลงช่อง Set (ซ้ำชื่อ/ช่องเต็มจะไม่สำเร็จ ข้ามไป)
+          if (r.ok) state = r.state;
         } else if (card.type === "Spell" && !counterOnly && card.autoSkills.some(k => k.trigger === "onCast")) {
           const r = castSpell(state, "guest", i);
           if (r.ok) state = r.state;
@@ -453,6 +456,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     }
     const next = fn(gameRef.current);
     if (next === gameRef.current) return;
+    recalcAuras(next); // ผลต่อเนื่องจากการ์ด Set ให้ตรงกับสถานะล่าสุดเสมอ
     next.rev = (gameRef.current.rev ?? 0) + 1;
     commit(next);
     if (mode === "multiplayer") mp.send({ type: "state", state: next });
@@ -832,12 +836,27 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
 
         {/* Set */}
         <RectZone style={place(2, 66, 24, 29, mirror)} onDrop={isMine ? handleDropOnSet : undefined} label={p.setZone.length === 0 ? "เซ็ท" : undefined}>
-          <div className="flex gap-1 items-center justify-center">
-            {p.setZone.map((id, i) => (
-              <div key={i} onMouseEnter={() => isMine && cardOf(id) && setHovered({ card: cardOf(id)!, flagId: p.flagId })}>
-                <CardView faceDown width="calc(var(--mh) * 0.17)" onClick={isMine && cardOf(id) ? () => openInspect(cardOf(id)!, p.flagId, null, "การ์ด Set (คว่ำ): ใช้เป็น Counter Act ได้ตอนศัตรูโจมตี") : undefined} />
-              </div>
-            ))}
+          <div className="flex gap-1 items-center justify-center flex-wrap">
+            {p.setZone.map((id, i) => {
+              const c = cardOf(id);
+              const faceUp = !!c && hasSetKeyword(c);
+              if (faceUp && c) {
+                // การ์ด Set (เวทผลต่อเนื่อง): เปิดหน้าให้ทั้งสองฝั่งเห็น
+                return (
+                  <div key={i} className="relative" onMouseEnter={() => setHovered({ card: c, flagId: p.flagId })}>
+                    <CardView card={c} flag={flag} width="calc(var(--mh) * 0.17)" hideText
+                      onClick={() => sandbox ? doAction(st => sandboxDestroySet(st, side, i)) : openInspect(c, p.flagId, null, `การ์ด Set: ผลต่อเนื่องทำงานตลอดที่อยู่ในช่อง Set จนกว่าจะถูกทำลาย${sandbox ? "" : ""}`)}
+                      onInspect={() => openInspect(c, p.flagId)} />
+                    <span className="absolute -top-1 -left-1 bg-violet-600 text-white font-bold rounded px-1" style={{ fontSize: "9px" }}>SET</span>
+                  </div>
+                );
+              }
+              return (
+                <div key={i} onMouseEnter={() => isMine && c && setHovered({ card: c, flagId: p.flagId })}>
+                  <CardView faceDown width="calc(var(--mh) * 0.17)" onClick={isMine && c ? () => openInspect(c, p.flagId, null, "การ์ด Set (คว่ำ): ใช้เป็น Counter ได้ตอนศัตรูโจมตีหรือร่ายเวท") : undefined} />
+                </div>
+              );
+            })}
           </div>
         </RectZone>
 
@@ -965,11 +984,11 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               <button key={pos} onClick={() => tryCall(handSel, pos)} className={`${btn} bg-cyan-600 hover:bg-cyan-500`}>ลงช่อง{POSITION_NAMES[pos]}</button>
             ))}
             {card.type === "Monster" && empty.length === 0 && <button onClick={() => tryCall(handSel, 1)} className={`${btn} bg-slate-700`}>ลงมอนสเตอร์</button>}
-            {card.type === "Spell" && <button onClick={() => tryCast(handSel)} className={`${btn} ${counterOnly ? "bg-slate-700" : "bg-sky-600 hover:bg-sky-500"}`}>ร่ายเวท</button>}
+            {card.type === "Spell" && <button onClick={() => tryCast(handSel)} className={`${btn} ${counterOnly ? "bg-slate-700" : "bg-sky-600 hover:bg-sky-500"}`}>{hasSetKeyword(card) ? "ร่าย → วางลงช่อง Set" : "ร่ายเวท"}</button>}
             {card.type === "Item" && <button onClick={() => tryEquip(handSel)} className={`${btn} bg-emerald-600 hover:bg-emerald-500`}>ติดตั้งไอเทม</button>}
             {card.type === "Impact" && <button onClick={() => tryCast(handSel)} className={`${btn} bg-rose-600 hover:bg-rose-500`}>ใช้ Impact (Final Phase)</button>}
             {freeOpts.some(o => o.zone === "hand" && o.index === handSel) && <button onClick={() => { const o = freeOpts.find(x => x.zone === "hand" && x.index === handSel); if (o) { doFreeCounter(o); setHandSel(null); } }} className={`${btn} bg-sky-600 hover:bg-sky-500`}>⚡ ใช้ Counter ทันที</button>}
-            {(hasCounter(card) || (card.type === "Spell" && card.autoSkills.some(s => s.name === "Set" || s.effects.some(e => e.type === "kw" && e.name === "Set")))) && <button onClick={() => trySet(handSel)} className={`${btn} bg-violet-600 hover:bg-violet-500`}>Set (วางคว่ำ)</button>}
+            {(hasCounter(card) || (card.type === "Spell" && hasSetKeyword(card))) && <button onClick={() => trySet(handSel)} className={`${btn} bg-violet-600 hover:bg-violet-500`}>{card.type === "Spell" && hasSetKeyword(card) ? "Set (ลงช่อง Set)" : "Set (วางคว่ำ)"}</button>}
             {sandbox && (<>
               <button onClick={() => { doAction(s => sandboxMoveCard(s, mySide, "hand", "dropZone", handSel)); setHandSel(null); }} className={`${btn} bg-slate-800 hover:bg-slate-700 flex items-center gap-1`}><Trash2 size={12} /> สุสาน</button>
               <button onClick={() => { doAction(s => sandboxMoveCard(s, mySide, "hand", "gauge", handSel)); setHandSel(null); }} className={`${btn} bg-slate-800 hover:bg-slate-700 flex items-center gap-1`}><Zap size={12} /> เกจ</button>

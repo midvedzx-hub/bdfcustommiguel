@@ -19,6 +19,7 @@ const KEYWORDS: Record<string, string> = {
   hextupleAttack: "Hextuple Attack",
   soulguard: "Soulguard",
   lifelink: "Lifelink",
+  set: "Set",
   move: "Move",
   counterattack: "Counterattack",
   ignoreCenter: "Ignore Center",
@@ -55,6 +56,7 @@ export function effectText(e: AutoEffect): string {
     case "powerPerSoul": return `Power +${v} ต่อการ์ด 1 ใบใน Soul`;
     case "criticalPerSoul": return `Critical +${v} ต่อการ์ด 1 ใบใน Soul`;
     case "chooseRemoveSoul": return `เลือกการ์ดของเรา 1 ใบ ถอด Soul ${v} ใบ (ถ้าถอดได้ จึงทำต่อ)`;
+    case "destroyOpponentSet": return `ทำลายการ์ด Set ของศัตรู ${v} ใบ`;
     case "negateSpell": return `ยกเลิกเวทที่ศัตรูกำลังร่าย`;
     case "lookTop": {
       const opts: string[] = [];

@@ -40,7 +40,7 @@ export const KEYWORD_DEFS: KeywordDef[] = [
   { id: "Lifelink", cat: "defense", effect: "lifelink", param: true, engine: true, help: "เมื่อการ์ดนี้ตาย (ถูกทำลาย) เจ้าของจะโดนดาเมจตามตัวเลข (Soulguard กันตายได้จึงไม่โดน)" },
   { id: "Guardian", cat: "defense", engine: false, help: TAG + "ความสามารถที่เกี่ยวข้องกับการป้องกันหรือปกป้อง" },
   // ---- คอล / แปลงร่าง / บัดดี้ ----
-  { id: "Set", cat: "call", engine: false, help: TAG + "วางการ์ดคว่ำลงช่อง Set (ในเกมนี้การ์ดที่มี Counter Act กดปุ่ม Set จากมือได้เลย)" },
+  { id: "Set", cat: "call", effect: "set", param: true, engine: true, help: "เวทที่ร่ายแล้วจะไม่ลงสุสาน แต่ไปอยู่ในช่อง Set คงผลต่อเนื่อง (บัฟ Power/Defense/Critical ให้มอนสเตอร์เรา, ทำงานต้นเทิร์น/Final Phase/ตอนมอนสเตอร์โจมตี ฯลฯ ตามทริกเกอร์ที่ตั้ง) จนกว่าจะถูกทำลายหรือถูกนำออกจากสนาม แล้วลงสุสานและผลหยุด · ตัวเลข = Set ชื่อเดียวกันได้กี่ใบ (1 = ใบเดิมยังอยู่จะ Set ทับไม่ได้)" },
   { id: "Ride", cat: "call", engine: false, help: TAG + "การขี่ เพื่อเพิ่มพลังหรือเปลี่ยนความสามารถ" },
   { id: "Transform", cat: "call", engine: false, help: TAG + "การแปลงร่าง" },
   { id: "Impact Transform", cat: "call", engine: false, help: TAG + "การแปลงร่างผ่าน Impact" },

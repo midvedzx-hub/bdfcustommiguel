@@ -149,9 +149,9 @@ export function statsOf(fc: FieldCard): { power: number; defense: number; critic
   const c = getCard(fc.cardId);
   if (!c) return { power: 0, defense: 0, critical: 0 };
   return {
-    power: c.power + fc.tempPower + continuousSum(c, "buffPower") + continuousSum(c, "powerPerSoul") * fc.soul.length,
-    defense: c.defense + (fc.tempDefense ?? 0) + continuousSum(c, "buffDefense"),
-    critical: c.critical + (fc.tempCritical ?? 0) + continuousSum(c, "buffCritical") + continuousSum(c, "criticalPerSoul") * fc.soul.length,
+    power: c.power + fc.tempPower + (fc.auraPower ?? 0) + continuousSum(c, "buffPower") + continuousSum(c, "powerPerSoul") * fc.soul.length,
+    defense: c.defense + (fc.tempDefense ?? 0) + (fc.auraDefense ?? 0) + continuousSum(c, "buffDefense"),
+    critical: c.critical + (fc.tempCritical ?? 0) + (fc.auraCritical ?? 0) + continuousSum(c, "buffCritical") + continuousSum(c, "criticalPerSoul") * fc.soul.length,
   };
 }
 
@@ -440,6 +440,16 @@ function runSkills(
           ctx.fc = fc; // เอฟเฟกต์ถัดไป (บัฟ Attack/Defense) จะใช้กับการ์ดใบที่ถูกถอด Soul
           break;
         }
+        case "destroyOpponentSet": {
+          const zone = g[opp].setZone;
+          for (let k = 0; k < n && zone.length > 0; k++) {
+            // เลือกการ์ด Set ที่เปิดหน้าก่อน (ผลต่อเนื่อง) ถ้าไม่มีจึงเอาใบคว่ำ
+            let idx = zone.findIndex(id => { const c = getCard(id); return !!c && hasSetKeyword(c); });
+            if (idx < 0) idx = 0;
+            mDestroySet(g, opp, idx);
+          }
+          break;
+        }
         case "negateSpell":
           if (g.spellWindow) { g.spellWindow.negated = true; log(g, `${card.name} ยกเลิกเวทที่ศัตรูร่าย!`); }
           break;
@@ -543,6 +553,8 @@ function startTurn(g: GameState, skipDraw: boolean) {
     const c = getCard(m.cardId);
     if (c) applyEffects(g, side, c, "onTurnStart", { fc: m });
   });
+  fireSet(g, side, "onTurnStart");
+  recalcAuras(g);
 }
 
 export function createInitialState(
@@ -710,6 +722,7 @@ export function goToFinal(state: GameState, side: Side): Result {
     const c = getCard(m.cardId);
     if (c) applyEffects(g, side, c, "onFinal", { fc: m });
   });
+  fireSet(g, side, "onFinal");
   return { state: g, ok: true, msg: "Final Phase" };
 }
 
@@ -809,13 +822,85 @@ export function callMonster(state: GameState, side: Side, handIndex: number, pos
   }
   applyEffects(g, side, card, "onCall", { fc });
   if (isBuddyCall) applyEffects(g, side, card, "onBuddyCall", { fc });
+  recalcAuras(g);
   return { state: g, ok: true, msg: `${card.name} ลงสนามสำเร็จ` };
 }
 
-// การ์ดที่มีคีย์เวิร์ด Set (ป้าย "Set" ทั้งแบบคีย์เวิร์ดและแบบกำหนดเอง)
-function hasSetKeyword(card: Card): boolean {
-  return (card.autoSkills ?? []).some(s => s.name === "Set" || s.effects.some(e => e.type === "kw" && e.name === "Set"));
+// การ์ดที่มีคีย์เวิร์ด Set (แบบ engine, ป้าย kw เก่า, หรือคีย์เวิร์ดกำหนดเองชื่อ "Set")
+export function hasSetKeyword(card: Card): boolean {
+  return (card.autoSkills ?? []).some(s => s.name === "Set" || s.effects.some(e => e.type === "set" || (e.type === "kw" && e.name === "Set")));
 }
+// Set ชื่อเดียวกันได้กี่ใบ (ค่าของคีย์เวิร์ด; ป้ายเก่า = 1)
+function setLimit(card: Card): number {
+  let n = 0;
+  (card.autoSkills ?? []).forEach(sk => sk.effects.forEach(e => { if (e.type === "set") n = Math.max(n, Math.floor(e.value) || 1); }));
+  return n || 1;
+}
+// การ์ด Set ที่ "เปิดหน้า" อยู่ในช่อง Set ของ side (ไม่นับการ์ด Counter ที่วางคว่ำ)
+export function activeSetCards(p: PlayerState): Card[] {
+  return p.setZone.map(id => getCard(id)).filter((c): c is Card => !!c && hasSetKeyword(c));
+}
+
+// ผลต่อเนื่องจากการ์ด Set: บัฟ Power/Defense/Critical ให้มอนสเตอร์และไอเทมของเจ้าของ (คำนวณใหม่ทุกครั้งที่ Set เปลี่ยน)
+export function recalcAuras(g: GameState) {
+  (["host", "guest"] as Side[]).forEach(side => {
+    const p = g[side];
+    let pw = 0, df = 0, cr = 0;
+    activeSetCards(p).forEach(c => {
+      pw += continuousSum(c, "buffPower"); df += continuousSum(c, "buffDefense"); cr += continuousSum(c, "buffCritical");
+    });
+    [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => { fc.auraPower = pw; fc.auraDefense = df; fc.auraCritical = cr; });
+  });
+}
+
+// ทำงานสกิลของการ์ด Set ที่อยู่ในช่อง Set ตามทริกเกอร์ (ต้นเทิร์น / Final / มอนสเตอร์เราโจมตี / ทำลายศัตรู / ทำดาเมจ)
+function fireSet(g: GameState, side: Side, trigger: AutoTrigger, ctx: { fc?: FieldCard } = {}) {
+  [...g[side].setZone].forEach(id => {
+    if (g.winner) return;
+    const c = getCard(id);
+    if (!c || !hasSetKeyword(c)) return;
+    const skills = (c.autoSkills ?? []).filter(sk => sk.trigger === trigger);
+    if (skills.length > 0) runSkills(g, side, c, skills, { ...ctx });
+  });
+}
+
+// วางเวท Set ลงช่อง Set: จ่ายค่าใช้จ่าย, ตรวจจำนวน/ชื่อซ้ำ, ทำผลตอนวาง (onCast/onCall) 1 ครั้ง
+function placeSet(g: GameState, side: Side, handIndex: number): string | null {
+  const p = g[side];
+  const cardId = p.hand[handIndex];
+  const card = cardId ? getCard(cardId) : undefined;
+  if (!card) return "ไม่พบการ์ดใบนี้ในมือ";
+  if (p.setZone.length >= g.rules.maxSet)
+    return `ช่อง Set เต็มแล้ว (สูงสุด ${g.rules.maxSet} ใบ) — ต้องรอให้การ์ด Set เดิมถูกทำลายหรือถูกใช้ไปก่อน`;
+  const lim = setLimit(card);
+  const same = p.setZone.filter(id => getCard(id)?.name === card.name).length;
+  if (same >= lim)
+    return `${card.name} Set ได้เพียง ${lim} ใบ (ชื่อเดียวกัน) และใบเดิมยังอยู่ในช่อง Set จึงนำใบใหม่มา Set ทับไม่ได้`;
+  const costErr = payCost(g, side, card);
+  if (costErr) return `Set ${card.name} ไม่ได้ — ${costErr}`;
+  p.hand.splice(handIndex, 1);
+  p.setZone.push(cardId);
+  log(g, `${nameOf(side)} Set ${card.name} ลงช่อง Set (อยู่บนสนามจนกว่าจะถูกทำลาย)`);
+  fx(g, { k: "cast", side, cardId, label: "SET!" });
+  recalcAuras(g);
+  const trig = castTrigger(card);
+  if (trig) applyEffects(g, side, card, trig);
+  recalcAuras(g);
+  return null;
+}
+
+// ทำลายการ์ด Set ของ side ที่ตำแหน่ง index: ลงสุสาน ผลต่อเนื่องหยุดทันที
+function mDestroySet(g: GameState, side: Side, index: number): boolean {
+  const p = g[side];
+  const id = p.setZone[index];
+  if (id === undefined) return false;
+  p.setZone.splice(index, 1);
+  p.dropZone.push(id);
+  log(g, `${getCard(id)?.name ?? "การ์ด Set"} ในช่อง Set ถูกทำลาย → ลงสุสาน ผลต่อเนื่องหยุดลง`);
+  recalcAuras(g);
+  return true;
+}
+
 // สกิลที่ทำงาน "ตอนใช้เวท": onCast; ถ้าผู้ออกแบบเลือกทริกเกอร์ "เมื่อลงสนาม/ติดตั้ง" (onCall) ให้การ์ดเวท ก็ถือเป็นผลตอนใช้เช่นกัน
 function castTrigger(card: Card): AutoTrigger | null {
   const sk = card.autoSkills ?? [];
@@ -824,7 +909,7 @@ function castTrigger(card: Card): AutoTrigger | null {
   return null;
 }
 const isCounterOnly = (card: Card) =>
-  (card.autoSkills ?? []).some(s => s.trigger === "onCounter") && castTrigger(card) === null;
+  !hasSetKeyword(card) && (card.autoSkills ?? []).some(s => s.trigger === "onCounter") && castTrigger(card) === null;
 
 export function castSpell(state: GameState, side: Side, handIndex: number): Result {
   const card0 = getCard(state[side].hand[handIndex]);
@@ -849,18 +934,10 @@ export function castSpell(state: GameState, side: Side, handIndex: number): Resu
   if (!card) return { state, ok: false, msg: "ไม่พบการ์ดใบนี้ในมือ" };
   if (card.type !== "Spell" && card.type !== "Impact") return { state, ok: false, msg: `${card.name} ไม่ใช่เวทมนตร์/Impact` };
 
-  // เวทที่มีคีย์เวิร์ด Set: วางลงช่อง Set (ไม่ลงสุสาน) แล้วผลทำงานตอนวาง
+  // เวทที่มีคีย์เวิร์ด Set: วางลงช่อง Set (ไม่ลงสุสาน) คงผลต่อเนื่อง — ตรวจก่อนทุกอย่าง แม้การ์ดจะมีสกิล Counter ด้วย
   if (card.type === "Spell" && hasSetKeyword(card)) {
-    if (p.setZone.length >= g.rules.maxSet)
-      return { state, ok: false, msg: `ช่อง Set เต็มแล้ว (สูงสุด ${g.rules.maxSet} ใบ)` };
-    const costErr = payCost(g, side, card);
-    if (costErr) return { state, ok: false, msg: `Set ${card.name} ไม่ได้ — ${costErr}` };
-    p.hand.splice(handIndex, 1);
-    p.setZone.push(cardId);
-    log(g, `${nameOf(side)} Set ${card.name} ลงช่อง Set`);
-    fx(g, { k: "cast", side, cardId, label: "SET!" });
-    const trig = castTrigger(card);
-    if (trig) applyEffects(g, side, card, trig);
+    const e2 = placeSet(g, side, handIndex);
+    if (e2) return { state, ok: false, msg: e2 };
     return { state: g, ok: true, msg: `Set ${card.name}` };
   }
 
@@ -899,6 +976,7 @@ export function equipItem(state: GameState, side: Side, handIndex: number): Resu
   p.item = newFieldCard(cardId, 0);
   log(g, `${card.name} ถูกติดตั้ง!`);
   applyEffects(g, side, card, "onCall", { fc: p.item });
+  recalcAuras(g);
   return { state: g, ok: true, msg: `ติดตั้ง ${card.name}` };
 }
 
@@ -962,22 +1040,20 @@ export function setCard(state: GameState, side: Side, handIndex: number): Result
   const cardId = p.hand[handIndex];
   const card = cardId ? getCard(cardId) : undefined;
   if (!card) return { state, ok: false, msg: "ไม่พบการ์ดใบนี้ในมือ" };
-  const counterCard = card.autoSkills?.some(s => s.trigger === "onCounter");
-  if (!counterCard && !(card.type === "Spell" && hasSetKeyword(card)))
-    return { state, ok: false, msg: `${card.name} ไม่มีสกิล Counter Act หรือคีย์เวิร์ด Set จึง Set ไม่ได้` };
+  if (card.type === "Spell" && hasSetKeyword(card)) {
+    const e2 = placeSet(g, side, handIndex);
+    if (e2) return { state, ok: false, msg: e2 };
+    return { state: g, ok: true, msg: `Set ${card.name}` };
+  }
+  if (!card.autoSkills?.some(s => s.trigger === "onCounter"))
+    return { state, ok: false, msg: `${card.name} ไม่มีสกิล Counter หรือคีย์เวิร์ด Set จึง Set ไม่ได้` };
   if (p.setZone.length >= g.rules.maxSet)
     return { state, ok: false, msg: `ช่อง Set เต็มแล้ว (สูงสุด ${g.rules.maxSet} ใบ)` };
   const costErr = payCost(g, side, card);
   if (costErr) return { state, ok: false, msg: `Set ${card.name} ไม่ได้ — ${costErr}` };
   p.hand.splice(handIndex, 1);
   p.setZone.push(cardId);
-  if (counterCard) log(g, `${nameOf(side)} Set การ์ด 1 ใบ (คว่ำ)`);
-  else {
-    log(g, `${nameOf(side)} Set ${card.name} ลงช่อง Set`);
-    fx(g, { k: "cast", side, cardId, label: "SET!" });
-    const trig = castTrigger(card);
-    if (trig) applyEffects(g, side, card, trig);
-  }
+  log(g, `${nameOf(side)} Set การ์ด 1 ใบ (คว่ำ)`);
   return { state: g, ok: true, msg: `Set ${card.name}` };
 }
 
@@ -1047,6 +1123,7 @@ export function declareAttack(
   fcs.forEach(fc => {
     const c = getCard(fc.cardId);
     if (c) applyEffects(g, side, c, "onAttack", { fc });
+    fireSet(g, side, "onAttack", { fc });
   });
   void leadCard;
 
@@ -1191,6 +1268,7 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
     log(g, `🛡 ${nameOf(side)} ใช้ Counter 【Act】 ของ ${card.name} บนสนาม!`);
     runSkills(g, side, card, counterSkills(card, "onCounterAct", timing), { fc });
   }
+  recalcAuras(g);
   return null;
 }
 
@@ -1417,14 +1495,14 @@ function resolveBattle(g: GameState) {
     if (targetDestroyed) {
       parts.forEach(({ fc, card }) => {
         const alive = me.monsters.some(m => m.uid === fc.uid) || me.item?.uid === fc.uid;
-        if (alive) applyEffects(g, side, card, "onDestroyEnemy", { fc });
+        if (alive) { applyEffects(g, side, card, "onDestroyEnemy", { fc }); fireSet(g, side, "onDestroyEnemy", { fc }); }
       });
       if (penetrate && chosen.position === 1 && !g.winner) {
         log(g, `Penetrate! ทะลวงเกราะ ดาเมจ ${total.critical}`);
         mLife(g, oppSide, -total.critical);
         if (!g.winner) parts.forEach(({ fc, card }) => {
           const alive = me.monsters.some(m => m.uid === fc.uid) || me.item?.uid === fc.uid;
-          if (alive) applyEffects(g, side, card, "onDamage", { fc });
+          if (alive) { applyEffects(g, side, card, "onDamage", { fc }); fireSet(g, side, "onDamage", { fc }); }
         });
       }
     }
@@ -1433,7 +1511,7 @@ function resolveBattle(g: GameState) {
     mLife(g, oppSide, -total.critical);
     if (!g.winner) parts.forEach(({ fc, card }) => {
       const alive = me.monsters.some(m => m.uid === fc.uid) || me.item?.uid === fc.uid;
-      if (alive) applyEffects(g, side, card, "onDamage", { fc });
+      if (alive) { applyEffects(g, side, card, "onDamage", { fc }); fireSet(g, side, "onDamage", { fc }); }
     });
   }
 
@@ -1529,5 +1607,12 @@ export function sandboxMoveToPosition(state: GameState, side: Side, monsterUid: 
 export function sandboxFreeDraw(state: GameState, side: Side): GameState {
   const g = structuredClone(state);
   mDraw(g, side, 1, false);
+  return g;
+}
+
+// Sandbox: ทำลายการ์ดในช่อง Set (ลงสุสาน ผลต่อเนื่องหยุด)
+export function sandboxDestroySet(state: GameState, side: Side, index: number): GameState {
+  const g = structuredClone(state);
+  if (!mDestroySet(g, side, index)) return state;
   return g;
 }

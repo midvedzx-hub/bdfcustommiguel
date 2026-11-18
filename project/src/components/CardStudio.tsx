@@ -76,7 +76,7 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
   }
 
   // ---- คีย์เวิร์ด: เก็บเป็นสกิลถาวร (continuous) 1 เอฟเฟกต์ต่อคีย์เวิร์ด ----
-  const kwMatch = (e: AutoEffect, d: KeywordDef) => (d.engine ? e.type === d.effect : e.type === "kw" && e.name === d.id);
+  const kwMatch = (e: AutoEffect, d: KeywordDef) => (d.engine ? (e.type === d.effect || (d.id === "Set" && e.type === "kw" && e.name === "Set")) : e.type === "kw" && e.name === d.id);
   const findKw = (d: KeywordDef): AutoEffect | undefined => {
     for (const sk of editing?.autoSkills ?? []) {
       if (sk.trigger !== "continuous" && sk.trigger !== "onAttack") continue;

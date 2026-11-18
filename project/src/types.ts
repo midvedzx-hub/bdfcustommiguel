@@ -43,6 +43,8 @@ export type AutoEffectType =
   | "destroyAttacker"         // (Counter) ทำลายผู้โจมตี
   | "restAttacker"            // (Counter) Rest ผู้โจมตี
   | "negateSpell"             // (Counter) ยกเลิกความสามารถของเวทที่ศัตรูกำลังร่าย
+  | "set"                     // Set: เวทที่ร่ายแล้วอยู่ในช่อง Set (ไม่ลงสุสาน) คงผลต่อเนื่อง · ค่า = Set ชื่อเดียวกันได้กี่ใบ
+  | "destroyOpponentSet"      // ทำลายการ์ด Set ของศัตรู N ใบ (ลงสุสาน ผลต่อเนื่องหยุด)
   | "chooseRemoveSoul"        // เลือกการ์ดของเรา 1 ใบ แล้วถอด Soul N ใบ (เลือกไม่ถอดได้) ถ้าถอดได้ค่อยทำเอฟเฟกต์ถัดไป
   | "lookTop"                 // ดูการ์ดบนสุดของกอง X ใบ แล้วเลือก: ขึ้นมือ / ลงดรอป / ใต้สุดของกอง
   | "move"                    // Move: ย้ายมอนสเตอร์ไปช่องอื่นได้ (1 ครั้ง/เทิร์น ใน Main Phase)
@@ -102,6 +104,8 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "destroyAttacker", label: "[Counter] ทำลายผู้โจมตี", hint: "ใส่ 1" },
   { value: "restAttacker", label: "[Counter] Rest ผู้โจมตี", hint: "ใส่ 1" },
   { value: "negateSpell", label: "[Counter] ยกเลิกเวทที่ศัตรูร่าย", hint: "ใส่ 1" },
+  { value: "set", label: "Set (อยู่ในช่อง Set คงผลต่อเนื่อง)", hint: "Set ชื่อเดียวกันได้กี่ใบ" },
+  { value: "destroyOpponentSet", label: "ทำลายการ์ด Set ของศัตรู", hint: "จำนวนใบ" },
   { value: "chooseRemoveSoul", label: "ถอด Soul ของการ์ดที่เลือก 1 ใบ (ถ้าถอดได้ ทำเอฟเฟกต์ถัดไป)", hint: "ถอดกี่ใบ" },
   { value: "lookTop", label: "ดูการ์ดบนสุดของกอง X ใบ (แล้วเลือกได้)", hint: "ดูกี่ใบ" },
   { value: "move", label: "Move (ย้ายช่องได้)", hint: "ใส่ 1" },
@@ -264,6 +268,9 @@ export interface FieldCard {
   movedTurn?: number; // เทิร์นที่ใช้ Move ไปแล้ว
   counterUsedTurn?: number; // เทิร์นที่ใช้ Counter Act จากสนามไปแล้ว (ใช้ได้ 1 ครั้งต่อเทิร์น)
   guardUsed?: boolean;
+  auraPower?: number;   // บัฟต่อเนื่องจากการ์ด Set (คำนวณใหม่ทุกครั้ง)
+  auraCritical?: number;
+  auraDefense?: number;
   nullified?: boolean; // ถูก Nullify: ความสามารถหลัก (Soulguard ฯลฯ) ไม่ทำงานจนจบเทิร์น
 }
 
