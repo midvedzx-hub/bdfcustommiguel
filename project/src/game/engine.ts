@@ -648,8 +648,13 @@ export function changeLife(state: GameState, side: Side, delta: number): GameSta
   return g;
 }
 
+// Size จริงของมอนสเตอร์บนสนาม = Size ของการ์ด + ค่าที่ปรับเองใน Sandbox (ต่ำสุด 0)
+export function sizeOfFc(fc: FieldCard): number {
+  return Math.max(0, (getCard(fc.cardId)?.size ?? 0) + (fc.manualSize ?? 0));
+}
+
 export function totalMonsterSize(player: PlayerState): number {
-  return player.monsters.reduce((sum, m) => sum + (getCard(m.cardId)?.size ?? 0), 0);
+  return player.monsters.reduce((sum, m) => sum + sizeOfFc(m), 0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -786,7 +791,7 @@ function payCost(g: GameState, side: Side, card: Card): string | null {
   return null;
 }
 
-export function callMonster(state: GameState, side: Side, handIndex: number, position: number): Result {
+export function callMonster(state: GameState, side: Side, handIndex: number, position: number, opts?: { ignoreSize?: boolean }): Result {
   const err = guardTurn(state, side, "main");
   if (err) return { state, ok: false, msg: err };
   const g = structuredClone(state);
@@ -800,7 +805,7 @@ export function callMonster(state: GameState, side: Side, handIndex: number, pos
 
   // Size 0 วางได้เสมอ ไม่นับรวมขีดจำกัด Size
   const currentSize = totalMonsterSize(p);
-  if (card.size > 0 && currentSize + card.size > g.rules.maxSize)
+  if (!opts?.ignoreSize && card.size > 0 && currentSize + card.size > g.rules.maxSize)
     return { state, ok: false, msg: `Size เกิน: ในสนามมี Size รวม ${currentSize} + ${card.name} (Size ${card.size}) = ${currentSize + card.size} เกินขีดจำกัด ${g.rules.maxSize}` };
 
   const soulN = Math.max(0, card.callSoulFromDeck ?? 0);
@@ -1631,6 +1636,18 @@ export function sandboxAdjustStat(state: GameState, side: Side, uidStr: string, 
   else if (stat === "defense") fc.manualDefense = (fc.manualDefense ?? 0) + delta;
   else fc.manualCritical = (fc.manualCritical ?? 0) + delta;
   log(g, `[Sandbox] ${getCard(fc.cardId)?.name ?? "การ์ด"} ${stat === "power" ? "Power" : stat === "defense" ? "Defense" : "Critical"} ${delta > 0 ? "+" : ""}${delta}`);
+  return g;
+}
+
+// Sandbox: ปรับ Size ของมอนสเตอร์บนสนาม (delta บวก/ลบ, reset = กลับเป็น Size เดิมของการ์ด) ไม่จำกัดค่า
+export function sandboxAdjustSize(state: GameState, side: Side, uidStr: string, delta: number, reset = false): GameState {
+  const g = structuredClone(state);
+  const fc = findFc(g[side], uidStr);
+  if (!fc) return state;
+  const base = getCard(fc.cardId)?.size ?? 0;
+  if (reset) fc.manualSize = 0;
+  else fc.manualSize = Math.max(-base, (fc.manualSize ?? 0) + delta); // Size รวมต้องไม่ต่ำกว่า 0
+  log(g, `[Sandbox] ${getCard(fc.cardId)?.name ?? "การ์ด"} Size = ${sizeOfFc(fc)}`);
   return g;
 }
 

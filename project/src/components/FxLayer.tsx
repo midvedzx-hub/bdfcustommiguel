@@ -276,7 +276,7 @@ export function FxLayer({ game, cardOf, flagOf, onHide }: {
           const c = cardOf(ev.cardId);
           if (!c) break;
           idx++;
-          const w = 170, h = Math.round(w * 88 / 63);
+          const w = c.type === "Impact" ? 240 : 170, h = Math.round(c.type === "Impact" ? w * 63 / 88 : w * 88 / 63);
           const drop = pointOf(`drop:${ev.side}`);
           const cx = window.innerWidth / 2 - 80, cy = window.innerHeight / 2;
           const color = ev.label === "COUNTER!" ? "#38bdf8" : ev.label === "IMPACT!" ? "#fb7185" : "#fbbf24";

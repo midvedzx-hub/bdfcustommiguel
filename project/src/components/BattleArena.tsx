@@ -13,7 +13,7 @@ import { keywordValue,
   goToAttack, goToFinal, mulligan, legalTargets, statsOf, counterOptions, counterCardOf, counterAct, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
-  sandboxAdjustStat, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck,
+  sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck,
   type AttackTarget, type CounterOption, type Result,
   setSoulguardAuto, closeMoveWindow, movableMonsters, recalcAuras, hasSetKeyword, activeSetCards, sandboxDestroySet, resolveLook, resolveSoulChoice,
 } from "@/game/engine";
@@ -565,7 +565,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   }, [mode, game]);
 
   /* ---------------- Actions ---------------- */
-  const tryCall = (i: number, pos: number) => { act("ลงมอนสเตอร์ไม่ได้", s => callMonster(s, mySide, i, pos)); setHandSel(null); };
+  const tryCall = (i: number, pos: number) => { act("ลงมอนสเตอร์ไม่ได้", s => callMonster(s, mySide, i, pos, { ignoreSize: sandbox })); setHandSel(null); };
   const tryCast = (i: number) => { act("ร่ายไม่ได้", s => castSpell(s, mySide, i)); setHandSel(null); };
   const tryEquip = (i: number) => { act("ติดตั้งไอเทมไม่ได้", s => equipItem(s, mySide, i)); setHandSel(null); };
   const trySet = (i: number) => { act("Set การ์ดไม่ได้", s => setCard(s, mySide, i)); setHandSel(null); };
@@ -761,13 +761,13 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               >
                 <SoulStack n={m.soul.length} />
                 <CardView
-                  card={card} flag={flag} width="var(--cw)" hideText stats={statsOf(m)} soul={m.soul.length}
+                  card={card} flag={flag} width="var(--cw)" hideText stats={statsOf(m)} soul={m.soul.length} sizeValue={sizeOfFc(m)}
                   onInspect={() => openInspect(card, p.flagId, m)}
                   draggable={isMine && ((canAttackNow && m.state === "stand") || canMoveThis)}
                   onDragStart={() => { dragRef.current = { kind: "unit", uid: m.uid }; if (canAttackNow && !atkSels.includes(m.uid)) setAtkSels([m.uid]); }}
                   onDragEnd={() => { dragRef.current = null; }}
                 >
-                  {(m.tempPower !== 0 || m.tempCritical !== 0 || m.tempDefense !== 0 || !!m.manualPower || !!m.manualCritical || !!m.manualDefense) && (
+                  {(m.tempPower !== 0 || m.tempCritical !== 0 || m.tempDefense !== 0 || !!m.manualPower || !!m.manualCritical || !!m.manualDefense || !!m.manualSize) && (
                     <div className="absolute top-[2.6em] right-0 bg-cyan-500 text-white font-bold px-1 rounded-l z-20" style={{ fontSize: "0.7em" }}>BUFF</div>
                   )}
                   {m.nullified && (
@@ -1438,6 +1438,15 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             {statRow("Critical", "text-white", st.critical, "critical", [-2, -1, 1, 2])}
             {statRow("Power", "text-rose-300", st.power, "power", [-1000, -500, 500, 1000])}
             {statRow("Defense", "text-sky-300", st.defense, "defense", [-1000, -500, 500, 1000])}
+            {!isItem && (
+              <div className="flex items-center gap-1 mt-1">
+                <span className="w-16 text-xs font-bold text-amber-300">Size {sizeOfFc(fc)}</span>
+                {[-1, 1].map(d => (
+                  <button key={d} onClick={() => doAction(s => sandboxAdjustSize(s, side, fc.uid, d))} className={`${sb} !px-1.5 ${d < 0 ? "text-rose-300" : "text-emerald-300"}`}>{d > 0 ? "+" : ""}{d}</button>
+                ))}
+                {!!fc.manualSize && <button onClick={() => doAction(s => sandboxAdjustSize(s, side, fc.uid, 0, true))} className={`${sb} !px-1.5`}>รีเซ็ต</button>}
+              </div>
+            )}
             <p className="text-[10px] text-slate-500 mt-1">ค่าที่ปรับเองคงอยู่ตราบที่การ์ดอยู่บนสนาม</p>
           </div>
           <div className="mt-2 grid grid-cols-2 gap-1">

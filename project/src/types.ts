@@ -274,6 +274,7 @@ export interface FieldCard {
   manualPower?: number;    // Sandbox: ค่าที่ปรับเองด้วยมือ (คงอยู่ตราบที่การ์ดอยู่บนสนาม)
   manualCritical?: number;
   manualDefense?: number;
+  manualSize?: number;     // Sandbox: ปรับ Size ด้วยมือ (บวก/ลบจาก Size ของการ์ด) คงอยู่ตราบที่การ์ดอยู่บนสนาม
   nullified?: boolean; // ถูก Nullify: ความสามารถหลัก (Soulguard ฯลฯ) ไม่ทำงานจนจบเทิร์น
 }
 

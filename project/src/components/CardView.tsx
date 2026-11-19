@@ -8,6 +8,7 @@ interface Props {
   card?: Card | null;
   flag?: Flag;
   size?: CardSize;
+  sizeValue?: number; // Size ที่ใช้แสดง (มอนสเตอร์บนสนามที่ถูกปรับ Size) ถ้าไม่ส่ง = Size ของการ์ด
   width?: string; // ความกว้างเอง (CSS length) เช่น "var(--cw)"
   stats?: { power: number; defense: number; critical: number }; // ค่ารวมบัฟแล้ว (ในสนาม)
   soul?: number; // จำนวน Soul ใต้การ์ด (ส่งมาเฉพาะการ์ดบนสนาม) — แสดงเป็นลูกแก้ว + โล่ Soulguard
@@ -49,6 +50,19 @@ const vertSize = (v: number, compact: boolean) => {
   return `${compact ? base * 1.15 : base}em`;
 };
 
+// ไอคอนประเภทการ์ด (เวท = ประกาย, ไอเทม = ดาบ, Impact = สายฟ้า)
+function TypeIcon({ type }: { type: string }) {
+  return (
+    <svg viewBox="0 0 24 24" style={{ width: "62%", height: "62%" }} fill="currentColor" aria-hidden>
+      {type === "Item"
+        ? <path d="M11 2h2l1 11h2v2h-3v6h-2v-6H8v-2h2z" />
+        : type === "Impact"
+          ? <path d="M13.5 2 5 13.5h5.5L9.5 22 19 9.5h-5.8z" />
+          : <path d="M12 2l2.3 7.7L22 12l-7.7 2.3L12 22l-2.3-7.7L2 12l7.7-2.3z" />}
+    </svg>
+  );
+}
+
 // แถบ Soul: ลูกแก้วม่วง 1 ลูก = Soul 1 ใบ + โล่ Soulguard ที่บอกจำนวนครั้งที่ยังกันตายได้
 export function SoulRail({ count, guardCost }: { count: number; guardCost: number }) {
   const guard = guardCost > 0;
@@ -77,12 +91,14 @@ export function SoulRail({ count, guardCost }: { count: number; guardCost: numbe
   );
 }
 
-// เลย์เอาต์ตามการ์ด Buddyfight จริง
-//  - มอนสเตอร์: รูปเต็มใบ, Size มุมซ้ายบน, Power/Critical/Defense แนวตั้งซ้าย, กล่องข้อความโปร่งแสงด้านล่าง, ป้ายคีย์เวิร์ดสีแดง
-//  - เวทมนตร์/ไอเทม/Impact: กรอบทอง รูปมุมมน กล่องข้อความสีน้ำตาล แถบชื่อด้านล่าง
+// เลย์เอาต์ตามการ์ด Buddyfight จริง (ทุกประเภทใช้ภาพเต็มใบ + กรอบสีตามโลก + กล่องข้อความโปร่งแสง + แถบชื่อ)
+//  - มอนสเตอร์: Size มุมซ้ายบน, Power/Critical/Defense แนวตั้งซ้าย
+//  - เวทมนตร์: ป้ายประเภทมุมซ้ายบน + ตราโลก, ป้าย Tag สีม่วงอยู่เหนือกล่องข้อความ
+//  - ไอเทม: ป้ายไอเทมมุมซ้ายบน, Power/Critical ใต้ป้าย, ป้าย Tag สีเทาใต้กล่องข้อความ
+//  - Impact: เป็นการ์ดแนวนอน (88:63) กล่องข้อความซ้าย ป้าย Tag ขวา
 // ทุกอย่างใช้หน่วย em และ font-size = ความกว้าง/16 จึงย่อ-ขยายได้ทุกขนาด
 export function CardView({
-  card, flag, size = "md", width, stats, soul, faceDown, hideText, onClick, className = "", style,
+  card, flag, size = "md", sizeValue, width, stats, soul, faceDown, hideText, onClick, className = "", style,
   draggable, onDragStart, onDragEnd, onInspect, children,
 }: Props) {
   const w = width ?? WIDTHS[size];
@@ -132,7 +148,7 @@ export function CardView({
         {/* พื้นที่ด้านบน: Size + แถบสถิติ (ยืดหดตามความสูงของส่วนล่าง จึงไม่ทับกัน) */}
         <div className="relative flex-1 min-h-0 z-10">
           <div className="absolute top-0 left-0 flex flex-col items-center text-center" style={{ width: "4.4em", padding: "0.2em 0 0.5em", background: "linear-gradient(180deg, rgba(8,12,24,.92), rgba(8,12,24,.7))", clipPath: "polygon(0 0, 100% 0, 100% 78%, 78% 100%, 0 100%)" }}>
-            <span className="font-display font-bold text-amber-300 leading-none" style={{ fontSize: "2.5em", ...stroke }}>{card.size}</span>
+            <span className="font-display font-bold text-amber-300 leading-none" style={{ fontSize: "2.5em", ...stroke }}>{sizeValue ?? card.size}</span>
             <span className="text-white font-semibold leading-none" style={{ fontSize: "0.58em" }}>{TYPE_LABEL.Monster}</span>
           </div>
           {/* Defense (ฟ้า) บน · Critical กลาง · Power (แดง) ล่าง */}
@@ -178,60 +194,128 @@ export function CardView({
     );
   }
 
-  /* ---------------- Spell / Item / Impact: กรอบทอง ---------------- */
-  const frame = card.type === "Impact"
-    ? { a: "#f43f5e", b: "#7f1d1d", text: "#fff1f2", box: "#4c0519" }
-    : card.type === "Item"
-      ? { a: "#5eead4", b: "#0f766e", text: "#f0fdfa", box: "#134e4a" }
-      : { a: "#fcd34d", b: "#a16207", text: "#fffbeb", box: "#4a3512" };
-  const showStats = card.type === "Item" || card.type === "Impact";
+  /* ---------------- Spell / Item / Impact: เลย์เอาต์ตามการ์ดจริง (ภาพเต็มใบ + กรอบสีโลก) ---------------- */
+  const isImpact = card.type === "Impact";
+  const isItem = card.type === "Item";
+  const isSpell = card.type === "Spell";
+  const accent = isImpact ? "#fb7185" : isItem ? "#5eead4" : "#c4b5fd";
+  const guard = soulguardCost(card);
+  const costLabel = isItem ? "Call Cost" : "Cast Cost";
+  const stroke: CSSProperties = { WebkitTextStroke: "0.07em #000", paintOrder: "stroke fill" } as CSSProperties;
+  const box: CSSProperties = isImpact ? { ...base, aspectRatio: "88 / 63" } : base; // Impact จริงเป็นการ์ดแนวนอน
+  const pillBg = isSpell ? "linear-gradient(180deg, #7c3aed, #3b0764)" : "linear-gradient(180deg, #94a3b8, #334155)";
+  const showStat = (isItem || isImpact) && (st.power > 0 || st.critical > 0);
+  const hasBody = !!cost || lines.length > 0 || !!card.customText || badges.length > 0;
+
+  const renderLine = (l: string, i: number) => {
+    const m = l.match(/^【Counter( 【Act】)?】\s*(.*)$/);
+    if (m) {
+      return (
+        <div key={i} className="text-amber-100">
+          <span className="inline-block bg-red-600 text-white rounded px-1 mr-1 font-bold border border-white/60">Counter{m[1] ? " Act" : ""}</span>{m[2]}
+        </div>
+      );
+    }
+    return <div key={i} className="text-amber-100">■ {l}</div>;
+  };
+
+  const pill = (txt: string, key: string, img?: string) => (
+    <span key={key} className="inline-flex items-center rounded-full text-white font-semibold max-w-full" style={{ fontSize: "0.6em", lineHeight: 1.5, background: pillBg, border: "0.08em solid rgba(255,255,255,.55)", padding: "0 1.2em 0 0.2em", gap: "0.45em", boxShadow: "inset 0 0.1em 0 rgba(255,255,255,.25)" }}>
+      <span className="shrink-0 rounded-full flex items-center justify-center overflow-hidden" style={{ width: "1.5em", height: "1.5em", background: "rgba(0,0,0,.5)", border: "0.08em solid rgba(255,255,255,.65)", fontSize: "0.9em" }}>
+        {img ? <img src={img} alt="" className="w-full h-full object-cover" draggable={false} /> : "✦"}
+      </span>
+      <span className="truncate">{txt}</span>
+    </span>
+  );
+  const pills = [tagA ? pill(tagA, "a") : null, tagB ? pill(tagB, "b", flag?.image) : null].filter(Boolean);
+
+  const textBox = !compact && hasBody ? (
+    <div className="rounded-[0.5em] text-white leading-snug overflow-hidden" style={{ marginLeft: "0.7em", marginRight: isImpact ? "0.3em" : "0.7em", marginBottom: "0.4em", fontSize: isImpact ? "0.56em" : "0.62em", background: "rgba(5,8,18,.74)", padding: "0.4em 0.6em", maxHeight: isImpact ? "9em" : "10.5em", border: "0.08em solid rgba(255,255,255,.18)" }}>
+      {cost && (
+        <div>
+          <span className="inline-block bg-slate-950 text-white rounded px-1 mr-1 font-bold border border-white/70">{costLabel}</span>{cost}
+        </div>
+      )}
+      {lines.map(renderLine)}
+      {card.customText && <div className="text-slate-200 italic">■ {card.customText}</div>}
+      {badges.length > 0 && (
+        <div className="flex flex-wrap justify-end gap-[0.3em] mt-[0.3em]">
+          {badges.map(b => <span key={b} className="bg-red-600 text-white rounded px-[0.5em] font-bold border border-white/70">{b}</span>)}
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  const nameBar = (
+    <div className="flex items-center justify-center px-[0.5em] text-center" style={{ height: compact ? "2.6em" : "2.3em", background: `linear-gradient(180deg, ${color}cc, #0b1220f2)`, borderTop: "0.1em solid rgba(255,255,255,.5)" }}>
+      <span className="font-display font-bold italic text-white truncate" style={{ fontSize: compact ? "1em" : "1.1em", textShadow: "0 0 0.3em #000" }}>{card.name}</span>
+    </div>
+  );
+
   return (
-    <div onClick={onClick} {...dnd} className={`${common} flex flex-col`} style={{ ...base, border: `0.3em solid ${frame.a}`, background: `linear-gradient(160deg, ${frame.a}, ${frame.b})`, padding: "0.45em" }}>
-      {/* Art */}
-      <div className="relative overflow-hidden flex-[10] min-h-0 rounded-[0.9em]" style={{ border: `0.15em solid ${frame.b}`, background: "#1e293b" }}>
-        {card.image
-          ? <img src={card.image} alt={card.name} className="w-full h-full object-cover" draggable={false} />
-          : <div className="w-full h-full flex items-center justify-center text-slate-500" style={{ fontSize: "0.8em" }}>No Image</div>}
-        <div className="absolute top-0 left-0 px-[0.9em] py-[0.2em] text-white font-bold rounded-br-[0.8em]" style={{ fontSize: "0.85em", background: "linear-gradient(180deg, rgba(8,12,24,.92), rgba(8,12,24,.75))" }}>
-          {TYPE_LABEL[card.type] ?? card.type}
+    <div onClick={onClick} {...dnd} className={`${common} flex flex-col`} style={{ ...box, border: `0.22em solid ${color}`, background: "#0b1220" }}>
+      {card.image
+        ? <img src={card.image} alt={card.name} className="absolute inset-0 w-full h-full object-cover" draggable={false} />
+        : <div className="absolute inset-0 flex items-center justify-center text-slate-600" style={{ fontSize: "0.9em", background: `linear-gradient(160deg, ${color}55, #0b1220)` }}>No Image</div>}
+      <div className="absolute inset-x-0 bottom-0 pointer-events-none" style={{ height: compact ? "30%" : isImpact ? "78%" : "58%", background: "linear-gradient(to top, rgba(2,6,23,.92), rgba(2,6,23,.55) 60%, transparent)" }} />
+
+      {/* พื้นที่ด้านบน: ป้ายประเภท (ไอคอน + ชื่อประเภท) และค่าสถานะ */}
+      <div className="relative flex-1 min-h-0 z-10">
+        <div className="absolute top-0 left-0 flex flex-col items-center text-center" style={{ width: "4.4em", padding: "0.3em 0 0.55em", background: "linear-gradient(180deg, rgba(8,12,24,.92), rgba(8,12,24,.7))", clipPath: "polygon(0 0, 100% 0, 100% 78%, 78% 100%, 0 100%)" }}>
+          <span className="flex items-center justify-center rounded-full" style={{ width: "2.3em", height: "2.3em", color: accent, border: `0.12em solid ${accent}`, background: "rgba(0,0,0,.45)", boxShadow: `0 0 0.5em ${accent}88` }}>
+            <TypeIcon type={card.type} />
+          </span>
+          <span className="text-white font-semibold leading-none" style={{ fontSize: "0.58em", marginTop: "0.35em" }}>{TYPE_LABEL[card.type] ?? card.type}</span>
         </div>
-        <div className="absolute top-[0.3em] right-[0.3em] flex items-center justify-center rounded-full bg-amber-400 text-slate-900 font-display font-bold" style={{ width: "1.9em", height: "1.9em", fontSize: "0.95em", border: "0.12em solid #78350f" }} title={card.callCostType === "Life" ? "Cost: Life" : "Cost: Gauge"}>
-          {card.callCost}
-        </div>
-        {showStats && (
-          <div className="absolute bottom-0 inset-x-0 flex justify-around font-display font-bold text-white bg-black/55" style={{ fontSize: "0.9em" }}>
-            <span title="Power">⚔ {st.power}</span><span title="Critical">✦ {st.critical}</span>
+
+        {/* Item: Power / Critical ใต้ป้าย (เหมือนการ์ดจริง) */}
+        {isItem && showStat && (
+          <div className="absolute flex items-baseline font-display font-bold" style={{ top: "4.3em", left: "0.45em", gap: "0.3em" }}>
+            <span style={{ fontSize: compact ? "1.5em" : "1.3em", color: "#fb7185", ...stroke }} title="Power">{st.power}</span>
+            <span style={{ fontSize: compact ? "2.6em" : "2.3em", lineHeight: 1, color: "#fff", ...stroke }} title="Critical">{st.critical}</span>
           </div>
+        )}
+        {isImpact && showStat && (
+          <div className="absolute flex items-baseline font-display font-bold" style={{ top: "0.5em", right: "0.8em", gap: "0.3em" }}>
+            <span style={{ fontSize: "1.2em", color: "#fb7185", ...stroke }} title="Power">{st.power}</span>
+            <span style={{ fontSize: "1.8em", lineHeight: 1, color: "#fff", ...stroke }} title="Critical">{st.critical}</span>
+          </div>
+        )}
+        {/* Spell: ตราโลกใต้ป้าย */}
+        {isSpell && !compact && flag?.image && (
+          <img src={flag.image} alt="" draggable={false} className="absolute object-cover rounded-full" style={{ top: "4.6em", left: "0.7em", width: "2.8em", height: "2.8em", border: "0.12em solid rgba(255,255,255,.7)", boxShadow: "0 0 0.5em rgba(0,0,0,.7)" }} />
         )}
       </div>
 
-      {/* Text box */}
-      {!compact && (
-        <div className="relative mt-[0.35em] flex-[6.5] min-h-0 overflow-hidden rounded-[0.6em] leading-snug" style={{ background: `linear-gradient(180deg, ${frame.box}, #1c1305)`, border: `0.15em solid ${frame.a}`, padding: "0.4em 0.6em", fontSize: "0.66em", color: frame.text }}>
-          {lines.map((l, i) => <div key={i} className="text-amber-100">■ {l}</div>)}
-          {badges.length > 0 && (
-            <div className="flex flex-wrap gap-[0.3em] mt-[0.2em]">
-              {badges.map(b => <span key={b} className="bg-red-600 text-white rounded px-[0.5em] font-bold">{b}</span>)}
+      {/* ส่วนล่าง */}
+      <div className="relative z-10 shrink-0 flex flex-col">
+        {compact && badges.length > 0 && (
+          <div className="flex justify-end" style={{ padding: "0 0.4em 0.25em" }}>
+            <span className="bg-red-600 text-white rounded px-[0.4em] font-bold border border-white/70" style={{ fontSize: "0.6em" }}>{badges.length} KW</span>
+          </div>
+        )}
+
+        {isImpact ? (
+          !compact && (
+            <div className="flex items-end">
+              <div style={{ width: "62%" }}>{textBox}</div>
+              {pills.length > 0 && <div className="flex-1 min-w-0 flex flex-col items-end" style={{ padding: "0 0.5em 0.4em 0", gap: "0.25em" }}>{pills}</div>}
             </div>
-          )}
-          {card.customText && <div className="italic text-right mt-[0.3em]" style={{ color: frame.a }}>{card.customText}</div>}
-          {lines.length === 0 && !card.customText && badges.length === 0 && <div style={{ opacity: 0.4 }}>—</div>}
-        </div>
-      )}
-
-      {/* Tags */}
-      {!compact && (tagA || tagB) && (
-        <div className="relative z-10 -mt-[0.2em] flex flex-col items-start" style={{ fontSize: "0.6em", gap: "0.15em" }}>
-          {tagA && <span className="px-[1.2em] rounded-full font-semibold text-slate-900 truncate max-w-full" style={{ background: `linear-gradient(90deg, ${frame.a}, #fff8)`, border: `0.1em solid ${frame.b}` }}>{tagA}</span>}
-          {tagB && <span className="px-[1.6em] rounded-full font-semibold text-slate-900 truncate max-w-full ml-[1.2em]" style={{ background: `linear-gradient(90deg, ${frame.a}, #fff8)`, border: `0.1em solid ${frame.b}` }}>{tagB}</span>}
-        </div>
-      )}
-
-      {soul !== undefined && soul > 0 && <SoulRail count={soul} guardCost={soulguardCost(card)} />}
-      {/* Name */}
-      <div className="mt-[0.3em] rounded-[0.5em] flex items-center justify-center px-[0.4em] shrink-0" style={{ height: "2.1em", background: `linear-gradient(180deg, ${frame.a}, ${frame.b})`, border: `0.12em solid ${frame.b}` }}>
-        <span className="font-display font-bold text-slate-900 truncate" style={{ fontSize: "1.05em" }}>{card.name}</span>
+          )
+        ) : isSpell ? (
+          <>
+            {!compact && pills.length > 0 && <div className="flex flex-col items-start" style={{ padding: "0 0.5em 0.3em 0.7em", gap: "0.2em" }}>{pills}</div>}
+            {textBox}
+          </>
+        ) : (
+          <>
+            {textBox}
+            {!compact && pills.length > 0 && <div className="flex flex-wrap items-center" style={{ padding: "0 0.5em 0.35em 0.7em", gap: "0.25em 0.4em" }}>{pills}</div>}
+          </>
+        )}
+        {nameBar}
       </div>
+      {soul !== undefined && (soul > 0 || guard > 0) && <SoulRail count={soul} guardCost={guard} />}
       {children}
     </div>
   );
