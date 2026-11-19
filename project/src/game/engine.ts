@@ -150,9 +150,9 @@ export function statsOf(fc: FieldCard): { power: number; defense: number; critic
   const c = getCard(fc.cardId);
   if (!c) return { power: 0, defense: 0, critical: 0 };
   return {
-    power: c.power + fc.tempPower + (fc.auraPower ?? 0) + continuousSum(c, "buffPower") + continuousSum(c, "powerPerSoul") * fc.soul.length,
-    defense: c.defense + (fc.tempDefense ?? 0) + (fc.auraDefense ?? 0) + continuousSum(c, "buffDefense"),
-    critical: c.critical + (fc.tempCritical ?? 0) + (fc.auraCritical ?? 0) + continuousSum(c, "buffCritical") + continuousSum(c, "criticalPerSoul") * fc.soul.length,
+    power: c.power + fc.tempPower + (fc.manualPower ?? 0) + (fc.auraPower ?? 0) + continuousSum(c, "buffPower") + continuousSum(c, "powerPerSoul") * fc.soul.length,
+    defense: c.defense + (fc.tempDefense ?? 0) + (fc.manualDefense ?? 0) + (fc.auraDefense ?? 0) + continuousSum(c, "buffDefense"),
+    critical: c.critical + (fc.tempCritical ?? 0) + (fc.manualCritical ?? 0) + (fc.auraCritical ?? 0) + continuousSum(c, "buffCritical") + continuousSum(c, "criticalPerSoul") * fc.soul.length,
   };
 }
 
@@ -1572,7 +1572,7 @@ export function sandboxMoveCard(
   state: GameState,
   side: Side,
   from: "hand" | "field" | "dropZone" | "deck" | "gauge",
-  to: "hand" | "dropZone" | "gauge" | "field" | "deck",
+  to: "hand" | "dropZone" | "gauge" | "field" | "deck" | "deckBottom",
   uidOrIndex: string | number
 ): GameState {
   const g = structuredClone(state);
@@ -1600,7 +1600,9 @@ export function sandboxMoveCard(
     cardId = p.gaugePile.splice(idx, 1)[0] ?? null;
     syncGauge(p);
   } else if (from === "deck") {
-    cardId = p.deck.splice(0, 1)[0] ?? null;
+    // uidOrIndex = ตำแหน่งในกอง (ใช้ตอนค้นเด็ค) ถ้าไม่ระบุ = ใบบนสุด
+    const idx = typeof uidOrIndex === "number" ? uidOrIndex : 0;
+    cardId = p.deck.splice(idx, 1)[0] ?? null;
   }
 
   if (!cardId) return state;
@@ -1608,6 +1610,7 @@ export function sandboxMoveCard(
   if (to === "hand") p.hand.push(cardId);
   else if (to === "dropZone") p.dropZone.push(cardId);
   else if (to === "deck") p.deck.unshift(cardId);
+  else if (to === "deckBottom") p.deck.push(cardId);
   else if (to === "gauge") { p.gaugePile.push(cardId); syncGauge(p); }
   else if (to === "field") {
     const free = [1, 0, 2].find(pos => !p.monsters.some(m => m.position === pos));
@@ -1616,6 +1619,62 @@ export function sandboxMoveCard(
   }
 
   log(g, `[Sandbox] ${nameOf(side)} ย้ายการ์ดจาก ${from} ไป ${to}`);
+  return g;
+}
+
+// Sandbox: ปรับ Power / Defense / Critical ของการ์ดบนสนามด้วยมือ (คงอยู่ตราบที่การ์ดอยู่บนสนาม)
+export function sandboxAdjustStat(state: GameState, side: Side, uidStr: string, stat: "power" | "defense" | "critical", delta: number): GameState {
+  const g = structuredClone(state);
+  const fc = findFc(g[side], uidStr);
+  if (!fc) return state;
+  if (stat === "power") fc.manualPower = (fc.manualPower ?? 0) + delta;
+  else if (stat === "defense") fc.manualDefense = (fc.manualDefense ?? 0) + delta;
+  else fc.manualCritical = (fc.manualCritical ?? 0) + delta;
+  log(g, `[Sandbox] ${getCard(fc.cardId)?.name ?? "การ์ด"} ${stat === "power" ? "Power" : stat === "defense" ? "Defense" : "Critical"} ${delta > 0 ? "+" : ""}${delta}`);
+  return g;
+}
+
+// Sandbox: ใส่การ์ดเข้า Soul ของการ์ดที่เลือก จากมือ / สุสาน / เกจ / เด็ค (index = ตำแหน่งในโซนนั้น)
+export function sandboxAddSoul(state: GameState, side: Side, uidStr: string, from: "hand" | "dropZone" | "gauge" | "deck", index: number): GameState {
+  const g = structuredClone(state);
+  const p = g[side];
+  const fc = findFc(p, uidStr);
+  if (!fc) return state;
+  const list = from === "hand" ? p.hand : from === "dropZone" ? p.dropZone : from === "gauge" ? p.gaugePile : p.deck;
+  const cardId = list.splice(index, 1)[0];
+  if (!cardId) return state;
+  if (from === "gauge") syncGauge(p);
+  fc.soul.push(cardId);
+  log(g, `[Sandbox] ใส่การ์ด 1 ใบเข้า Soul ของ ${getCard(fc.cardId)?.name ?? "การ์ด"} (จาก${from === "hand" ? "มือ" : from === "dropZone" ? "สุสาน" : from === "gauge" ? "เกจ" : "เด็ค"}) รวม Soul ${fc.soul.length}`);
+  return g;
+}
+
+// Sandbox: ถอด Soul ใบที่เลือกของการ์ด ไปที่ มือ / สุสาน / เกจ / บนเด็ค / ใต้เด็ค (ไม่ทำงานเอฟเฟกต์อัตโนมัติ — เล่นเองบนโต๊ะ)
+export function sandboxRemoveSoul(state: GameState, side: Side, uidStr: string, soulIndex: number, to: "hand" | "dropZone" | "gauge" | "deckTop" | "deckBottom"): GameState {
+  const g = structuredClone(state);
+  const p = g[side];
+  const fc = findFc(p, uidStr);
+  if (!fc) return state;
+  const cardId = fc.soul.splice(soulIndex, 1)[0];
+  if (!cardId) return state;
+  if (to === "hand") p.hand.push(cardId);
+  else if (to === "dropZone") p.dropZone.push(cardId);
+  else if (to === "gauge") { p.gaugePile.push(cardId); syncGauge(p); }
+  else if (to === "deckTop") p.deck.unshift(cardId);
+  else p.deck.push(cardId);
+  log(g, `[Sandbox] ถอด Soul 1 ใบของ ${getCard(fc.cardId)?.name ?? "การ์ด"} (เหลือ ${fc.soul.length})`);
+  return g;
+}
+
+// Sandbox: สับเด็คสุ่มใหม่ (ใช้หลังค้น/ดูการ์ดในเด็ค)
+export function sandboxShuffleDeck(state: GameState, side: Side): GameState {
+  const g = structuredClone(state);
+  const d = g[side].deck;
+  for (let i = d.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [d[i], d[j]] = [d[j], d[i]];
+  }
+  log(g, `[Sandbox] ${nameOf(side)} สับเด็ค`);
   return g;
 }
 

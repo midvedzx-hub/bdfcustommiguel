@@ -271,6 +271,9 @@ export interface FieldCard {
   auraPower?: number;   // บัฟต่อเนื่องจากการ์ด Set (คำนวณใหม่ทุกครั้ง)
   auraCritical?: number;
   auraDefense?: number;
+  manualPower?: number;    // Sandbox: ค่าที่ปรับเองด้วยมือ (คงอยู่ตราบที่การ์ดอยู่บนสนาม)
+  manualCritical?: number;
+  manualDefense?: number;
   nullified?: boolean; // ถูก Nullify: ความสามารถหลัก (Soulguard ฯลฯ) ไม่ทำงานจนจบเทิร์น
 }
 

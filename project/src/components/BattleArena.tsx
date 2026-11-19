@@ -13,6 +13,7 @@ import { keywordValue,
   goToAttack, goToFinal, mulligan, legalTargets, statsOf, counterOptions, counterCardOf, counterAct, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
+  sandboxAdjustStat, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck,
   type AttackTarget, type CounterOption, type Result,
   setSoulguardAuto, closeMoveWindow, movableMonsters, recalcAuras, hasSetKeyword, activeSetCards, sandboxDestroySet, resolveLook, resolveSoulChoice,
 } from "@/game/engine";
@@ -37,6 +38,8 @@ type MenuTarget =
   | { kind: "field"; side: Side; uid: string }
   | { kind: "drop"; side: Side }
   | { kind: "deck"; side: Side }
+  | { kind: "soul"; side: Side; uid: string }
+  | { kind: "deckView"; side: Side; mode: "search" | "top"; n: number; soulUid?: string }
   | null;
 type Drag = { kind: "hand"; index: number } | { kind: "unit"; uid: string } | null;
 
@@ -320,6 +323,12 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const [synced, setSynced] = useState(mode !== "multiplayer");
   const syncedRef = useRef(mode !== "multiplayer");
   const menuRef = useRef<HTMLDivElement>(null);
+  const [autoShuffle, setAutoShuffle] = useState(true); // Sandbox: สับเด็คอัตโนมัติหลังค้น/ดูการ์ดในเด็ค
+  const [deckFilter, setDeckFilter] = useState("");
+  const [lookN, setLookN] = useState(3);
+  const menuTargetRef = useRef<MenuTarget>(null);
+  const autoShuffleRef = useRef(true);
+  const closeMenuRef = useRef<() => void>(() => {});
   const [sandbox, setSandbox] = useState(false);
   const [atkSels, setAtkSels] = useState<string[]>([]);
   const [linkMode, setLinkMode] = useState(false);
@@ -425,13 +434,21 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  menuTargetRef.current = menuTarget;
+  autoShuffleRef.current = autoShuffle;
+  // ปิดเมนู — ถ้าเพิ่งเปิดดู/ค้นการ์ดในเด็ค และเปิดสับอัตโนมัติ จะสับเด็คให้ทันที
+  closeMenuRef.current = () => {
+    const t = menuTargetRef.current;
+    if (t?.kind === "deckView" && autoShuffleRef.current) doAction(s => sandboxShuffleDeck(s, t.side));
+    setMenuTarget(null);
+  };
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuTarget(null);
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) closeMenuRef.current();
     }
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        setAtkSels([]); setHandSel(null); setChargePick(false); setMenuTarget(null); setMoveSel(null); setNotice(null); setLinkMode(false); setInspect(null);
+        setAtkSels([]); setHandSel(null); setChargePick(false); closeMenuRef.current(); setMoveSel(null); setNotice(null); setLinkMode(false); setInspect(null);
       }
     }
     document.addEventListener("mousedown", handleClick);
@@ -750,7 +767,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                   onDragStart={() => { dragRef.current = { kind: "unit", uid: m.uid }; if (canAttackNow && !atkSels.includes(m.uid)) setAtkSels([m.uid]); }}
                   onDragEnd={() => { dragRef.current = null; }}
                 >
-                  {(m.tempPower !== 0 || m.tempCritical !== 0 || m.tempDefense !== 0) && (
+                  {(m.tempPower !== 0 || m.tempCritical !== 0 || m.tempDefense !== 0 || !!m.manualPower || !!m.manualCritical || !!m.manualDefense) && (
                     <div className="absolute top-[2.6em] right-0 bg-cyan-500 text-white font-bold px-1 rounded-l z-20" style={{ fontSize: "0.7em" }}>BUFF</div>
                   )}
                   {m.nullified && (
@@ -1398,22 +1415,172 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       if (!fc || !card) return null;
       const isItem = p.item?.uid === fc.uid;
       const side = menuTarget.side;
+      const st = statsOf(fc);
+      const adj = (stat: "power" | "defense" | "critical", d: number) => doAction(s => sandboxAdjustStat(s, side, fc.uid, stat, d));
+      const statRow = (label: string, color: string, val: number, stat: "power" | "defense" | "critical", steps: number[]) => (
+        <div className="flex items-center gap-1 mt-1">
+          <span className={`w-16 text-xs font-bold ${color}`}>{label} {val}</span>
+          {steps.map(d => (
+            <button key={d} onClick={() => adj(stat, d)} className={`${sb} !px-1.5 ${d < 0 ? "text-rose-300" : "text-emerald-300"}`}>{d > 0 ? "+" : ""}{d}</button>
+          ))}
+        </div>
+      );
       return (
-        <div ref={menuRef} className={`${box} min-w-[220px]`}>
-          <h4 className="font-bold text-cyan-400 mb-2 text-sm">{card.name} <span className="text-xs text-slate-500">(Sandbox)</span></h4>
+        <div ref={menuRef} className={`${box} min-w-[300px]`}>
+          <h4 className="font-bold text-cyan-400 mb-2 text-sm">{card.name} <span className="text-xs text-slate-500">(Sandbox · Soul {fc.soul.length})</span></h4>
           <div className="grid grid-cols-2 gap-1">
             <button onClick={() => { doAction(s => sandboxFlipRest(s, side, fc.uid)); setMenuTarget(null); }} className={sb}><RotateCw size={12} /> Stand/Rest</button>
             <button onClick={() => { doAction(s => sandboxMoveCard(s, side, "field", "hand", fc.uid)); setMenuTarget(null); }} className={sb}><Hand size={12} /> ไปมือ</button>
             <button onClick={() => { doAction(s => sandboxMoveCard(s, side, "field", "dropZone", fc.uid)); setMenuTarget(null); }} className={sb}><Trash2 size={12} /> สุสาน</button>
             <button onClick={() => { doAction(s => sandboxMoveCard(s, side, "field", "gauge", fc.uid)); setMenuTarget(null); }} className={sb}><Zap size={12} /> เกจ</button>
-            {!isItem && <>
-              <button onClick={() => { doAction(s => sandboxAdjustPower(s, side, fc.uid, 500)); setMenuTarget(null); }} className={sb}><Plus size={12} /> Power+500</button>
-              <button onClick={() => { doAction(s => sandboxAdjustPower(s, side, fc.uid, -500)); setMenuTarget(null); }} className={sb}><Minus size={12} /> Power-500</button>
+          </div>
+          <div className="mt-2 border-t border-slate-700 pt-2">
+            {statRow("Critical", "text-white", st.critical, "critical", [-2, -1, 1, 2])}
+            {statRow("Power", "text-rose-300", st.power, "power", [-1000, -500, 500, 1000])}
+            {statRow("Defense", "text-sky-300", st.defense, "defense", [-1000, -500, 500, 1000])}
+            <p className="text-[10px] text-slate-500 mt-1">ค่าที่ปรับเองคงอยู่ตราบที่การ์ดอยู่บนสนาม</p>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-1">
+            <button onClick={() => setMenuTarget({ kind: "soul", side, uid: fc.uid })} className={`${sb} !bg-violet-800 hover:!bg-violet-700`}>＋ ใส่ Soul…</button>
+            <button onClick={() => setMenuTarget({ kind: "soul", side, uid: fc.uid })} className={`${sb} !bg-violet-900 hover:!bg-violet-800`}>－ ถอด Soul ({fc.soul.length})…</button>
+          </div>
+          {!isItem && (
+            <div className="mt-2 flex gap-1 flex-wrap">
               {[0, 1, 2].map(pos => (
                 <button key={pos} onClick={() => { doAction(s => sandboxMoveToPosition(s, side, fc.uid, pos)); setMenuTarget(null); }} className={sb}>ย้ายไป{POSITION_NAMES[pos]}</button>
               ))}
-            </>}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ---- Sandbox: จัดการ Soul ของการ์ดที่เลือก (ใส่จากมือ/สุสาน/เกจ/เด็ค · ถอดใบที่เลือกไปที่ต่างๆ)
+    if (menuTarget.kind === "soul") {
+      const fc = p.monsters.find(m => m.uid === menuTarget.uid) ?? (p.item?.uid === menuTarget.uid ? p.item : null);
+      const card = fc ? cardOf(fc.cardId) : null;
+      if (!fc || !card) return null;
+      const side = menuTarget.side;
+      const mine = side === mySide;
+      const mini = (id: string, i: number, onPick: () => void, title: string) => {
+        const c = cardOf(id);
+        return (
+          <div key={i} className="relative shrink-0" title={title} onMouseEnter={() => c && setHovered({ card: c, flagId: p.flagId })}>
+            {c ? <CardView card={c} flag={flagOf(c.flagId) ?? flagOf(p.flagId)} width="64px" hideText onClick={onPick} />
+               : <CardView faceDown width="64px" onClick={onPick} />}
           </div>
+        );
+      };
+      const moveBtn = "px-1.5 py-0.5 bg-slate-800 hover:bg-slate-600 rounded text-[10px]";
+      return (
+        <div ref={menuRef} className={`${box} w-[min(94vw,640px)] max-h-[82vh] overflow-y-auto`}>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="font-bold text-violet-300 text-sm">Soul ของ {card.name} <span className="text-xs text-slate-500">(Sandbox · {fc.soul.length} ใบ)</span></h4>
+            <button onClick={() => closeMenuRef.current()} className="p-1 hover:bg-slate-800 rounded"><X size={14} /></button>
+          </div>
+
+          <div className="text-xs text-slate-400 mb-1">ถอด Soul — เลือกใบแล้วเลือกปลายทาง</div>
+          <div className="flex flex-wrap gap-3 mb-3 min-h-[40px]">
+            {fc.soul.length === 0 && <span className="text-xs text-slate-500">ยังไม่มี Soul</span>}
+            {fc.soul.map((id, i) => (
+              <div key={i} className="flex flex-col items-center gap-1">
+                {mini(id, i, () => {}, "ชี้เพื่อดูรายละเอียด")}
+                <div className="flex flex-wrap justify-center gap-0.5 max-w-[96px]">
+                  <button className={moveBtn} onClick={() => doAction(s => sandboxRemoveSoul(s, side, fc.uid, i, "hand"))}>มือ</button>
+                  <button className={moveBtn} onClick={() => doAction(s => sandboxRemoveSoul(s, side, fc.uid, i, "dropZone"))}>สุสาน</button>
+                  <button className={moveBtn} onClick={() => doAction(s => sandboxRemoveSoul(s, side, fc.uid, i, "gauge"))}>เกจ</button>
+                  <button className={moveBtn} onClick={() => doAction(s => sandboxRemoveSoul(s, side, fc.uid, i, "deckTop"))}>บนเด็ค</button>
+                  <button className={moveBtn} onClick={() => doAction(s => sandboxRemoveSoul(s, side, fc.uid, i, "deckBottom"))}>ใต้เด็ค</button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {mine && (<>
+            <div className="text-xs text-slate-400 mb-1 border-t border-slate-700 pt-2">ใส่ Soul — คลิกการ์ดเพื่อใส่</div>
+            <div className="text-[11px] text-slate-500 mb-1">จากมือ ({p.hand.length})</div>
+            <div className="flex gap-1.5 overflow-x-auto pb-2">
+              {p.hand.length === 0 && <span className="text-xs text-slate-600">ไม่มี</span>}
+              {p.hand.map((id, i) => mini(id, i, () => doAction(s => sandboxAddSoul(s, side, fc.uid, "hand", i)), "ใส่เข้า Soul"))}
+            </div>
+            <div className="text-[11px] text-slate-500 mb-1">จากสุสาน ({p.dropZone.length})</div>
+            <div className="flex gap-1.5 overflow-x-auto pb-2">
+              {p.dropZone.length === 0 && <span className="text-xs text-slate-600">ไม่มี</span>}
+              {p.dropZone.map((id, i) => mini(id, i, () => doAction(s => sandboxAddSoul(s, side, fc.uid, "dropZone", i)), "ใส่เข้า Soul"))}
+            </div>
+            <div className="text-[11px] text-slate-500 mb-1">จากเกจ ({p.gaugePile.length})</div>
+            <div className="flex gap-1.5 overflow-x-auto pb-2">
+              {p.gaugePile.length === 0 && <span className="text-xs text-slate-600">ไม่มี</span>}
+              {p.gaugePile.map((id, i) => mini(id, i, () => doAction(s => sandboxAddSoul(s, side, fc.uid, "gauge", i)), "ใส่เข้า Soul"))}
+            </div>
+            <div className="text-[11px] text-slate-500 mb-1">จากเด็ค ({p.deck.length}) — ไม่เห็นการ์ดจนกว่าจะค้นหา</div>
+            <div className="flex gap-2 flex-wrap">
+              <button className={`${sb} !bg-violet-800 hover:!bg-violet-700`} onClick={() => doAction(s => sandboxAddSoul(s, side, fc.uid, "deck", 0))}>ใส่ใบบนสุดของเด็ค (ไม่ดู)</button>
+              <button className={`${sb} !bg-cyan-900 hover:!bg-cyan-800`} onClick={() => { setDeckFilter(""); setMenuTarget({ kind: "deckView", side, mode: "search", n: 0, soulUid: fc.uid }); }}>🔍 ค้นหาในเด็ค…</button>
+            </div>
+          </>)}
+        </div>
+      );
+    }
+
+    // ---- Sandbox: ค้นหา / ดูบนสุดของเด็ค (เห็นเฉพาะเจ้าของ) — ปิดแล้วสับอัตโนมัติ
+    if (menuTarget.kind === "deckView") {
+      const side = menuTarget.side;
+      if (side !== mySide) return null;
+      const mt = menuTarget;
+      const entries = p.deck.map((id, i) => ({ id, i, c: cardOf(id) }));
+      let list = mt.mode === "top" ? entries.slice(0, mt.n) : [...entries].sort((x, y) => (x.c?.type ?? "").localeCompare(y.c?.type ?? "") || (x.c?.name ?? "").localeCompare(y.c?.name ?? ""));
+      const q = deckFilter.trim().toLowerCase();
+      if (q) list = list.filter(e => (e.c?.name ?? "").toLowerCase().includes(q) || (e.c?.type ?? "").toLowerCase().includes(q));
+      // ดูบนสุด: หลังหยิบใบหนึ่งออก ลดจำนวนที่แสดง จะไม่เผยใบถัดไปที่ยังไม่ได้ดู
+      const take = (fn: (s: GameState) => GameState) => {
+        doAction(fn);
+        if (mt.mode === "top") setMenuTarget({ ...mt, n: Math.max(0, mt.n - 1) });
+      };
+      const targets = [...p.monsters.map(m => ({ uid: m.uid, name: cardOf(m.cardId)?.name ?? "?" })), ...(p.item ? [{ uid: p.item.uid, name: `${cardOf(p.item.cardId)?.name ?? "ไอเทม"} (ไอเทม)` }] : [])];
+      const soulUid = mt.soulUid && targets.some(t => t.uid === mt.soulUid) ? mt.soulUid : targets[0]?.uid;
+      const act = "px-1.5 py-0.5 bg-slate-800 hover:bg-slate-600 rounded text-[10px]";
+      return (
+        <div ref={menuRef} className={`${box} w-[min(96vw,760px)] max-h-[86vh] flex flex-col`}>
+          <div className="flex items-center justify-between mb-2 gap-2">
+            <h4 className="font-bold text-cyan-300 text-sm">
+              {mt.mode === "top" ? `ดูการ์ดบนสุดของเด็ค (${list.length} ใบ)` : `ค้นหาในเด็ค (${p.deck.length} ใบ)`} <span className="text-xs text-slate-500">(Sandbox · เห็นเฉพาะคุณ)</span>
+            </h4>
+            <button onClick={() => closeMenuRef.current()} className="p-1 hover:bg-slate-800 rounded"><X size={14} /></button>
+          </div>
+          <div className="flex items-center gap-3 mb-2 flex-wrap text-xs">
+            {mt.mode === "search" && <input value={deckFilter} onChange={e => setDeckFilter(e.target.value)} placeholder="ค้นหาชื่อ/ประเภทการ์ด" className="bg-slate-800 border border-slate-700 rounded px-2 py-1 w-52" />}
+            <label className="flex items-center gap-1 text-slate-300"><input type="checkbox" checked={autoShuffle} onChange={e => setAutoShuffle(e.target.checked)} /> สับเด็คอัตโนมัติเมื่อปิดหน้าต่างนี้</label>
+            <span className="text-slate-500">{autoShuffle ? "เมื่อปิด เด็คจะถูกสับให้ทันที" : "ปิดอยู่: เด็คจะไม่ถูกสับ"}</span>
+          </div>
+          <div className="overflow-y-auto pr-1">
+            {list.length === 0 && <p className="text-sm text-slate-500 py-6 text-center">{p.deck.length === 0 ? "เด็คว่าง" : "ไม่พบการ์ดที่ตรงกับคำค้น"}</p>}
+            <div className="gap-2" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(112px, 1fr))" }}>
+              {list.map(e => (
+                <div key={e.i} className="flex flex-col items-center gap-1 bg-slate-950/60 rounded-lg p-1.5">
+                  <div onMouseEnter={() => e.c && setHovered({ card: e.c, flagId: p.flagId })}>
+                    {e.c ? <CardView card={e.c} flag={flagOf(e.c.flagId) ?? flagOf(p.flagId)} width="84px" hideText /> : <CardView faceDown width="84px" />}
+                  </div>
+                  <div className="flex flex-wrap justify-center gap-0.5">
+                    <button className={act} onClick={() => take(s => sandboxMoveCard(s, side, "deck", "hand", e.i))}>มือ</button>
+                    <button className={act} onClick={() => take(s => sandboxMoveCard(s, side, "deck", "dropZone", e.i))}>สุสาน</button>
+                    <button className={act} onClick={() => take(s => sandboxMoveCard(s, side, "deck", "gauge", e.i))}>เกจ</button>
+                    {e.c?.type === "Monster" && <button className={act} onClick={() => take(s => sandboxMoveCard(s, side, "deck", "field", e.i))}>ลงสนาม</button>}
+                    <button className={act} onClick={() => take(s => sandboxMoveCard(s, side, "deck", "deckBottom", e.i))}>ใต้เด็ค</button>
+                    {soulUid && <button className={`${act} !bg-violet-800`} onClick={() => take(s => sandboxAddSoul(s, side, soulUid, "deck", e.i))}>→Soul</button>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {targets.length > 0 && (
+            <div className="mt-2 text-xs text-slate-300 flex items-center gap-2 border-t border-slate-700 pt-2">
+              <span>ปุ่ม “→Soul” ใส่เข้า:</span>
+              <select value={soulUid} onChange={e => setMenuTarget({ ...mt, soulUid: e.target.value })} className="bg-slate-800 border border-slate-700 rounded px-2 py-1">
+                {targets.map(t => <option key={t.uid} value={t.uid}>{t.name}</option>)}
+              </select>
+            </div>
+          )}
         </div>
       );
     }
@@ -1440,13 +1607,25 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       );
     }
 
+    const mineDeck = menuTarget.side === mySide;
     return (
-      <div ref={menuRef} className={`${box} min-w-[200px]`}>
-        <h4 className="font-bold text-slate-300 mb-3 text-sm">กองการ์ด ({p.deck.length}) <span className="text-xs text-slate-500">(Sandbox)</span></h4>
+      <div ref={menuRef} className={`${box} min-w-[240px]`}>
+        <h4 className="font-bold text-slate-300 mb-1 text-sm">กองการ์ด ({p.deck.length}) <span className="text-xs text-slate-500">(Sandbox)</span></h4>
+        <p className="text-[11px] text-slate-500 mb-2">{mineDeck ? "คุณไม่เห็นการ์ดในเด็คจนกว่าจะกดค้นหา/ดูบนสุด" : "เด็คของฝั่งตรงข้าม — ดูการ์ดไม่ได้"}</p>
         <div className="space-y-2">
           <button onClick={() => { doAction(s => sandboxFreeDraw(s, menuTarget.side)); setMenuTarget(null); }} className={`${sb} w-full py-2`}><RotateCw size={14} /> จั่ว 1 ใบ</button>
-          <button onClick={() => { doAction(s => sandboxMoveCard(s, menuTarget.side, "deck", "dropZone", 0)); setMenuTarget(null); }} className={`${sb} w-full py-2`}><Trash2 size={14} /> ทิ้ง 1 ใบ</button>
-          <button onClick={() => { doAction(s => sandboxMoveCard(s, menuTarget.side, "deck", "gauge", 0)); setMenuTarget(null); }} className={`${sb} w-full py-2`}><Zap size={14} /> ใส่เกจ 1 ใบ</button>
+          <button onClick={() => { doAction(s => sandboxMoveCard(s, menuTarget.side, "deck", "dropZone", 0)); setMenuTarget(null); }} className={`${sb} w-full py-2`}><Trash2 size={14} /> ทิ้งใบบนสุดลงสุสาน</button>
+          <button onClick={() => { doAction(s => sandboxMoveCard(s, menuTarget.side, "deck", "gauge", 0)); setMenuTarget(null); }} className={`${sb} w-full py-2`}><Zap size={14} /> ใส่เกจ 1 ใบ (ไม่ดู)</button>
+          {mineDeck && (<>
+            <button onClick={() => { setDeckFilter(""); setMenuTarget({ kind: "deckView", side: menuTarget.side, mode: "search", n: 0 }); }} className={`${sb} w-full py-2 !bg-cyan-900 hover:!bg-cyan-800`}>🔍 ค้นหาการ์ดในเด็ค</button>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setMenuTarget({ kind: "deckView", side: menuTarget.side, mode: "top", n: Math.min(lookN, p.deck.length) })} className={`${sb} flex-1 py-2 !bg-cyan-900 hover:!bg-cyan-800`}>👁 ดูบนสุด</button>
+              <input type="number" min={1} max={20} value={lookN} onChange={e => setLookN(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))} className="w-14 bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs" />
+              <span className="text-xs text-slate-400">ใบ</span>
+            </div>
+            <button onClick={() => doAction(s => sandboxShuffleDeck(s, menuTarget.side))} className={`${sb} w-full py-2`}>🔀 สับเด็ค</button>
+            <label className="flex items-center gap-1 text-[11px] text-slate-300"><input type="checkbox" checked={autoShuffle} onChange={e => setAutoShuffle(e.target.checked)} /> สับเด็คอัตโนมัติหลังดู/ค้นการ์ดในเด็ค</label>
+          </>)}
         </div>
       </div>
     );
