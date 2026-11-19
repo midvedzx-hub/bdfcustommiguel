@@ -268,11 +268,11 @@ export function CardView({
           <span className="text-white font-semibold leading-none" style={{ fontSize: "0.58em", marginTop: "0.35em" }}>{TYPE_LABEL[card.type] ?? card.type}</span>
         </div>
 
-        {/* Item: Power / Critical ใต้ป้าย (เหมือนการ์ดจริง) */}
+        {/* Item: Critical กลาง · Power (แดง) ล่าง เรียงแนวตั้งด้านซ้ายแบบเดียวกับมอนสเตอร์ (ไม่มี Defense) */}
         {isItem && showStat && (
-          <div className="absolute flex items-baseline font-display font-bold" style={{ top: "4.3em", left: "0.45em", gap: "0.3em" }}>
-            <span style={{ fontSize: compact ? "1.5em" : "1.3em", color: "#fb7185", ...stroke }} title="Power">{st.power}</span>
-            <span style={{ fontSize: compact ? "2.6em" : "2.3em", lineHeight: 1, color: "#fff", ...stroke }} title="Critical">{st.critical}</span>
+          <div className="absolute left-0 flex flex-col items-center justify-between font-display font-bold overflow-hidden" style={{ top: "4.9em", bottom: "0.3em", width: "2.3em", padding: "0.15em 0", background: "linear-gradient(90deg, rgba(0,0,0,.6), rgba(0,0,0,0))" }}>
+            <span className="text-white" style={{ fontSize: compact ? "2.2em" : "1.9em", lineHeight: 1, ...stroke }} title="Critical">{st.critical}</span>
+            <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: vertSize(st.power, compact), lineHeight: 1, whiteSpace: "nowrap", color: "#fb7185", ...stroke }} title="Power">{st.power}</span>
           </div>
         )}
         {isImpact && showStat && (
