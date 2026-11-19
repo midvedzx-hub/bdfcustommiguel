@@ -4,7 +4,7 @@ import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Card, Flag, CardType, AutoTrigger, AutoEffectType, AutoEffect, AutoSkill } from "@/types";
 import { TRIGGER_LABELS, EFFECT_LABELS, DROP_FILTERS } from "@/types";
 import type { CardFilter } from "@/types";
-import { getCards, saveCards, getFlags, saveFlags, getDecks, saveDecks, uid, downloadJSON, importAll } from "@/storage";
+import { getCards, saveCards, getFlags, saveFlags, getDecks, saveDecks, uid, downloadJSON, importAll, exportCards } from "@/storage";
 import { ImageUpload } from "@/components/ImageUpload";
 import { CardView } from "@/components/CardView";
 import { SKILL_TEMPLATES } from "@/game/helpers";
@@ -161,8 +161,9 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
         const result = importAll(reader.result as string);
         setCards(getCards());
         alert(`นำเข้าสำเร็จ: ${result.flags} Flag, ${result.cards} การ์ด, ${result.decks} เด็ค`);
-      } catch {
-        alert("ไฟล์ไม่ถูกต้อง");
+        if (result.flags > 0) window.location.reload(); // โหลด Flag ใหม่เข้าตัวเลือกของการ์ด
+      } catch (err) {
+        alert(err instanceof Error && err.message ? err.message : "ไฟล์ไม่ถูกต้อง");
       }
     };
     reader.readAsText(file);
@@ -367,7 +368,7 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
       title="Card Studio" subtitle="ออกแบบ Monster / Spell / Item / Impact พร้อมสกิลอัตโนมัติ" icon={Layers} accent="#34d399" onBack={onBack} maxW="max-w-7xl"
       actions={<>
         <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(cards, null, 2)); setCopied(true); setTimeout(() => setCopied(false), 1500); }} className="btn"><Copy size={14} /> {copied ? "คัดลอกแล้ว" : "ก๊อปปี้"}</button>
-        <button onClick={() => downloadJSON(JSON.stringify(cards, null, 2), "cards.json")} className="btn"><Download size={14} /> Export</button>
+        <button onClick={() => downloadJSON(exportCards(cards), "cards.json")} className="btn"><Download size={14} /> Export</button>
         <label className="btn cursor-pointer"><Upload size={14} /> Import<input type="file" accept=".json" className="hidden" onChange={handleImport} /></label>
         <button onClick={startNew} className="btn btn-primary"><Plus size={16} /> สร้างการ์ด</button>
       </>}

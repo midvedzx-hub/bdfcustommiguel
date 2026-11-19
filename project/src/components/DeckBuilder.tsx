@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Plus, Minus, Save, Trash2, Star, Search, Download, Upload, BookOpen } from "lucide-react";
 import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Deck, Card, Flag } from "@/types";
-import { getDecks, saveDecks, getCards, getFlags, uid, downloadJSON, importAll } from "@/storage";
+import { getDecks, saveDecks, getCards, getFlags, uid, downloadJSON, importAll, exportDecks } from "@/storage";
 import { CardView } from "@/components/CardView";
 
 export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (deck: Deck) => void }) {
@@ -55,10 +55,11 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        importAll(reader.result as string);
+        const r = importAll(reader.result as string);
         setDecks(getDecks());
-        alert("นำเข้าสำเร็จ");
-      } catch { alert("ไฟล์ไม่ถูกต้อง"); }
+        alert(`นำเข้าสำเร็จ: ${r.flags} Flag, ${r.cards} การ์ด, ${r.decks} เด็ค`);
+        if (r.cards > 0 || r.flags > 0) window.location.reload(); // โหลดการ์ด/Flag ใหม่เข้าตัวเลือกเด็ค
+      } catch (err) { alert(err instanceof Error && err.message ? err.message : "ไฟล์ไม่ถูกต้อง"); }
     };
     reader.readAsText(file);
     e.target.value = "";
@@ -238,7 +239,7 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
     <ScreenShell
       title="Deck Builder" subtitle="จัดเด็ค เลือก Flag และ Buddy ประจำเด็ค" icon={BookOpen} accent="#fbbf24" onBack={onBack}
       actions={<>
-        <button onClick={() => downloadJSON(JSON.stringify(decks, null, 2), "decks.json")} className="btn"><Download size={14} /> Export</button>
+        <button onClick={() => downloadJSON(exportDecks(decks), "decks.json")} className="btn"><Download size={14} /> Export</button>
         <label className="btn cursor-pointer"><Upload size={14} /> Import<input type="file" accept=".json" className="hidden" onChange={handleImport} /></label>
         <button onClick={startNew} className="btn btn-primary"><Plus size={16} /> สร้างเด็ค</button>
       </>}

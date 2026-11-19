@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Plus, Save, Trash2, Download, Upload, Edit3, Copy, Heart, Hand as HandIcon, Zap, Star, Flag as FlagIcon } from "lucide-react";
 import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Flag } from "@/types";
-import { getFlags, saveFlags, getCards, uid, downloadJSON, importAll } from "@/storage";
+import { getFlags, saveFlags, getCards, uid, downloadJSON, importAll, exportFlags as exportFlagsJSON } from "@/storage";
 import { CardView } from "@/components/CardView";
 import { ImageUpload } from "@/components/ImageUpload";
 import { clampColor } from "@/game/helpers";
@@ -52,7 +52,7 @@ export function FlagMaker({ onBack }: { onBack: () => void }) {
   }
 
   function exportFlags() {
-    downloadJSON(JSON.stringify(flags, null, 2), "flags.json");
+    downloadJSON(exportFlagsJSON(flags), "flags.json");
   }
 
   function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -64,8 +64,8 @@ export function FlagMaker({ onBack }: { onBack: () => void }) {
         const result = importAll(reader.result as string);
         setFlags(getFlags());
         alert(`นำเข้าสำเร็จ: ${result.flags} Flag, ${result.cards} การ์ด, ${result.decks} เด็ค`);
-      } catch {
-        alert("ไฟล์ไม่ถูกต้อง");
+      } catch (err) {
+        alert(err instanceof Error && err.message ? err.message : "ไฟล์ไม่ถูกต้อง");
       }
     };
     reader.readAsText(file);

@@ -109,17 +109,65 @@ export function exportAll(): string {
   );
 }
 
-export function importAll(json: string): { flags: number; cards: number; decks: number } {
-  const data = JSON.parse(json);
-  if (data.flags) saveFlags(data.flags);
-  if (data.cards) saveCards(data.cards);
-  if (data.decks) saveDecks(data.decks);
-  if (data.customKeywords) saveCustomKeywords(data.customKeywords);
-  return {
-    flags: data.flags?.length ?? 0,
-    cards: data.cards?.length ?? 0,
-    decks: data.decks?.length ?? 0,
-  };
+// ส่งออกเฉพาะส่วน (ใส่ของที่เกี่ยวข้องมาด้วย เพื่อนำเข้าที่เครื่องอื่นแล้วไม่ขาด)
+export function exportCards(cards: Card[]): string {
+  const flagIds = new Set(cards.map(c => c.flagId));
+  return JSON.stringify({ flags: getFlags().filter(f => flagIds.has(f.id)), cards }, null, 2);
+}
+export function exportDecks(decks: Deck[]): string {
+  const cardIds = new Set(decks.flatMap(d => [...d.cardIds, ...(d.buddyId ? [d.buddyId] : [])]));
+  const cards = getCards().filter(c => cardIds.has(c.id));
+  const flagIds = new Set([...decks.map(d => d.flagId), ...cards.map(c => c.flagId)]);
+  return JSON.stringify({ flags: getFlags().filter(f => flagIds.has(f.id)), cards, decks }, null, 2);
+}
+export function exportFlags(flags: Flag[]): string {
+  return JSON.stringify({ flags }, null, 2);
+}
+
+const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null;
+
+// รวมของเดิมกับของที่นำเข้า โดยใช้ id (id ซ้ำ = ทับของเดิม) ไม่ลบของที่มีอยู่
+function mergeById<T extends { id: string }>(old: T[], incoming: T[]): T[] {
+  const map = new Map(old.map(x => [x.id, x]));
+  incoming.forEach(x => map.set(x.id, x));
+  return [...map.values()];
+}
+
+export interface ImportResult { flags: number; cards: number; decks: number }
+
+// รับได้ทั้งไฟล์แบบรวม {flags,cards,decks} และไฟล์แบบอาร์เรย์เดี่ยว ๆ ([...การ์ด], [...เด็ค], [...Flag]) ที่เคย Export ไว้
+export function importAll(json: string): ImportResult {
+  const data: unknown = JSON.parse(json.replace(/^\uFEFF/, ""));
+  let flags: Flag[] = [];
+  let cards: Card[] = [];
+  let decks: Deck[] = [];
+  let kws: CustomKeyword[] | null = null;
+
+  if (Array.isArray(data)) {
+    const items = data.filter(isObj);
+    cards = items.filter(x => "type" in x && "flagId" in x && !("cardIds" in x)) as unknown as Card[];
+    decks = items.filter(x => Array.isArray(x.cardIds)) as unknown as Deck[];
+    flags = items.filter(x => "color" in x && "startHand" in x && !("type" in x)) as unknown as Flag[];
+  } else if (isObj(data)) {
+    if (Array.isArray(data.flags)) flags = data.flags as Flag[];
+    if (Array.isArray(data.cards)) cards = data.cards as Card[];
+    if (Array.isArray(data.decks)) decks = data.decks as Deck[];
+    if (Array.isArray(data.customKeywords)) kws = data.customKeywords as CustomKeyword[];
+  }
+  flags = flags.filter(x => isObj(x) && typeof x.id === "string");
+  cards = cards.filter(x => isObj(x) && typeof x.id === "string");
+  decks = decks.filter(x => isObj(x) && typeof x.id === "string");
+
+  if (flags.length === 0 && cards.length === 0 && decks.length === 0 && !kws)
+    throw new Error("ไม่พบข้อมูล Flag / การ์ด / เด็ค ในไฟล์นี้");
+
+  let ok = true;
+  if (flags.length) ok = saveFlags(mergeById(getFlags(), flags)) && ok;
+  if (cards.length) ok = saveCards(mergeById(getCards(), cards)) && ok;
+  if (decks.length) ok = saveDecks(mergeById(getDecks(), decks)) && ok;
+  if (kws) saveCustomKeywords(mergeById(getCustomKeywords(), kws));
+  if (!ok) throw new Error("พื้นที่เก็บข้อมูลของเบราว์เซอร์เต็ม (รูปการ์ดใหญ่เกินไป) บันทึกไม่ครบ");
+  return { flags: flags.length, cards: cards.length, decks: decks.length };
 }
 
 export function fileToBase64(file: File): Promise<string> {
@@ -137,8 +185,10 @@ export function downloadJSON(data: string, filename: string): void {
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000); // ถ้าเพิกถอนทันที บางเบราว์เซอร์/มือถือโหลดไฟล์ไม่ได้
 }
 
 // ย่อรูปก่อนเก็บ: รูปจากมือถือใหญ่หลาย MB ทำให้ localStorage (~5MB) เต็มแล้วบันทึกการ์ดไม่ได้

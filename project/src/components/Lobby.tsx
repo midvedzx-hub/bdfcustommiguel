@@ -26,8 +26,8 @@ export function Lobby({ onFlagMaker, onCardStudio, onDeckBuilder, onPlay }: Prop
         const result = importAll(reader.result as string);
         setImportMsg(`นำเข้าสำเร็จ: ${result.flags} Flag, ${result.cards} การ์ด, ${result.decks} เด็ค`);
         setTimeout(() => window.location.reload(), 1000);
-      } catch {
-        setImportMsg("ไฟล์ไม่ถูกต้อง");
+      } catch (err) {
+        setImportMsg(err instanceof Error && err.message ? err.message : "ไฟล์ไม่ถูกต้อง");
       }
     };
     reader.readAsText(file);
