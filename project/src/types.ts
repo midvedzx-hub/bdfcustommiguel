@@ -281,7 +281,8 @@ export interface PlayerState {
   deck: string[]; // remaining card ids
   hand: string[];
   dropZone: string[];
-  setZone: string[]; // การ์ดที่ Set ไว้ (คว่ำ) ใช้เป็น Counter Act ได้
+  setZone: string[];
+  setActUsed?: Record<string, number>; // ใช้ Counter 【Act】 ของการ์ด Set ไปแล้วในเทิร์นไหน (key = ชื่อไอดี#ลำดับ) // การ์ดที่ Set ไว้ (คว่ำ) ใช้เป็น Counter Act ได้
   monsters: FieldCard[];
   item: FieldCard | null;
   flagId: string;

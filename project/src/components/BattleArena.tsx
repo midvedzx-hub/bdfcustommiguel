@@ -1116,7 +1116,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   function renderFreeCounterModal() {
     if (!showFreeCounter || game.winner) return null;
     if (freeOpts.length === 0) return null;
-    const zoneLabel = (o: CounterOption) => o.zone === "hand" ? "【Counter】 จากมือ" : o.zone === "set" ? "【Counter】 จากช่อง Set" : "Counter 【Act】 บนสนาม";
+    const zoneLabel = (o: CounterOption) => o.zone === "hand" ? "【Counter】 จากมือ" : o.zone === "set" ? "【Counter】 จากช่อง Set" : o.zone === "setAct" ? "Counter 【Act】 ของการ์ด Set" : "Counter 【Act】 บนสนาม";
     return (
       <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4" onClick={() => setShowFreeCounter(false)}>
         <div className="bg-slate-900 border-2 border-sky-500 rounded-2xl p-5 max-w-3xl w-full max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -1145,7 +1145,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     const b = game.battle;
     if ((!b && !sw) || !iAmDefender || game.winner || game.pendingLook || game.pendingSoul) return null;
     const opts = counterOptions(game, mySide);
-    const zoneLabel = (o: CounterOption) => o.zone === "hand" ? "【Counter】 จากมือ" : o.zone === "set" ? "【Counter】 จากช่อง Set" : "Counter 【Act】 บนสนาม";
+    const zoneLabel = (o: CounterOption) => o.zone === "hand" ? "【Counter】 จากมือ" : o.zone === "set" ? "【Counter】 จากช่อง Set" : o.zone === "setAct" ? "Counter 【Act】 ของการ์ด Set" : "Counter 【Act】 บนสนาม";
     let header: React.ReactNode;
     let sub: React.ReactNode;
     let cardsRow: React.ReactNode = null;

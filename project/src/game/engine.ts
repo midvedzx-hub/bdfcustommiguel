@@ -9,7 +9,8 @@ export type { AttackTarget };
 export type Result = { state: GameState; ok: boolean; msg: string };
 export type CounterOption =
   | { zone: "hand"; index: number }
-  | { zone: "set"; index: number }
+  | { zone: "set"; index: number }       // การ์ดคว่ำในช่อง Set ใช้เป็น 【Counter】 (ใช้แล้วลงสุสาน)
+  | { zone: "setAct"; index: number }    // การ์ด Set ที่เปิดอยู่: ใช้ Counter 【Act】 ของมัน (การ์ดยังอยู่ในช่อง Set ใช้ได้ 1 ครั้งต่อเทิร์น)
   | { zone: "field"; uid: string };
 
 export const POSITION_NAMES = ["ซ้าย", "กลาง", "ขวา"];
@@ -213,6 +214,8 @@ function mRemoveSoul(g: GameState, side: Side, fc: FieldCard, n: number): number
     log(g, `${card?.name ?? "การ์ด"} ถูกถอด Soul ${moved} ใบลงสุสาน`);
     fx(g, { k: "soulOut", side, uid: fc.uid, pos: posOf(g, side, fc), n: moved });
     if (card) applyEffects(g, side, card, "onSoulRemoved", { fc });
+    fireSet(g, side, "onSoulRemoved", { fc }); // การ์ด Set ของเราที่รอ "เมื่อ Soul ถูกถอด"
+    recalcAuras(g);
   }
   return moved;
 }
@@ -306,7 +309,7 @@ function runSkills(
   side: Side,
   card: Card,
   skills: AutoSkill[],
-  ctx: { fc?: FieldCard }
+  ctx: { fc?: FieldCard; all?: boolean }
 ) {
   const opp = other(side);
   for (let si = 0; si < skills.length; si++) {
@@ -361,20 +364,24 @@ function runSkills(
         case "buffPower":
         case "buffCritical":
         case "buffDefense": {
-          const target = ctx?.fc ?? g[side].monsters[g[side].monsters.length - 1];
-          if (!target) break;
-          if (eff.type === "buffPower") target.tempPower += eff.value;
-          if (eff.type === "buffCritical") target.tempCritical += eff.value;
-          if (eff.type === "buffDefense") target.tempDefense += eff.value;
+          const targets = ctx.fc ? [ctx.fc] : ctx.all ? [...g[side].monsters] : g[side].monsters.slice(-1);
+          if (targets.length === 0) break;
+          targets.forEach(target => {
+            if (eff.type === "buffPower") target.tempPower += eff.value;
+            if (eff.type === "buffCritical") target.tempCritical += eff.value;
+            if (eff.type === "buffDefense") target.tempDefense += eff.value;
+          });
           log(g, `${card.name} ${eff.type === "buffPower" ? "Power" : eff.type === "buffCritical" ? "Critical" : "Defense"} +${eff.value}`);
           break;
         }
         case "addSoul": {
-          const fc = ctx?.fc;
+          // จากเวท/การ์ด Set ที่ไม่มีการ์ดเป้าหมาย: ใส่ให้มอนสเตอร์ของเราตัวแรก (ช่องกลาง → ซ้าย → ขวา)
+          const fc = ctx.fc ?? [1, 0, 2].map(pos => g[side].monsters.find(m => m.position === pos)).find(Boolean);
           if (!fc) break;
           let moved = 0;
           for (let i = 0; i < n && g[side].deck.length > 0; i++) { fc.soul.push(g[side].deck.shift()!); moved++; }
           if (moved > 0) { log(g, `${card.name} ได้รับ Soul +${moved}`); fx(g, { k: "soulIn", side, uid: fc.uid, pos: posOf(g, side, fc), n: moved }); }
+          if (moved > 0) recalcAuras(g);
           break;
         }
         case "dropToSoul": {
@@ -845,22 +852,26 @@ export function activeSetCards(p: PlayerState): Card[] {
 export function recalcAuras(g: GameState) {
   (["host", "guest"] as Side[]).forEach(side => {
     const p = g[side];
-    let pw = 0, df = 0, cr = 0;
+    let pw = 0, df = 0, cr = 0, pps = 0, cps = 0;
     activeSetCards(p).forEach(c => {
       pw += continuousSum(c, "buffPower"); df += continuousSum(c, "buffDefense"); cr += continuousSum(c, "buffCritical");
+      pps += continuousSum(c, "powerPerSoul"); cps += continuousSum(c, "criticalPerSoul");
     });
-    [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => { fc.auraPower = pw; fc.auraDefense = df; fc.auraCritical = cr; });
+    [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
+      fc.auraPower = pw + pps * fc.soul.length; fc.auraDefense = df; fc.auraCritical = cr + cps * fc.soul.length;
+    });
   });
 }
 
 // ทำงานสกิลของการ์ด Set ที่อยู่ในช่อง Set ตามทริกเกอร์ (ต้นเทิร์น / Final / มอนสเตอร์เราโจมตี / ทำลายศัตรู / ทำดาเมจ)
 function fireSet(g: GameState, side: Side, trigger: AutoTrigger, ctx: { fc?: FieldCard } = {}) {
+  // ไม่มีการ์ดเป้าหมาย (เช่น ต้นเทิร์น / Final) บัฟที่ตั้งไว้จะใช้กับมอนสเตอร์ทุกตัวของเรา
   [...g[side].setZone].forEach(id => {
     if (g.winner) return;
     const c = getCard(id);
     if (!c || !hasSetKeyword(c)) return;
     const skills = (c.autoSkills ?? []).filter(sk => sk.trigger === trigger);
-    if (skills.length > 0) runSkills(g, side, c, skills, { ...ctx });
+    if (skills.length > 0) runSkills(g, side, c, skills, { ...ctx, all: !ctx.fc });
   });
 }
 
@@ -1166,6 +1177,33 @@ function skillNeedsSoul(card: Card, timing: CounterTiming | null): number {
   return need;
 }
 
+// ---- Counter 【Act】 ของการ์ด Set ในช่อง Set ----
+const setKey = (p: PlayerState, i: number) => `${p.setZone[i]}#${p.setZone.slice(0, i).filter(x => x === p.setZone[i]).length}`;
+const setActUsedThisTurn = (state: GameState, side: Side, i: number) => state[side].setActUsed?.[setKey(state[side], i)] === state.turn;
+// ค่าใช้จ่ายแบบ Soul ของสกิล (ถอด Soul ฯลฯ) ต้องมีการ์ดของเราที่มี Soul พอ จึงใช้ได้
+function setActAffordable(p: PlayerState, c: Card, timing: CounterTiming | null): boolean {
+  let need = 0;
+  counterSkills(c, "onCounterAct", timing).forEach(s => {
+    let n = 0;
+    s.effects.forEach(e => { if (e.type === "removeSoul" || e.type === "chooseRemoveSoul") n += Math.max(1, Math.floor(e.value)); });
+    need = Math.max(need, n);
+  });
+  if (need === 0) return true;
+  return [...p.monsters, ...(p.item ? [p.item] : [])].some(m => m.soul.length >= need);
+}
+function setActOptions(state: GameState, side: Side, timing: CounterTiming | null, anytime: boolean): CounterOption[] {
+  const p = state[side];
+  const out: CounterOption[] = [];
+  p.setZone.forEach((id, i) => {
+    const c = getCard(id);
+    if (!c || !hasSetKeyword(c)) return;
+    const has = anytime ? usableAnytime(c, "onCounterAct") : counterSkills(c, "onCounterAct", timing).length > 0;
+    if (!has || setActUsedThisTurn(state, side, i) || !setActAffordable(p, c, timing)) return;
+    out.push({ zone: "setAct", index: i });
+  });
+  return out;
+}
+
 // ตัวเลือก Counter ของฝั่ง side ณ จังหวะปัจจุบัน
 //  - 【Counter】: การ์ดในมือ (จ่ายค่าใช้จ่าย) และการ์ดในช่อง Set (จ่ายไว้แล้ว)
 //  - Counter 【Act】: ความสามารถของการ์ดบนสนาม (ใช้ได้ 1 ครั้งต่อเทิร์น จ่ายตามที่เขียนในสกิล เช่น ถอด Soul)
@@ -1186,6 +1224,7 @@ export function counterOptions(state: GameState, side: Side): CounterOption[] {
     const c = getCard(id);
     if (c && counterSkills(c, "onCounter", timing).length > 0) out.push({ zone: "set", index: i });
   });
+  out.push(...setActOptions(state, side, timing, false));
   [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
     const c = getCard(fc.cardId);
     if (!c || fc.nullified || counterSkills(c, "onCounterAct", timing).length === 0) return;
@@ -1199,7 +1238,7 @@ export function counterOptions(state: GameState, side: Side): CounterOption[] {
 export function counterCardOf(state: GameState, side: Side, opt: CounterOption): Card | undefined {
   const p = state[side];
   if (opt.zone === "hand") return getCard(p.hand[opt.index]);
-  if (opt.zone === "set") return getCard(p.setZone[opt.index]);
+  if (opt.zone === "set" || opt.zone === "setAct") return getCard(p.setZone[opt.index]);
   const fc = findFc(p, opt.uid);
   return fc ? getCard(fc.cardId) : undefined;
 }
@@ -1261,6 +1300,13 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
     log(g, `🛡 ${nameOf(side)} เปิดการ์ด Set: ${card.name}!`);
     fx(g, { k: "cast", side, cardId, label: "COUNTER!" });
     runSkills(g, side, card, counterSkills(card, "onCounter", timing), { fc: tgt });
+  } else if (opt.zone === "setAct") {
+    const cardId = p.setZone[opt.index];
+    const card = getCard(cardId)!;
+    p.setActUsed = { ...(p.setActUsed ?? {}), [setKey(p, opt.index)]: g.turn };
+    log(g, `🛡 ${nameOf(side)} ใช้ Counter 【Act】 ของการ์ด Set: ${card.name} (การ์ดยังอยู่ในช่อง Set)`);
+    fx(g, { k: "cast", side, cardId, label: "COUNTER ACT!" });
+    runSkills(g, side, card, counterSkills(card, "onCounterAct", timing), {});
   } else {
     const fc = findFc(p, opt.uid)!;
     const card = getCard(fc.cardId)!;
@@ -1310,6 +1356,7 @@ export function freeCounterOptions(state: GameState, side: Side): CounterOption[
     const c = getCard(id);
     if (c && usableAnytime(c, "onCounter")) out.push({ zone: "set", index: i });
   });
+  out.push(...setActOptions(state, side, null, true));
   [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
     const c = getCard(fc.cardId);
     if (!c || fc.nullified || !usableAnytime(c, "onCounterAct")) return;
