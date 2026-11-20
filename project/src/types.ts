@@ -154,6 +154,7 @@ export interface AutoSkill {
   trigger: AutoTrigger;
   effects: AutoEffect[];
   name?: string;          // ชื่อคีย์เวิร์ดกำหนดเอง (แสดงเป็น 【ชื่อ】)
+  help?: string;          // คำอธิบายเพิ่มเติมของคีย์เวิร์ดกำหนดเอง (แสดงบนการ์ด)
   timing?: CounterTiming; // ใช้กับ Counter / Counter Act (ค่าเริ่มต้น = ตอนศัตรูโจมตี)
   cost?: CounterCost;     // ใช้กับ Counter / Counter Act: ต้องจ่ายเกจ / Life เพิ่มเพื่อใช้
 }

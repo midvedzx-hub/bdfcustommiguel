@@ -16,7 +16,7 @@ const QUICK: { label: string; eff: AutoEffect }[] = [
   { label: "+ ดูกอง", eff: { type: "lookTop", value: 3, toHand: 1, toDrop: 0, toBottom: 0 } },
 ];
 
-const toSkill = (k: CustomKeyword): AutoSkill => ({ name: k.name, trigger: k.trigger, timing: k.timing, cost: k.cost, effects: structuredClone(k.effects) });
+const toSkill = (k: CustomKeyword): AutoSkill => ({ name: k.name, trigger: k.trigger, timing: k.timing, cost: k.cost, help: k.help?.trim() || undefined, effects: structuredClone(k.effects) });
 
 // คีย์เวิร์ดกำหนดเอง: สร้างครั้งเดียว ใส่ในการ์ดกี่ใบก็ได้ (คัดลอกสกิลลงการ์ด)
 export function CustomKeywordPanel({ skills, onChange }: { skills: AutoSkill[]; onChange: (s: AutoSkill[]) => void }) {

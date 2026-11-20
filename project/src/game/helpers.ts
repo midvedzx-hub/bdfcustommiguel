@@ -1,4 +1,5 @@
 import type { Flag, Card, AutoSkill, AutoEffect } from "@/types";
+import { getCustomKeywords } from "@/storage";
 import { TRIGGER_LABELS, callCostLabel } from "@/types";
 import { KEYWORD_DEFS } from "@/game/keywords";
 
@@ -75,7 +76,13 @@ export function skillLines(card: Card): string[] {
   const lines: string[] = [];
   card.autoSkills?.forEach(sk => {
     const allKeywords = sk.effects.every(e => e.type in KEYWORDS || e.type === "kw");
-    if ((sk.trigger === "continuous" || sk.trigger === "onAttack") && allKeywords) return; // แสดงเป็นป้ายแดงแทน
+    // การ์ดเก่าที่ใส่คีย์เวิร์ดไว้ก่อนมีช่องคำอธิบาย: ดึงคำอธิบายล่าสุดจากคีย์เวิร์ดที่บันทึกไว้ตามชื่อ
+    const help = (sk.help ?? (sk.name ? getCustomKeywords().find(k => k.name === sk.name)?.help : undefined))?.trim();
+    if ((sk.trigger === "continuous" || sk.trigger === "onAttack") && allKeywords) {
+      // แสดงเป็นป้ายแดงแทน — แต่ถ้ามีคำอธิบายเพิ่มเติม ให้แสดงเป็นบรรทัดข้อความด้วย
+      if (help) lines.push(sk.name ? `【${sk.name}】${help}` : help);
+      return;
+    }
     const trig = TRIGGER_LABELS.find(t => t.value === sk.trigger)?.label.replace(/ \(.*\)$/, "") ?? sk.trigger;
     const timing = (sk.trigger === "onCounter" || sk.trigger === "onCounterAct")
       ? ((sk.timing ?? "attack") === "any" ? " (ตอนศัตรูโจมตีหรือร่ายเวท)" : (sk.timing ?? "attack") === "cast" ? " (ตอนศัตรูร่ายเวท)" : " (ตอนศัตรูโจมตี)")
@@ -87,8 +94,9 @@ export function skillLines(card: Card): string[] {
     }
     const costStr = costParts.length ? `[จ่าย ${costParts.join(" + ")}] ` : "";
     const body = costStr + sk.effects.map(effectText).join("、");
-    if (sk.name) lines.push(`【${sk.name}】${sk.trigger === "continuous" ? "" : `${trig}${timing}: `}${body}`);
-    else lines.push(`【${trig}】${timing ? timing.trim() + " " : ""}${body}`);
+    const helpStr = help ? ` — ${help}` : "";
+    if (sk.name) lines.push(`【${sk.name}】${sk.trigger === "continuous" ? "" : `${trig}${timing}: `}${body}${helpStr}`);
+    else lines.push(`【${trig}】${timing ? timing.trim() + " " : ""}${body}${helpStr}`);
   });
   return lines;
 }

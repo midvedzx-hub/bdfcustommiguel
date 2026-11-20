@@ -1,5 +1,5 @@
 import { useState, useRef, useLayoutEffect, useEffect } from "react";
-import { Plus, Save, Trash2, Download, Upload, Edit3, Copy, Zap, Search, Layers, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Save, Trash2, Download, Upload, Edit3, Copy, Zap, Search, Layers, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, GripVertical } from "lucide-react";
 import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Card, Flag, CardType, AutoTrigger, AutoEffectType, AutoEffect, AutoSkill } from "@/types";
 import { TRIGGER_LABELS, EFFECT_LABELS, DROP_FILTERS, callCostLabel } from "@/types";
@@ -68,6 +68,19 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
   const setCustomTexts = (list: string[]) => {
     setEditing(prev => prev ? { ...prev, customTexts: list, customText: list.map(t => t.trim()).filter(Boolean).join("\n") } : prev);
   };
+  // สลับลำดับข้อความ: ย้ายข้อที่ from ไปอยู่ตำแหน่ง to
+  const moveCustomText = (from: number, to: number) => {
+    setEditing(prev => {
+      if (!prev) return prev;
+      const list = [...getCustomTexts(prev)];
+      if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return prev;
+      const [it] = list.splice(from, 1);
+      list.splice(to, 0, it);
+      return { ...prev, customTexts: list, customText: list.map(t => t.trim()).filter(Boolean).join("\n") };
+    });
+  };
+  const [dragText, setDragText] = useState<number | null>(null);
+  const [overText, setOverText] = useState<number | null>(null);
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [worldFilter, setWorldFilter] = useState<string>("all");
@@ -361,9 +374,30 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                 </div>
                 <div className="space-y-2 mt-1">
                   {getCustomTexts(editing).map((t, i, arr) => (
-                    <div key={i} className="flex gap-2 items-start">
-                      <span className="text-xs text-slate-500 mt-3 w-4 text-right">{i + 1}</span>
-                      <AutoTextarea value={t} onChange={v => setCustomTexts(arr.map((x, j) => (j === i ? v : x)))} placeholder="เขียนความสามารถพิสดารตามจินตนาการ..." className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:border-cyan-500 outline-none" />
+                    <div
+                      key={i}
+                      className={`flex gap-2 items-start rounded-lg transition ${dragText !== null && overText === i && dragText !== i ? "ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950" : ""} ${dragText === i ? "opacity-50" : ""}`}
+                      onDragOver={e => { if (dragText !== null) { e.preventDefault(); if (overText !== i) setOverText(i); } }}
+                      onDrop={e => { e.preventDefault(); if (dragText !== null) moveCustomText(dragText, i); setDragText(null); setOverText(null); }}
+                    >
+                      <div className="flex flex-col items-center mt-1 w-6 shrink-0">
+                        <span className="text-xs text-slate-500 leading-none mb-1">{i + 1}</span>
+                        {arr.length > 1 && (
+                          <>
+                            <button type="button" disabled={i === 0} onClick={() => moveCustomText(i, i - 1)} className="p-0.5 text-slate-400 hover:text-cyan-300 disabled:opacity-25 disabled:hover:text-slate-400" title="เลื่อนขึ้น"><ChevronUp size={16} /></button>
+                            <span
+                              draggable
+                              onDragStart={e => { setDragText(i); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(i)); const row = (e.currentTarget as HTMLElement).closest("[data-ctrow]"); if (row) e.dataTransfer.setDragImage(row as HTMLElement, 20, 20); }}
+                              onDragEnd={() => { setDragText(null); setOverText(null); }}
+                              className="p-0.5 text-slate-500 hover:text-cyan-300 cursor-grab active:cursor-grabbing" title="ลากเพื่อสลับลำดับ"
+                            ><GripVertical size={16} /></span>
+                            <button type="button" disabled={i === arr.length - 1} onClick={() => moveCustomText(i, i + 1)} className="p-0.5 text-slate-400 hover:text-cyan-300 disabled:opacity-25 disabled:hover:text-slate-400" title="เลื่อนลง"><ChevronDown size={16} /></button>
+                          </>
+                        )}
+                      </div>
+                      <div data-ctrow className="flex-1 min-w-0">
+                        <AutoTextarea value={t} onChange={v => setCustomTexts(arr.map((x, j) => (j === i ? v : x)))} placeholder="เขียนความสามารถพิสดารตามจินตนาการ..." className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:border-cyan-500 outline-none" />
+                      </div>
                       {arr.length > 1 && (
                         <button type="button" onClick={() => setCustomTexts(arr.filter((_, j) => j !== i))} className="p-2 mt-1 bg-red-900 hover:bg-red-800 rounded-lg" title="ลบข้อความนี้"><Trash2 size={14} /></button>
                       )}
