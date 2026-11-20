@@ -167,6 +167,7 @@ export function CardView({
               {cost && <div><span className="inline-block bg-white/90 text-slate-900 rounded px-1 mr-1 font-bold">Call Cost</span>{cost}</div>}
               {lines.map((l, i) => <div key={i} className="text-amber-100">▪ {l}</div>)}
               {customTextList(card).map((t, i) => <div key={`ct${i}`} className="text-slate-200">▪ {t}</div>)}
+              {card.flavorText?.trim() && <div className="italic text-center text-slate-300 mt-[0.3em] pt-[0.3em] border-t border-white/15">“{card.flavorText.trim()}”</div>}
               {badges.length > 0 && (
                 <div className="flex flex-wrap justify-end gap-[0.3em] mt-[0.3em]">
                   {badges.map(b => <span key={b} className="bg-red-600 text-white rounded px-[0.5em] font-bold border border-white/70">{b}</span>)}
@@ -206,7 +207,7 @@ export function CardView({
   const box: CSSProperties = isImpact ? { ...base, aspectRatio: "88 / 63" } : base; // Impact จริงเป็นการ์ดแนวนอน
   const pillBg = isSpell ? "linear-gradient(180deg, #7c3aed, #3b0764)" : "linear-gradient(180deg, #94a3b8, #334155)";
   const showStat = (isItem || isImpact) && (st.power > 0 || st.critical > 0);
-  const hasBody = !!cost || lines.length > 0 || customTextList(card).length > 0 || badges.length > 0;
+  const hasBody = !!cost || lines.length > 0 || customTextList(card).length > 0 || !!card.flavorText?.trim() || badges.length > 0;
 
   const renderLine = (l: string, i: number) => {
     const m = l.match(/^【Counter( 【Act】)?】\s*(.*)$/);
@@ -239,6 +240,7 @@ export function CardView({
       )}
       {lines.map(renderLine)}
       {customTextList(card).map((t, i) => <div key={`ct${i}`} className="text-slate-200 italic">■ {t}</div>)}
+      {card.flavorText?.trim() && <div className="italic text-center text-slate-300 mt-[0.3em] pt-[0.3em] border-t border-white/15">“{card.flavorText.trim()}”</div>}
       {badges.length > 0 && (
         <div className="flex flex-wrap justify-end gap-[0.3em] mt-[0.3em]">
           {badges.map(b => <span key={b} className="bg-red-600 text-white rounded px-[0.5em] font-bold border border-white/70">{b}</span>)}

@@ -165,6 +165,7 @@ export interface Card {
   callCostType: "Gauge" | "Life";
   customText: string; // รวมทุกข้อความ (คั่นด้วยบรรทัดใหม่) เก็บไว้เพื่อความเข้ากันได้กับการ์ดเก่า
   customTexts?: string[]; // สกิลอิสระหลายข้อ
+  flavorText?: string; // Flavor Text: คำพูด/เรื่องราวของการ์ด (แสดงเป็นตัวเอียงท้ายกล่องข้อความ ไม่มีผลต่อเกม)
   autoSkills: AutoSkill[];
   attribute?: string; // เช่น "Dragon / Warrior" แสดงใต้ชื่อการ์ด
   callSoulFromDeck?: number; // Call Cost: นำการ์ดบนเด็ค N ใบเข้าโซลตอนลงสนาม

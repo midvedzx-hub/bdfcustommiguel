@@ -31,6 +31,7 @@ const DEFAULT_CARD: Card = {
   callCostType: "Gauge",
   customText: "",
   customTexts: [""],
+  flavorText: "",
   autoSkills: [],
   attribute: "",
 };
@@ -69,7 +70,7 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
       return;
     }
     const cleanTexts = getCustomTexts(editing).map(t => t.trim()).filter(Boolean);
-    const toSave: Card = { ...editing, customTexts: cleanTexts, customText: cleanTexts.join("\n") };
+    const toSave: Card = { ...editing, customTexts: cleanTexts, customText: cleanTexts.join("\n"), flavorText: (editing.flavorText ?? "").trim() };
     const exists = cards.some(c => c.id === toSave.id);
     const next = exists ? cards.map(c => c.id === toSave.id ? toSave : c) : [...cards, toSave];
     if (!saveCards(next)) {
@@ -321,6 +322,11 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                     </div>
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-400">ฟลาเวอร์เท็กซ์ / คำพูดของการ์ด (Flavor Text)</label>
+                <textarea value={editing.flavorText ?? ""} onChange={e => setEditing({ ...editing, flavorText: e.target.value })} placeholder='เช่น "ข้าจะไม่ถอยแม้แต่ก้าวเดียว!" (ไม่มีผลต่อเกม แค่แสดงบนการ์ด)' rows={2} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 mt-1 focus:border-cyan-500 outline-none resize-none italic" />
               </div>
 
               <div className="border-t border-slate-800 pt-4">

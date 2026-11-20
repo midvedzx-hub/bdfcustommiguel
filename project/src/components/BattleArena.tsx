@@ -1367,6 +1367,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                   </div>
                 </div>
               ) : lines.length === 0 && badges.length === 0 ? <div className="text-slate-500">การ์ดใบนี้ไม่มีความสามารถพิเศษ</div> : null}
+              {card.flavorText?.trim() && <div className="italic text-slate-400 border-l-2 border-slate-600 pl-3 whitespace-pre-wrap">“{card.flavorText.trim()}”</div>}
               {badges.length > 0 && (
                 <div>
                   <div className="text-xs font-bold text-slate-400 mb-1">คีย์เวิร์ด</div>
