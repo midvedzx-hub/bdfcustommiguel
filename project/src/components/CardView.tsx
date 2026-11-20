@@ -127,6 +127,15 @@ export function CardView({
   }
 
   const compact = hideText ?? (parseFloat(w) < 100 && !w.startsWith("var") && !w.startsWith("min") && !w.startsWith("calc"));
+  // Flavor Text: กล่องแยกของตัวเอง (ไม่อยู่ในกล่องความสามารถ จึงไม่ถูกตัดทิ้งเมื่อความสามารถยาว)
+  const flavor = card.flavorText?.trim() ?? "";
+  const flavorBox = (opts: { ml: string; mr: string; fs: string; maxH: string }) =>
+    !compact && flavor ? (
+      <div className="rounded-[0.5em] italic text-center text-slate-100 overflow-hidden" style={{ marginLeft: opts.ml, marginRight: opts.mr, marginBottom: "0.4em", fontSize: opts.fs, lineHeight: 1.35, padding: "0.35em 0.6em", maxHeight: opts.maxH, background: "rgba(30,41,59,.9)", border: "0.08em solid rgba(255,255,255,.25)" }}>
+        “{flavor}”
+      </div>
+    ) : null;
+
   const st = stats ?? { power: card.power, defense: card.defense, critical: card.critical };
   const lines = skillLines(card);
   const badges = keywordBadges(card);
@@ -162,12 +171,12 @@ export function CardView({
 
         {/* ส่วนล่าง: กล่องข้อความ → ป้าย Tag → แถบชื่อ เรียงต่อกันในแนวตั้ง จึงไม่มีทางซ้อนทับ */}
         <div className="relative z-10 shrink-0 flex flex-col">
+          {flavorBox({ ml: "2.7em", mr: "0.7em", fs: "0.6em", maxH: "5.6em" })}
           {!compact && (
-            <div className="rounded-[0.5em] text-white leading-snug overflow-hidden" style={{ marginLeft: "2.7em", marginRight: "0.7em", marginBottom: "0.4em", fontSize: "0.62em", background: "rgba(5,8,18,.74)", padding: "0.4em 0.6em", maxHeight: "9.6em", border: "0.08em solid rgba(255,255,255,.18)" }}>
+            <div className="rounded-[0.5em] text-white leading-snug overflow-hidden" style={{ marginLeft: "2.7em", marginRight: "0.7em", marginBottom: "0.4em", fontSize: "0.62em", background: "rgba(5,8,18,.74)", padding: "0.4em 0.6em", maxHeight: flavor ? "7em" : "9.6em", border: "0.08em solid rgba(255,255,255,.18)" }}>
               {cost && <div><span className="inline-block bg-white/90 text-slate-900 rounded px-1 mr-1 font-bold">Call Cost</span>{cost}</div>}
               {lines.map((l, i) => <div key={i} className="text-amber-100">▪ {l}</div>)}
               {customTextList(card).map((t, i) => <div key={`ct${i}`} className="text-slate-200">▪ {t}</div>)}
-              {card.flavorText?.trim() && <div className="italic text-center text-slate-300 mt-[0.3em] pt-[0.3em] border-t border-white/15">“{card.flavorText.trim()}”</div>}
               {badges.length > 0 && (
                 <div className="flex flex-wrap justify-end gap-[0.3em] mt-[0.3em]">
                   {badges.map(b => <span key={b} className="bg-red-600 text-white rounded px-[0.5em] font-bold border border-white/70">{b}</span>)}
@@ -207,7 +216,7 @@ export function CardView({
   const box: CSSProperties = isImpact ? { ...base, aspectRatio: "88 / 63" } : base; // Impact จริงเป็นการ์ดแนวนอน
   const pillBg = isSpell ? "linear-gradient(180deg, #7c3aed, #3b0764)" : "linear-gradient(180deg, #94a3b8, #334155)";
   const showStat = (isItem || isImpact) && (st.power > 0 || st.critical > 0);
-  const hasBody = !!cost || lines.length > 0 || customTextList(card).length > 0 || !!card.flavorText?.trim() || badges.length > 0;
+  const hasBody = !!cost || lines.length > 0 || customTextList(card).length > 0 || badges.length > 0;
 
   const renderLine = (l: string, i: number) => {
     const m = l.match(/^【Counter( 【Act】)?】\s*(.*)$/);
@@ -232,7 +241,7 @@ export function CardView({
   const pills = [tagA ? pill(tagA, "a") : null, tagB ? pill(tagB, "b", flag?.image) : null].filter(Boolean);
 
   const textBox = !compact && hasBody ? (
-    <div className="rounded-[0.5em] text-white leading-snug overflow-hidden" style={{ marginLeft: "0.7em", marginRight: isImpact ? "0.3em" : "0.7em", marginBottom: "0.4em", fontSize: isImpact ? "0.56em" : "0.62em", background: "rgba(5,8,18,.74)", padding: "0.4em 0.6em", maxHeight: isImpact ? "9em" : "10.5em", border: "0.08em solid rgba(255,255,255,.18)" }}>
+    <div className="rounded-[0.5em] text-white leading-snug overflow-hidden" style={{ marginLeft: "0.7em", marginRight: isImpact ? "0.3em" : "0.7em", marginBottom: "0.4em", fontSize: isImpact ? "0.56em" : "0.62em", background: "rgba(5,8,18,.74)", padding: "0.4em 0.6em", maxHeight: flavor ? (isImpact ? "6em" : "7.5em") : (isImpact ? "9em" : "10.5em"), border: "0.08em solid rgba(255,255,255,.18)" }}>
       {cost && (
         <div>
           <span className="inline-block bg-slate-950 text-white rounded px-1 mr-1 font-bold border border-white/70">{costLabel}</span>{cost}
@@ -240,7 +249,6 @@ export function CardView({
       )}
       {lines.map(renderLine)}
       {customTextList(card).map((t, i) => <div key={`ct${i}`} className="text-slate-200 italic">■ {t}</div>)}
-      {card.flavorText?.trim() && <div className="italic text-center text-slate-300 mt-[0.3em] pt-[0.3em] border-t border-white/15">“{card.flavorText.trim()}”</div>}
       {badges.length > 0 && (
         <div className="flex flex-wrap justify-end gap-[0.3em] mt-[0.3em]">
           {badges.map(b => <span key={b} className="bg-red-600 text-white rounded px-[0.5em] font-bold border border-white/70">{b}</span>)}
@@ -301,17 +309,19 @@ export function CardView({
         {isImpact ? (
           !compact && (
             <div className="flex items-end">
-              <div style={{ width: "62%" }}>{textBox}</div>
+              <div style={{ width: "62%" }}>{flavorBox({ ml: "0.7em", mr: "0.3em", fs: "0.54em", maxH: "5em" })}{textBox}</div>
               {pills.length > 0 && <div className="flex-1 min-w-0 flex flex-col items-end" style={{ padding: "0 0.5em 0.4em 0", gap: "0.25em" }}>{pills}</div>}
             </div>
           )
         ) : isSpell ? (
           <>
             {!compact && pills.length > 0 && <div className="flex flex-col items-start" style={{ padding: "0 0.5em 0.3em 0.7em", gap: "0.2em" }}>{pills}</div>}
+            {flavorBox({ ml: "0.7em", mr: "0.7em", fs: "0.6em", maxH: "5.6em" })}
             {textBox}
           </>
         ) : (
           <>
+            {flavorBox({ ml: "0.7em", mr: "0.7em", fs: "0.6em", maxH: "5.6em" })}
             {textBox}
             {!compact && pills.length > 0 && <div className="flex flex-wrap items-center" style={{ padding: "0 0.5em 0.35em 0.7em", gap: "0.25em 0.4em" }}>{pills}</div>}
           </>

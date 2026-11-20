@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useLayoutEffect, useEffect } from "react";
 import { Plus, Save, Trash2, Download, Upload, Edit3, Copy, Zap, Search, Layers } from "lucide-react";
 import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Card, Flag, CardType, AutoTrigger, AutoEffectType, AutoEffect, AutoSkill } from "@/types";
@@ -35,6 +35,25 @@ const DEFAULT_CARD: Card = {
   autoSkills: [],
   attribute: "",
 };
+
+// ช่องข้อความที่ขยายความสูงตามเนื้อหาอัตโนมัติ (ไม่ต้องเลื่อนในช่อง)
+function AutoTextarea({ value, onChange, placeholder, className = "", minRows = 2 }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; className?: string; minRows?: number;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const fit = () => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight + 2}px`;
+  };
+  useLayoutEffect(fit, [value]);
+  useEffect(() => {
+    window.addEventListener("resize", fit); // ความกว้างเปลี่ยน -> ตัดบรรทัดใหม่
+    return () => window.removeEventListener("resize", fit);
+  }, []);
+  return <textarea ref={ref} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={minRows} className={`${className} overflow-hidden resize-none`} />;
+}
 
 export function CardStudio({ onBack, startEditing }: { onBack: () => void; startEditing?: Card }) {
   const [cards, setCards] = useState<Card[]>(getCards());
@@ -315,7 +334,7 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                   {getCustomTexts(editing).map((t, i, arr) => (
                     <div key={i} className="flex gap-2 items-start">
                       <span className="text-xs text-slate-500 mt-3 w-4 text-right">{i + 1}</span>
-                      <textarea value={t} onChange={e => setCustomTexts(arr.map((x, j) => (j === i ? e.target.value : x)))} placeholder="เขียนความสามารถพิสดารตามจินตนาการ..." rows={2} className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:border-cyan-500 outline-none resize-none" />
+                      <AutoTextarea value={t} onChange={v => setCustomTexts(arr.map((x, j) => (j === i ? v : x)))} placeholder="เขียนความสามารถพิสดารตามจินตนาการ..." className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:border-cyan-500 outline-none" />
                       {arr.length > 1 && (
                         <button type="button" onClick={() => setCustomTexts(arr.filter((_, j) => j !== i))} className="p-2 mt-1 bg-red-900 hover:bg-red-800 rounded-lg" title="ลบข้อความนี้"><Trash2 size={14} /></button>
                       )}
@@ -326,7 +345,7 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
 
               <div>
                 <label className="text-sm text-slate-400">ฟลาเวอร์เท็กซ์ / คำพูดของการ์ด (Flavor Text)</label>
-                <textarea value={editing.flavorText ?? ""} onChange={e => setEditing({ ...editing, flavorText: e.target.value })} placeholder='เช่น "ข้าจะไม่ถอยแม้แต่ก้าวเดียว!" (ไม่มีผลต่อเกม แค่แสดงบนการ์ด)' rows={2} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 mt-1 focus:border-cyan-500 outline-none resize-none italic" />
+                <AutoTextarea value={editing.flavorText ?? ""} onChange={v => setEditing({ ...editing, flavorText: v })} placeholder='เช่น "ข้าจะไม่ถอยแม้แต่ก้าวเดียว!" (ไม่มีผลต่อเกม แค่แสดงบนการ์ด)' className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 mt-1 focus:border-cyan-500 outline-none italic" />
               </div>
 
               <div className="border-t border-slate-800 pt-4">
