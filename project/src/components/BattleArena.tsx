@@ -5,7 +5,7 @@ import {
   Copy, LogIn, Users, RefreshCw, Wrench, X, Shield, Star, AlertTriangle, Link2, Eye,
 } from "lucide-react";
 import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet, FieldCard } from "@/types";
-import { TRIGGER_LABELS } from "@/types";
+import { TRIGGER_LABELS, customTextList } from "@/types";
 import { DEFAULT_RULES } from "@/types";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
@@ -1349,7 +1349,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 </div>
               )}
               {cost && <div><div className="text-xs font-bold text-slate-400 mb-1">Call Cost</div><div className="text-slate-200">{cost}</div></div>}
-              {(card.autoSkills.length > 0 || card.customText) ? (
+              {(card.autoSkills.length > 0 || customTextList(card).length > 0) ? (
                 <div>
                   <div className="text-xs font-bold text-slate-400 mb-1">ความสามารถ</div>
                   <div className="space-y-2">
@@ -1363,7 +1363,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                         </div>
                       );
                     })}
-                    {card.customText && <div className="bg-slate-800/60 rounded-lg px-3 py-2 text-slate-200">{card.customText}</div>}
+                    {customTextList(card).map((t, i) => <div key={`ct${i}`} className="bg-slate-800/60 rounded-lg px-3 py-2 text-slate-200 whitespace-pre-wrap">{t}</div>)}
                   </div>
                 </div>
               ) : lines.length === 0 && badges.length === 0 ? <div className="text-slate-500">การ์ดใบนี้ไม่มีความสามารถพิเศษ</div> : null}

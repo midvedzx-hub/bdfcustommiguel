@@ -163,7 +163,8 @@ export interface Card {
   critical: number;
   callCost: number;
   callCostType: "Gauge" | "Life";
-  customText: string;
+  customText: string; // รวมทุกข้อความ (คั่นด้วยบรรทัดใหม่) เก็บไว้เพื่อความเข้ากันได้กับการ์ดเก่า
+  customTexts?: string[]; // สกิลอิสระหลายข้อ
   autoSkills: AutoSkill[];
   attribute?: string; // เช่น "Dragon / Warrior" แสดงใต้ชื่อการ์ด
   callSoulFromDeck?: number; // Call Cost: นำการ์ดบนเด็ค N ใบเข้าโซลตอนลงสนาม
@@ -344,4 +345,10 @@ export interface SyncMessage {
   deck?: Deck;
   cards?: { [id: string]: Card };
   flags?: { [id: string]: Flag };
+}
+
+// รายการสกิลอิสระของการ์ด (รองรับการ์ดเก่าที่มีแต่ customText)
+export function customTextList(card: { customText?: string; customTexts?: string[] }): string[] {
+  if (card.customTexts) return card.customTexts.map(t => t.trim()).filter(Boolean);
+  return card.customText?.trim() ? [card.customText.trim()] : [];
 }

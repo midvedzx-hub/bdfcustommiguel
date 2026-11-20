@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { Card, Flag } from "@/types";
+import { customTextList } from "@/types";
 import { getFlagColor, skillLines, keywordBadges, costText } from "@/game/helpers";
 
 export type CardSize = "xs" | "sm" | "md" | "lg" | "xl";
@@ -165,7 +166,7 @@ export function CardView({
             <div className="rounded-[0.5em] text-white leading-snug overflow-hidden" style={{ marginLeft: "2.7em", marginRight: "0.7em", marginBottom: "0.4em", fontSize: "0.62em", background: "rgba(5,8,18,.74)", padding: "0.4em 0.6em", maxHeight: "9.6em", border: "0.08em solid rgba(255,255,255,.18)" }}>
               {cost && <div><span className="inline-block bg-white/90 text-slate-900 rounded px-1 mr-1 font-bold">Call Cost</span>{cost}</div>}
               {lines.map((l, i) => <div key={i} className="text-amber-100">▪ {l}</div>)}
-              {card.customText && <div className="text-slate-200">▪ {card.customText}</div>}
+              {customTextList(card).map((t, i) => <div key={`ct${i}`} className="text-slate-200">▪ {t}</div>)}
               {badges.length > 0 && (
                 <div className="flex flex-wrap justify-end gap-[0.3em] mt-[0.3em]">
                   {badges.map(b => <span key={b} className="bg-red-600 text-white rounded px-[0.5em] font-bold border border-white/70">{b}</span>)}
@@ -205,7 +206,7 @@ export function CardView({
   const box: CSSProperties = isImpact ? { ...base, aspectRatio: "88 / 63" } : base; // Impact จริงเป็นการ์ดแนวนอน
   const pillBg = isSpell ? "linear-gradient(180deg, #7c3aed, #3b0764)" : "linear-gradient(180deg, #94a3b8, #334155)";
   const showStat = (isItem || isImpact) && (st.power > 0 || st.critical > 0);
-  const hasBody = !!cost || lines.length > 0 || !!card.customText || badges.length > 0;
+  const hasBody = !!cost || lines.length > 0 || customTextList(card).length > 0 || badges.length > 0;
 
   const renderLine = (l: string, i: number) => {
     const m = l.match(/^【Counter( 【Act】)?】\s*(.*)$/);
@@ -237,7 +238,7 @@ export function CardView({
         </div>
       )}
       {lines.map(renderLine)}
-      {card.customText && <div className="text-slate-200 italic">■ {card.customText}</div>}
+      {customTextList(card).map((t, i) => <div key={`ct${i}`} className="text-slate-200 italic">■ {t}</div>)}
       {badges.length > 0 && (
         <div className="flex flex-wrap justify-end gap-[0.3em] mt-[0.3em]">
           {badges.map(b => <span key={b} className="bg-red-600 text-white rounded px-[0.5em] font-bold border border-white/70">{b}</span>)}

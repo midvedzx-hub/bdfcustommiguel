@@ -30,6 +30,7 @@ const DEFAULT_CARD: Card = {
   callCost: 0,
   callCostType: "Gauge",
   customText: "",
+  customTexts: [""],
   autoSkills: [],
   attribute: "",
 };
@@ -38,6 +39,15 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
   const [cards, setCards] = useState<Card[]>(getCards());
   const [flags] = useState<Flag[]>(getFlags());
   const [editing, setEditing] = useState<Card | null>(null);
+
+  // สกิลอิสระหลายข้อ: เก็บเป็น customTexts และอัปเดต customText (รวมด้วยบรรทัดใหม่) ให้เข้ากับของเก่า
+  const getCustomTexts = (c: Card): string[] => {
+    if (c.customTexts && c.customTexts.length > 0) return c.customTexts;
+    return [c.customText ?? ""];
+  };
+  const setCustomTexts = (list: string[]) => {
+    setEditing(prev => prev ? { ...prev, customTexts: list, customText: list.map(t => t.trim()).filter(Boolean).join("\n") } : prev);
+  };
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [worldFilter, setWorldFilter] = useState<string>("all");
@@ -58,8 +68,10 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
       alert("ใส่ชื่อการ์ดก่อนบันทึก");
       return;
     }
-    const exists = cards.some(c => c.id === editing.id);
-    const next = exists ? cards.map(c => c.id === editing.id ? editing : c) : [...cards, editing];
+    const cleanTexts = getCustomTexts(editing).map(t => t.trim()).filter(Boolean);
+    const toSave: Card = { ...editing, customTexts: cleanTexts, customText: cleanTexts.join("\n") };
+    const exists = cards.some(c => c.id === toSave.id);
+    const next = exists ? cards.map(c => c.id === toSave.id ? toSave : c) : [...cards, toSave];
     if (!saveCards(next)) {
       alert("บันทึกไม่สำเร็จ: พื้นที่เก็บข้อมูลในเบราว์เซอร์เต็ม\nลองลบการ์ดเก่าที่ไม่ใช้ หรืออัปโหลดรูปใหม่ (ระบบจะย่อรูปให้อัตโนมัติ)");
       return;
@@ -294,8 +306,21 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
               )}
 
               <div>
-                <label className="text-sm text-slate-400">คำอธิบายสกิลอิสระ (Custom Text)</label>
-                <textarea value={editing.customText} onChange={e => setEditing({ ...editing, customText: e.target.value })} placeholder="เขียนความสามารถพิสดารตามจินตนาการ..." rows={3} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 mt-1 focus:border-cyan-500 outline-none resize-none" />
+                <div className="flex items-center justify-between">
+                  <label className="text-sm text-slate-400">คำอธิบายสกิลอิสระ (Custom Text)</label>
+                  <button type="button" onClick={() => setCustomTexts([...getCustomTexts(editing), ""])} className="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm flex items-center gap-1"><Plus size={14} /> เพิ่มข้อความ</button>
+                </div>
+                <div className="space-y-2 mt-1">
+                  {getCustomTexts(editing).map((t, i, arr) => (
+                    <div key={i} className="flex gap-2 items-start">
+                      <span className="text-xs text-slate-500 mt-3 w-4 text-right">{i + 1}</span>
+                      <textarea value={t} onChange={e => setCustomTexts(arr.map((x, j) => (j === i ? e.target.value : x)))} placeholder="เขียนความสามารถพิสดารตามจินตนาการ..." rows={2} className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:border-cyan-500 outline-none resize-none" />
+                      {arr.length > 1 && (
+                        <button type="button" onClick={() => setCustomTexts(arr.filter((_, j) => j !== i))} className="p-2 mt-1 bg-red-900 hover:bg-red-800 rounded-lg" title="ลบข้อความนี้"><Trash2 size={14} /></button>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="border-t border-slate-800 pt-4">
