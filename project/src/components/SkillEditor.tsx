@@ -1,5 +1,5 @@
 import { Trash2 } from "lucide-react";
-import type { AutoEffect, AutoEffectType, AutoSkill, CardFilter, CounterTiming } from "@/types";
+import type { AutoEffect, AutoEffectType, AutoSkill, CardFilter, CounterCost, CounterTiming } from "@/types";
 import { EFFECT_LABELS, DROP_FILTERS } from "@/types";
 import { KEYWORD_DEFS } from "@/game/keywords";
 
@@ -55,6 +55,22 @@ export function CounterOptions({ skill, onChange }: { skill: AutoSkill; onChange
         <select value={skill.timing ?? "attack"} onChange={e => onChange({ ...skill, timing: e.target.value as CounterTiming })} className={`${sel} !py-0.5 text-xs`}>
           {(Object.keys(TIMING_LABEL) as CounterTiming[]).map(t => <option key={t} value={t}>{TIMING_LABEL[t]}</option>)}
         </select>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span>ค่าใช้จ่ายเพื่อใช้:</span>
+        {([["gauge", "จ่ายเกจ"], ["life", "เสียพลังชีวิต"]] as const).map(([k, label]) => (
+          <label key={k} className="flex items-center gap-1">{label}
+            <input type="number" min={0} max={9} value={skill.cost?.[k] ?? 0}
+              onChange={e => {
+                const v = Math.max(0, Math.min(9, parseInt(e.target.value) || 0));
+                const cost: CounterCost = { ...skill.cost, [k]: v };
+                if (!cost.gauge && !cost.life) onChange({ ...skill, cost: undefined });
+                else onChange({ ...skill, cost });
+              }}
+              className={`${num} w-14 !py-0.5 text-xs`} />
+          </label>
+        ))}
+        <span className="text-slate-500">(0 = ไม่มี · ถ้าจ่ายไม่ไหวจะใช้ไม่ได้ · Life ต้องเหลืออย่างน้อย 1)</span>
       </div>
       <p>{act
         ? "Counter 【Act】: ความสามารถของการ์ด \"บนสนาม\" กดใช้ได้ 1 ครั้งต่อเทิร์น (การ์ดยังอยู่บนสนาม) จ่ายตามที่เขียน เช่น เอฟเฟกต์แรกเป็น \"ถอด Soul\" ถ้าจ่ายไม่ได้ก็ใช้ไม่ได้"

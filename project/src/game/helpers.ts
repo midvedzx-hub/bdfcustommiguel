@@ -80,7 +80,13 @@ export function skillLines(card: Card): string[] {
     const timing = (sk.trigger === "onCounter" || sk.trigger === "onCounterAct")
       ? ((sk.timing ?? "attack") === "any" ? " (ตอนศัตรูโจมตีหรือร่ายเวท)" : (sk.timing ?? "attack") === "cast" ? " (ตอนศัตรูร่ายเวท)" : " (ตอนศัตรูโจมตี)")
       : "";
-    const body = sk.effects.map(effectText).join("、");
+    const costParts: string[] = [];
+    if ((sk.trigger === "onCounter" || sk.trigger === "onCounterAct") && sk.cost) {
+      if ((sk.cost.gauge ?? 0) > 0) costParts.push(`เกจ ${sk.cost.gauge}`);
+      if ((sk.cost.life ?? 0) > 0) costParts.push(`Life ${sk.cost.life}`);
+    }
+    const costStr = costParts.length ? `[จ่าย ${costParts.join(" + ")}] ` : "";
+    const body = costStr + sk.effects.map(effectText).join("、");
     if (sk.name) lines.push(`【${sk.name}】${sk.trigger === "continuous" ? "" : `${trig}${timing}: `}${body}`);
     else lines.push(`【${trig}】${timing ? timing.trim() + " " : ""}${body}`);
   });

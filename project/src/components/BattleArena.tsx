@@ -10,12 +10,12 @@ import { DEFAULT_RULES } from "@/types";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
   callMonster, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
-  goToAttack, goToFinal, mulligan, legalTargets, statsOf, counterOptions, counterCardOf, counterAct, freeCounterOptions, useCounterAnytime,
+  goToAttack, goToFinal, mulligan, legalTargets, statsOf, counterOptions, counterCardOf, counterAct, counterExtraCostLabel, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
-  sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck,
+  sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
   type AttackTarget, type CounterOption, type Result,
-  setSoulguardAuto, closeMoveWindow, movableMonsters, recalcAuras, hasSetKeyword, activeSetCards, sandboxDestroySet, resolveLook, resolveSoulChoice,
+  setSoulguardAuto, closeMoveWindow, movableMonsters, recalcAuras, hasSetKeyword, activeSetCards, sandboxDestroySet, sandboxMoveSet, resolveLook, resolveSoulChoice,
 } from "@/game/engine";
 import { getFlags, getCards, getDecks } from "@/storage";
 import { getFlagColor, hasCounter, skillLines, keywordBadges, costText, effectText, KEYWORD_HELP, TRIGGER_HELP } from "@/game/helpers";
@@ -36,6 +36,7 @@ interface Props {
 type Side = "host" | "guest";
 type MenuTarget =
   | { kind: "field"; side: Side; uid: string }
+  | { kind: "set"; side: Side; index: number }
   | { kind: "drop"; side: Side }
   | { kind: "deck"; side: Side }
   | { kind: "soul"; side: Side; uid: string }
@@ -860,17 +861,20 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               if (faceUp && c) {
                 // การ์ด Set (เวทผลต่อเนื่อง): เปิดหน้าให้ทั้งสองฝั่งเห็น
                 return (
-                  <div key={i} className="relative" onMouseEnter={() => setHovered({ card: c, flagId: p.flagId })}>
-                    <CardView card={c} flag={flag} width="calc(var(--mh) * 0.17)" hideText
-                      onClick={() => sandbox ? doAction(st => sandboxDestroySet(st, side, i)) : openInspect(c, p.flagId, null, `การ์ด Set: ผลต่อเนื่องทำงานตลอดที่อยู่ในช่อง Set จนกว่าจะถูกทำลาย${sandbox ? "" : ""}`)}
+                  <div key={i} className="relative" onMouseEnter={() => setHovered({ card: c, flagId: p.flagId, soul: setSoulOf(p, i).length })}>
+                    <CardView card={c} flag={flag} width="calc(var(--mh) * 0.17)" hideText soul={setSoulOf(p, i).length}
+                      onClick={() => sandbox ? setMenuTarget({ kind: "set", side, index: i }) : openInspect(c, p.flagId, null, `การ์ด Set: ผลต่อเนื่องทำงานตลอดที่อยู่ในช่อง Set จนกว่าจะถูกทำลาย${sandbox ? "" : ""}`)}
                       onInspect={() => openInspect(c, p.flagId)} />
                     <span className="absolute -top-1 -left-1 bg-violet-600 text-white font-bold rounded px-1" style={{ fontSize: "9px" }}>SET</span>
                   </div>
                 );
               }
               return (
-                <div key={i} onMouseEnter={() => isMine && c && setHovered({ card: c, flagId: p.flagId })}>
-                  <CardView faceDown width="calc(var(--mh) * 0.17)" onClick={isMine && c ? () => openInspect(c, p.flagId, null, "การ์ด Set (คว่ำ): ใช้เป็น Counter ได้ตอนศัตรูโจมตีหรือร่ายเวท") : undefined} />
+                <div key={i} onMouseEnter={() => (isMine || sandbox) && c && setHovered({ card: c, flagId: p.flagId })}>
+                  <div className="relative">
+                    <CardView faceDown width="calc(var(--mh) * 0.17)" onClick={sandbox && c ? () => setMenuTarget({ kind: "set", side, index: i }) : isMine && c ? () => openInspect(c, p.flagId, null, "การ์ด Set (คว่ำ): ใช้เป็น Counter ได้ตอนศัตรูโจมตีหรือร่ายเวท") : undefined} />
+                    {setSoulOf(p, i).length > 0 && <span className="absolute -bottom-1 -right-1 bg-violet-700 border border-violet-200 text-white font-bold rounded-full px-1.5 z-10" style={{ fontSize: "10px" }} title="Soul ใต้การ์ด Set">◆{setSoulOf(p, i).length}</span>}
+                  </div>
                 </div>
               );
             })}
@@ -1148,6 +1152,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                   <CardView card={c} flag={flagOf(me.flagId)} size="md" onClick={() => doFreeCounter(o)} onInspect={() => openInspect(c, me.flagId)} className="hover:ring-4 hover:ring-sky-400" />
                   <span className="text-[11px] text-sky-300">{zoneLabel(o)}</span>
                   <button onClick={() => doFreeCounter(o)} className="px-3 py-1 bg-sky-600 hover:bg-sky-500 rounded-lg text-xs font-bold">ใช้ Counter{o.zone === "hand" ? ` (Cost ${c.callCost})` : ""}</button>
+                  {counterExtraCostLabel(c, o, null) && <span className="text-[11px] text-amber-300">เพิ่ม: {counterExtraCostLabel(c, o, null)}</span>}
                 </div>
               );
             })}
@@ -1207,6 +1212,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                   <CardView card={c} flag={flagOf(me.flagId)} size="md" onClick={() => doCounter(o)} onInspect={() => openInspect(c, me.flagId)} className="hover:ring-4 hover:ring-sky-400" />
                   <span className="text-[11px] text-sky-300">{zoneLabel(o)}</span>
                   <button onClick={() => doCounter(o)} className="px-3 py-1 bg-sky-600 hover:bg-sky-500 rounded-lg text-xs font-bold">ใช้ Counter{o.zone === "hand" ? ` (Cost ${c.callCost})` : ""}</button>
+                  {counterExtraCostLabel(c, o, b ? "attack" : "cast") && <span className="text-[11px] text-amber-300">เพิ่ม: {counterExtraCostLabel(c, o, b ? "attack" : "cast")}</span>}
                 </div>
               );
             })}
@@ -1404,6 +1410,17 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     );
   }
 
+  // เป้าหมาย Soul แบบรวม: uid ของมอนสเตอร์/ไอเทม หรือ "set:<index>" = การ์ดในช่อง Set
+  const setIdxOfUid = (uid: string) => (uid.startsWith("set:") ? parseInt(uid.slice(4)) : -1);
+  const addSoulAny = (st: GameState, sd: Side, uid: string, from: "hand" | "dropZone" | "gauge" | "deck", idx: number) => {
+    const si = setIdxOfUid(uid);
+    return si >= 0 ? sandboxAddSetSoul(st, sd, si, from, idx) : sandboxAddSoul(st, sd, uid, from, idx);
+  };
+  const removeSoulAny = (st: GameState, sd: Side, uid: string, soulIdx: number, to: "hand" | "dropZone" | "gauge" | "deckTop" | "deckBottom") => {
+    const si = setIdxOfUid(uid);
+    return si >= 0 ? sandboxRemoveSetSoul(st, sd, si, soulIdx, to) : sandboxRemoveSoul(st, sd, uid, soulIdx, to);
+  };
+
   function renderMenus() {
     if (!menuTarget) return null;
     const p = game[menuTarget.side];
@@ -1466,10 +1483,54 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     }
 
     // ---- Sandbox: จัดการ Soul ของการ์ดที่เลือก (ใส่จากมือ/สุสาน/เกจ/เด็ค · ถอดใบที่เลือกไปที่ต่างๆ)
+    // ---- Sandbox: จัดการการ์ดในช่อง Set (ย้ายไปมือ/สุสาน/เกจ/เด็ค/Soul ได้เหมือนการ์ดบนสนาม)
+    if (menuTarget.kind === "set") {
+      const side = menuTarget.side;
+      const idx = menuTarget.index;
+      const id = p.setZone[idx];
+      const card = id ? cardOf(id) : null;
+      if (!id || !card) return null;
+      const hosts = [
+        ...p.monsters.map(m => ({ uid: m.uid, cardId: m.cardId })),
+        ...(p.item ? [{ uid: p.item.uid, cardId: p.item.cardId }] : []),
+      ];
+      const go = (to: "hand" | "dropZone" | "gauge" | "deck" | "deckBottom") => { doAction(s => sandboxMoveSet(s, side, idx, to)); setMenuTarget(null); };
+      return (
+        <div ref={menuRef} className={`${box} min-w-[300px] max-w-[420px] max-h-[80vh] overflow-y-auto`}>
+          <h4 className="font-bold text-violet-300 mb-2 text-sm">{card.name} <span className="text-xs text-slate-500">(Sandbox · การ์ด Set · Soul {setSoulOf(p, idx).length})</span></h4>
+          <div className="grid grid-cols-2 gap-1">
+            <button onClick={() => go("hand")} className={sb}><Hand size={12} /> ไปมือ</button>
+            <button onClick={() => go("dropZone")} className={sb}><Trash2 size={12} /> สุสาน (ทำลาย)</button>
+            <button onClick={() => go("gauge")} className={sb}><Zap size={12} /> เกจ</button>
+            <button onClick={() => go("deck")} className={sb}>บนสุดของเด็ค</button>
+            <button onClick={() => go("deckBottom")} className={sb}>ใต้เด็ค</button>
+            <button onClick={() => { openInspect(card, p.flagId); setMenuTarget(null); }} className={sb}>ดูรายละเอียด</button>
+            <button onClick={() => setMenuTarget({ kind: "soul", side, uid: `set:${idx}` })} className={`${sb} !bg-violet-800 hover:!bg-violet-700`}>＋ ใส่ Soul…</button>
+            <button onClick={() => setMenuTarget({ kind: "soul", side, uid: `set:${idx}` })} className={`${sb} !bg-violet-900 hover:!bg-violet-800`}>－ ถอด Soul ({setSoulOf(p, idx).length})…</button>
+          </div>
+          <div className="mt-2 border-t border-slate-700 pt-2">
+            <div className="text-xs font-bold text-violet-300 mb-1">ใส่เป็น Soul ของ</div>
+            {hosts.length === 0 ? <div className="text-xs text-slate-500">ฝั่งนี้ไม่มีการ์ดบนสนาม</div> : (
+              <div className="flex flex-wrap gap-1">
+                {hosts.map(h => (
+                  <button key={h.uid} onClick={() => { doAction(s => sandboxMoveSet(s, side, idx, "soul", h.uid)); setMenuTarget(null); }} className={`${sb} !bg-violet-900 hover:!bg-violet-800`}>
+                    {cardOf(h.cardId)?.name ?? "การ์ด"}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     if (menuTarget.kind === "soul") {
-      const fc = p.monsters.find(m => m.uid === menuTarget.uid) ?? (p.item?.uid === menuTarget.uid ? p.item : null);
-      const card = fc ? cardOf(fc.cardId) : null;
-      if (!fc || !card) return null;
+      const setIdx = setIdxOfUid(menuTarget.uid);
+      const fc = setIdx >= 0 ? null : (p.monsters.find(m => m.uid === menuTarget.uid) ?? (p.item?.uid === menuTarget.uid ? p.item : null));
+      const card = setIdx >= 0 ? (p.setZone[setIdx] ? cardOf(p.setZone[setIdx]) : null) : fc ? cardOf(fc.cardId) : null;
+      if ((!fc && setIdx < 0) || !card) return null;
+      const soulList = setIdx >= 0 ? setSoulOf(p, setIdx) : fc!.soul;
+      const tUid = menuTarget.uid;
       const side = menuTarget.side;
       const mine = side === mySide;
       const mini = (id: string, i: number, onPick: () => void, title: string) => {
@@ -1485,22 +1546,22 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       return (
         <div ref={menuRef} className={`${box} w-[min(94vw,640px)] max-h-[82vh] overflow-y-auto`}>
           <div className="flex items-center justify-between mb-2">
-            <h4 className="font-bold text-violet-300 text-sm">Soul ของ {card.name} <span className="text-xs text-slate-500">(Sandbox · {fc.soul.length} ใบ)</span></h4>
+            <h4 className="font-bold text-violet-300 text-sm">Soul ของ {card.name}{setIdx >= 0 ? " (การ์ด Set)" : ""} <span className="text-xs text-slate-500">(Sandbox · {soulList.length} ใบ)</span></h4>
             <button onClick={() => closeMenuRef.current()} className="p-1 hover:bg-slate-800 rounded"><X size={14} /></button>
           </div>
 
           <div className="text-xs text-slate-400 mb-1">ถอด Soul — เลือกใบแล้วเลือกปลายทาง</div>
           <div className="flex flex-wrap gap-3 mb-3 min-h-[40px]">
-            {fc.soul.length === 0 && <span className="text-xs text-slate-500">ยังไม่มี Soul</span>}
-            {fc.soul.map((id, i) => (
+            {soulList.length === 0 && <span className="text-xs text-slate-500">ยังไม่มี Soul</span>}
+            {soulList.map((id, i) => (
               <div key={i} className="flex flex-col items-center gap-1">
                 {mini(id, i, () => {}, "ชี้เพื่อดูรายละเอียด")}
                 <div className="flex flex-wrap justify-center gap-0.5 max-w-[96px]">
-                  <button className={moveBtn} onClick={() => doAction(s => sandboxRemoveSoul(s, side, fc.uid, i, "hand"))}>มือ</button>
-                  <button className={moveBtn} onClick={() => doAction(s => sandboxRemoveSoul(s, side, fc.uid, i, "dropZone"))}>สุสาน</button>
-                  <button className={moveBtn} onClick={() => doAction(s => sandboxRemoveSoul(s, side, fc.uid, i, "gauge"))}>เกจ</button>
-                  <button className={moveBtn} onClick={() => doAction(s => sandboxRemoveSoul(s, side, fc.uid, i, "deckTop"))}>บนเด็ค</button>
-                  <button className={moveBtn} onClick={() => doAction(s => sandboxRemoveSoul(s, side, fc.uid, i, "deckBottom"))}>ใต้เด็ค</button>
+                  <button className={moveBtn} onClick={() => doAction(s => removeSoulAny(s, side, tUid, i, "hand"))}>มือ</button>
+                  <button className={moveBtn} onClick={() => doAction(s => removeSoulAny(s, side, tUid, i, "dropZone"))}>สุสาน</button>
+                  <button className={moveBtn} onClick={() => doAction(s => removeSoulAny(s, side, tUid, i, "gauge"))}>เกจ</button>
+                  <button className={moveBtn} onClick={() => doAction(s => removeSoulAny(s, side, tUid, i, "deckTop"))}>บนเด็ค</button>
+                  <button className={moveBtn} onClick={() => doAction(s => removeSoulAny(s, side, tUid, i, "deckBottom"))}>ใต้เด็ค</button>
                 </div>
               </div>
             ))}
@@ -1511,22 +1572,22 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             <div className="text-[11px] text-slate-500 mb-1">จากมือ ({p.hand.length})</div>
             <div className="flex gap-1.5 overflow-x-auto pb-2">
               {p.hand.length === 0 && <span className="text-xs text-slate-600">ไม่มี</span>}
-              {p.hand.map((id, i) => mini(id, i, () => doAction(s => sandboxAddSoul(s, side, fc.uid, "hand", i)), "ใส่เข้า Soul"))}
+              {p.hand.map((id, i) => mini(id, i, () => doAction(s => addSoulAny(s, side, tUid, "hand", i)), "ใส่เข้า Soul"))}
             </div>
             <div className="text-[11px] text-slate-500 mb-1">จากสุสาน ({p.dropZone.length})</div>
             <div className="flex gap-1.5 overflow-x-auto pb-2">
               {p.dropZone.length === 0 && <span className="text-xs text-slate-600">ไม่มี</span>}
-              {p.dropZone.map((id, i) => mini(id, i, () => doAction(s => sandboxAddSoul(s, side, fc.uid, "dropZone", i)), "ใส่เข้า Soul"))}
+              {p.dropZone.map((id, i) => mini(id, i, () => doAction(s => addSoulAny(s, side, tUid, "dropZone", i)), "ใส่เข้า Soul"))}
             </div>
             <div className="text-[11px] text-slate-500 mb-1">จากเกจ ({p.gaugePile.length})</div>
             <div className="flex gap-1.5 overflow-x-auto pb-2">
               {p.gaugePile.length === 0 && <span className="text-xs text-slate-600">ไม่มี</span>}
-              {p.gaugePile.map((id, i) => mini(id, i, () => doAction(s => sandboxAddSoul(s, side, fc.uid, "gauge", i)), "ใส่เข้า Soul"))}
+              {p.gaugePile.map((id, i) => mini(id, i, () => doAction(s => addSoulAny(s, side, tUid, "gauge", i)), "ใส่เข้า Soul"))}
             </div>
             <div className="text-[11px] text-slate-500 mb-1">จากเด็ค ({p.deck.length}) — ไม่เห็นการ์ดจนกว่าจะค้นหา</div>
             <div className="flex gap-2 flex-wrap">
-              <button className={`${sb} !bg-violet-800 hover:!bg-violet-700`} onClick={() => doAction(s => sandboxAddSoul(s, side, fc.uid, "deck", 0))}>ใส่ใบบนสุดของเด็ค (ไม่ดู)</button>
-              <button className={`${sb} !bg-cyan-900 hover:!bg-cyan-800`} onClick={() => { setDeckFilter(""); setMenuTarget({ kind: "deckView", side, mode: "search", n: 0, soulUid: fc.uid }); }}>🔍 ค้นหาในเด็ค…</button>
+              <button className={`${sb} !bg-violet-800 hover:!bg-violet-700`} onClick={() => doAction(s => addSoulAny(s, side, tUid, "deck", 0))}>ใส่ใบบนสุดของเด็ค (ไม่ดู)</button>
+              <button className={`${sb} !bg-cyan-900 hover:!bg-cyan-800`} onClick={() => { setDeckFilter(""); setMenuTarget({ kind: "deckView", side, mode: "search", n: 0, soulUid: tUid }); }}>🔍 ค้นหาในเด็ค…</button>
             </div>
           </>)}
         </div>
@@ -1547,7 +1608,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         doAction(fn);
         if (mt.mode === "top") setMenuTarget({ ...mt, n: Math.max(0, mt.n - 1) });
       };
-      const targets = [...p.monsters.map(m => ({ uid: m.uid, name: cardOf(m.cardId)?.name ?? "?" })), ...(p.item ? [{ uid: p.item.uid, name: `${cardOf(p.item.cardId)?.name ?? "ไอเทม"} (ไอเทม)` }] : [])];
+      const targets = [...p.monsters.map(m => ({ uid: m.uid, name: cardOf(m.cardId)?.name ?? "?" })), ...(p.item ? [{ uid: p.item.uid, name: `${cardOf(p.item.cardId)?.name ?? "ไอเทม"} (ไอเทม)` }] : []), ...p.setZone.map((id, i) => ({ uid: `set:${i}`, name: `${cardOf(id)?.name ?? "การ์ด Set"} (Set ${i + 1})` }))];
       const soulUid = mt.soulUid && targets.some(t => t.uid === mt.soulUid) ? mt.soulUid : targets[0]?.uid;
       const act = "px-1.5 py-0.5 bg-slate-800 hover:bg-slate-600 rounded text-[10px]";
       return (
@@ -1577,7 +1638,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                     <button className={act} onClick={() => take(s => sandboxMoveCard(s, side, "deck", "gauge", e.i))}>เกจ</button>
                     {e.c?.type === "Monster" && <button className={act} onClick={() => take(s => sandboxMoveCard(s, side, "deck", "field", e.i))}>ลงสนาม</button>}
                     <button className={act} onClick={() => take(s => sandboxMoveCard(s, side, "deck", "deckBottom", e.i))}>ใต้เด็ค</button>
-                    {soulUid && <button className={`${act} !bg-violet-800`} onClick={() => take(s => sandboxAddSoul(s, side, soulUid, "deck", e.i))}>→Soul</button>}
+                    {soulUid && <button className={`${act} !bg-violet-800`} onClick={() => take(s => addSoulAny(s, side, soulUid, "deck", e.i))}>→Soul</button>}
                   </div>
                 </div>
               ))}

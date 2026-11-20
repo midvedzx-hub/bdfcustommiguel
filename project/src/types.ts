@@ -144,11 +144,18 @@ export interface AutoEffect {
 
 export type CounterTiming = "attack" | "cast" | "any"; // จังหวะที่ Counter ใช้ได้: ตอนศัตรูโจมตี / ตอนศัตรูร่ายเวท / ทั้งสอง
 
+// ค่าใช้จ่ายเพิ่มเติมของ Counter / Counter 【Act】 (จ่ายตอนกดใช้ ถ้าจ่ายไม่ไหวก็ใช้ไม่ได้)
+export interface CounterCost {
+  gauge?: number; // จ่ายเกจ N (ย้ายจากกองเกจลงสุสาน)
+  life?: number;  // เสียพลังชีวิต N (ต้องเหลือ Life อย่างน้อย 1)
+}
+
 export interface AutoSkill {
   trigger: AutoTrigger;
   effects: AutoEffect[];
   name?: string;          // ชื่อคีย์เวิร์ดกำหนดเอง (แสดงเป็น 【ชื่อ】)
   timing?: CounterTiming; // ใช้กับ Counter / Counter Act (ค่าเริ่มต้น = ตอนศัตรูโจมตี)
+  cost?: CounterCost;     // ใช้กับ Counter / Counter Act: ต้องจ่ายเกจ / Life เพิ่มเพื่อใช้
 }
 
 export interface Card {
@@ -216,6 +223,7 @@ export interface CustomKeyword {
   name: string;
   trigger: AutoTrigger;
   timing?: CounterTiming;
+  cost?: CounterCost;
   effects: AutoEffect[];
   help?: string;
 }
@@ -288,6 +296,7 @@ export interface PlayerState {
   hand: string[];
   dropZone: string[];
   setZone: string[];
+  setSoul?: string[][]; // Soul ใต้การ์ด Set แต่ละใบ (index ตรงกับ setZone) — ลงสุสานเมื่อการ์ด Set ออกจากช่อง
   setActUsed?: Record<string, number>; // ใช้ Counter 【Act】 ของการ์ด Set ไปแล้วในเทิร์นไหน (key = ชื่อไอดี#ลำดับ) // การ์ดที่ Set ไว้ (คว่ำ) ใช้เป็น Counter Act ได้
   monsters: FieldCard[];
   item: FieldCard | null;

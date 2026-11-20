@@ -533,6 +533,7 @@ export function createPlayerState(deck: Deck, flag: Flag, _cards: Card[]): Playe
     hand,
     dropZone: [],
     setZone: [],
+    setSoul: [],
     monsters: [],
     item: null,
     flagId: flag.id,
@@ -881,6 +882,24 @@ function fireSet(g: GameState, side: Side, trigger: AutoTrigger, ctx: { fc?: Fie
 }
 
 // วางเวท Set ลงช่อง Set: จ่ายค่าใช้จ่าย, ตรวจจำนวน/ชื่อซ้ำ, ทำผลตอนวาง (onCast/onCall) 1 ครั้ง
+// Soul ใต้การ์ด Set: เก็บเป็นอาร์เรย์คู่ขนานกับ setZone (ต้องแก้ทั้งสองคู่กันเสมอ)
+export function setSoulOf(p: PlayerState, i: number): string[] { return p.setSoul?.[i] ?? []; }
+function normSetSoul(p: PlayerState): string[][] {
+  const arr = p.setSoul ?? (p.setSoul = []);
+  while (arr.length < p.setZone.length) arr.push([]);
+  if (arr.length > p.setZone.length) arr.length = p.setZone.length;
+  return arr;
+}
+// เพิ่มการ์ดเข้าช่อง Set พร้อมที่เก็บ Soul ว่าง
+function pushSet(p: PlayerState, cardId: string) { normSetSoul(p); p.setZone.push(cardId); p.setSoul!.push([]); }
+// เอาการ์ด Set ออกจากช่อง: Soul ทั้งหมดลงสุสานพร้อมกัน (คืน Soul ที่ลงสุสานไป)
+function popSet(p: PlayerState, i: number): string[] {
+  const souls = normSetSoul(p).splice(i, 1)[0] ?? [];
+  p.setZone.splice(i, 1);
+  if (souls.length) p.dropZone.push(...souls);
+  return souls;
+}
+
 function placeSet(g: GameState, side: Side, handIndex: number): string | null {
   const p = g[side];
   const cardId = p.hand[handIndex];
@@ -895,7 +914,7 @@ function placeSet(g: GameState, side: Side, handIndex: number): string | null {
   const costErr = payCost(g, side, card);
   if (costErr) return `Set ${card.name} ไม่ได้ — ${costErr}`;
   p.hand.splice(handIndex, 1);
-  p.setZone.push(cardId);
+  pushSet(p, cardId);
   log(g, `${nameOf(side)} Set ${card.name} ลงช่อง Set (อยู่บนสนามจนกว่าจะถูกทำลาย)`);
   fx(g, { k: "cast", side, cardId, label: "SET!" });
   recalcAuras(g);
@@ -910,9 +929,9 @@ function mDestroySet(g: GameState, side: Side, index: number): boolean {
   const p = g[side];
   const id = p.setZone[index];
   if (id === undefined) return false;
-  p.setZone.splice(index, 1);
+  const lostSoul = popSet(p, index);
   p.dropZone.push(id);
-  log(g, `${getCard(id)?.name ?? "การ์ด Set"} ในช่อง Set ถูกทำลาย → ลงสุสาน ผลต่อเนื่องหยุดลง`);
+  log(g, `${getCard(id)?.name ?? "การ์ด Set"} ในช่อง Set ถูกทำลาย → ลงสุสาน${lostSoul.length ? ` (Soul ${lostSoul.length} ใบลงสุสานด้วย)` : ""} ผลต่อเนื่องหยุดลง`);
   recalcAuras(g);
   return true;
 }
@@ -1068,7 +1087,7 @@ export function setCard(state: GameState, side: Side, handIndex: number): Result
   const costErr = payCost(g, side, card);
   if (costErr) return { state, ok: false, msg: `Set ${card.name} ไม่ได้ — ${costErr}` };
   p.hand.splice(handIndex, 1);
-  p.setZone.push(cardId);
+  pushSet(p, cardId);
   log(g, `${nameOf(side)} Set การ์ด 1 ใบ (คว่ำ)`);
   return { state: g, ok: true, msg: `Set ${card.name}` };
 }
@@ -1182,6 +1201,39 @@ function skillNeedsSoul(card: Card, timing: CounterTiming | null): number {
   return need;
 }
 
+// ---- ค่าใช้จ่ายเพิ่มเติมที่กำหนดในสกิล Counter (เกจ / Life) ----
+interface ExtraCost { gauge: number; life: number }
+function extraCostOf(card: Card, trig: AutoTrigger, timing: CounterTiming | null): ExtraCost {
+  const out: ExtraCost = { gauge: 0, life: 0 };
+  counterSkills(card, trig, timing).forEach(s => {
+    out.gauge += Math.max(0, Math.floor(s.cost?.gauge ?? 0));
+    out.life += Math.max(0, Math.floor(s.cost?.life ?? 0));
+  });
+  return out;
+}
+// withCall = รวม Call Cost ของการ์ดในมือเข้าไปด้วย (ใช้กับ Counter จากมือ)
+function canAffordExtra(p: PlayerState, card: Card, trig: AutoTrigger, timing: CounterTiming | null, withCall: boolean): boolean {
+  const ex = extraCostOf(card, trig, timing);
+  const gaugeNeed = ex.gauge + (withCall && card.callCostType === "Gauge" ? card.callCost : 0);
+  const lifeNeed = ex.life + (withCall && card.callCostType === "Life" ? card.callCost : 0);
+  if (p.gaugePile.length < gaugeNeed) return false;
+  if (lifeNeed > 0 && p.life <= lifeNeed) return false; // ต้องเหลือ Life อย่างน้อย 1
+  return true;
+}
+function payExtra(g: GameState, side: Side, card: Card, trig: AutoTrigger, timing: CounterTiming | null) {
+  const ex = extraCostOf(card, trig, timing);
+  if (ex.gauge > 0) { mPayGauge(g, side, ex.gauge); log(g, `${nameOf(side)} จ่ายเกจ ${ex.gauge} เพื่อใช้ ${card.name}`); }
+  if (ex.life > 0) mLife(g, side, -ex.life);
+}
+// ข้อความค่าใช้จ่ายเพิ่มเติม สำหรับแสดงบนปุ่ม (เช่น "เกจ 1 + Life 1") ว่างถ้าไม่มี
+export function counterExtraCostLabel(card: Card, opt: CounterOption, timing: CounterTiming | null = null): string {
+  const ex = extraCostOf(card, opt.zone === "hand" || opt.zone === "set" ? "onCounter" : "onCounterAct", timing);
+  const parts: string[] = [];
+  if (ex.gauge > 0) parts.push(`เกจ ${ex.gauge}`);
+  if (ex.life > 0) parts.push(`Life ${ex.life}`);
+  return parts.join(" + ");
+}
+
 // ---- Counter 【Act】 ของการ์ด Set ในช่อง Set ----
 const setKey = (p: PlayerState, i: number) => `${p.setZone[i]}#${p.setZone.slice(0, i).filter(x => x === p.setZone[i]).length}`;
 const setActUsedThisTurn = (state: GameState, side: Side, i: number) => state[side].setActUsed?.[setKey(state[side], i)] === state.turn;
@@ -1203,7 +1255,7 @@ function setActOptions(state: GameState, side: Side, timing: CounterTiming | nul
     const c = getCard(id);
     if (!c || !hasSetKeyword(c)) return;
     const has = anytime ? usableAnytime(c, "onCounterAct") : counterSkills(c, "onCounterAct", timing).length > 0;
-    if (!has || setActUsedThisTurn(state, side, i) || !setActAffordable(p, c, timing)) return;
+    if (!has || setActUsedThisTurn(state, side, i) || !setActAffordable(p, c, timing) || !canAffordExtra(p, c, "onCounterAct", timing, false)) return;
     out.push({ zone: "setAct", index: i });
   });
   return out;
@@ -1222,12 +1274,11 @@ export function counterOptions(state: GameState, side: Side): CounterOption[] {
   p.hand.forEach((id, i) => {
     const c = getCard(id);
     if (!c || counterSkills(c, "onCounter", timing).length === 0) return;
-    const afford = c.callCostType === "Gauge" ? p.gaugePile.length >= c.callCost : p.life > c.callCost;
-    if (afford) out.push({ zone: "hand", index: i });
+    if (canAffordExtra(p, c, "onCounter", timing, true)) out.push({ zone: "hand", index: i });
   });
   p.setZone.forEach((id, i) => {
     const c = getCard(id);
-    if (c && counterSkills(c, "onCounter", timing).length > 0) out.push({ zone: "set", index: i });
+    if (c && counterSkills(c, "onCounter", timing).length > 0 && canAffordExtra(p, c, "onCounter", timing, false)) out.push({ zone: "set", index: i });
   });
   out.push(...setActOptions(state, side, timing, false));
   [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
@@ -1235,6 +1286,7 @@ export function counterOptions(state: GameState, side: Side): CounterOption[] {
     if (!c || fc.nullified || counterSkills(c, "onCounterAct", timing).length === 0) return;
     if (fc.counterUsedTurn === state.turn) return;
     if (fc.soul.length < skillNeedsSoul(c, timing)) return;
+    if (!canAffordExtra(p, c, "onCounterAct", timing, false)) return;
     out.push({ zone: "field", uid: fc.uid });
   });
   return out;
@@ -1290,8 +1342,10 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
   if (opt.zone === "hand") {
     const cardId = p.hand[opt.index];
     const card = getCard(cardId)!;
+    if (!canAffordExtra(p, card, "onCounter", timing, true)) return "เกจ / Life ไม่พอสำหรับค่าใช้จ่ายของ Counter นี้";
     const costErr = payCost(g, side, card);
     if (costErr) return costErr;
+    payExtra(g, side, card, "onCounter", timing);
     p.hand.splice(opt.index, 1);
     p.dropZone.push(cardId);
     log(g, `🛡 ${nameOf(side)} ใช้ Counter จากมือ: ${card.name}!`);
@@ -1300,7 +1354,9 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
   } else if (opt.zone === "set") {
     const cardId = p.setZone[opt.index];
     const card = getCard(cardId)!;
-    p.setZone.splice(opt.index, 1);
+    if (!canAffordExtra(p, card, "onCounter", timing, false)) return "เกจ / Life ไม่พอสำหรับค่าใช้จ่ายของ Counter นี้";
+    payExtra(g, side, card, "onCounter", timing);
+    popSet(p, opt.index);
     p.dropZone.push(cardId);
     log(g, `🛡 ${nameOf(side)} เปิดการ์ด Set: ${card.name}!`);
     fx(g, { k: "cast", side, cardId, label: "COUNTER!" });
@@ -1308,6 +1364,8 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
   } else if (opt.zone === "setAct") {
     const cardId = p.setZone[opt.index];
     const card = getCard(cardId)!;
+    if (!canAffordExtra(p, card, "onCounterAct", timing, false)) return "เกจ / Life ไม่พอสำหรับค่าใช้จ่ายของ Counter 【Act】 นี้";
+    payExtra(g, side, card, "onCounterAct", timing);
     p.setActUsed = { ...(p.setActUsed ?? {}), [setKey(p, opt.index)]: g.turn };
     log(g, `🛡 ${nameOf(side)} ใช้ Counter 【Act】 ของการ์ด Set: ${card.name} (การ์ดยังอยู่ในช่อง Set)`);
     fx(g, { k: "cast", side, cardId, label: "COUNTER ACT!" });
@@ -1315,6 +1373,8 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
   } else {
     const fc = findFc(p, opt.uid)!;
     const card = getCard(fc.cardId)!;
+    if (!canAffordExtra(p, card, "onCounterAct", timing, false)) return "เกจ / Life ไม่พอสำหรับค่าใช้จ่ายของ Counter 【Act】 นี้";
+    payExtra(g, side, card, "onCounterAct", timing);
     fc.counterUsedTurn = g.turn;
     log(g, `🛡 ${nameOf(side)} ใช้ Counter 【Act】 ของ ${card.name} บนสนาม!`);
     runSkills(g, side, card, counterSkills(card, "onCounterAct", timing), { fc });
@@ -1354,12 +1414,11 @@ export function freeCounterOptions(state: GameState, side: Side): CounterOption[
   p.hand.forEach((id, i) => {
     const c = getCard(id);
     if (!c || !usableAnytime(c, "onCounter")) return;
-    const afford = c.callCostType === "Gauge" ? p.gaugePile.length >= c.callCost : p.life > c.callCost;
-    if (afford) out.push({ zone: "hand", index: i });
+    if (canAffordExtra(p, c, "onCounter", null, true)) out.push({ zone: "hand", index: i });
   });
   p.setZone.forEach((id, i) => {
     const c = getCard(id);
-    if (c && usableAnytime(c, "onCounter")) out.push({ zone: "set", index: i });
+    if (c && usableAnytime(c, "onCounter") && canAffordExtra(p, c, "onCounter", null, false)) out.push({ zone: "set", index: i });
   });
   out.push(...setActOptions(state, side, null, true));
   [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
@@ -1367,6 +1426,7 @@ export function freeCounterOptions(state: GameState, side: Side): CounterOption[
     if (!c || fc.nullified || !usableAnytime(c, "onCounterAct")) return;
     if (fc.counterUsedTurn === state.turn) return;
     if (fc.soul.length < skillNeedsSoul(c, null)) return;
+    if (!canAffordExtra(p, c, "onCounterAct", null, false)) return;
     out.push({ zone: "field", uid: fc.uid });
   });
   return out;
@@ -1730,6 +1790,66 @@ export function sandboxMoveToPosition(state: GameState, side: Side, monsterUid: 
 export function sandboxFreeDraw(state: GameState, side: Side): GameState {
   const g = structuredClone(state);
   mDraw(g, side, 1, false);
+  return g;
+}
+
+// Sandbox: ย้ายการ์ดในช่อง Set ไปที่อื่น (มือ / สุสาน / เกจ / เด็ค / Soul ของการ์ดบนสนาม) ผลต่อเนื่องของ Set คำนวณใหม่ทันที
+// Sandbox: ใส่การ์ดเข้า Soul ของการ์ด Set ใบที่เลือก (จากมือ / สุสาน / เกจ / เด็ค)
+export function sandboxAddSetSoul(state: GameState, side: Side, setIndex: number, from: "hand" | "dropZone" | "gauge" | "deck", index: number): GameState {
+  const g = structuredClone(state);
+  const p = g[side];
+  if (p.setZone[setIndex] === undefined) return state;
+  const list = from === "hand" ? p.hand : from === "dropZone" ? p.dropZone : from === "gauge" ? p.gaugePile : p.deck;
+  const cardId = list.splice(index, 1)[0];
+  if (!cardId) return state;
+  if (from === "gauge") syncGauge(p);
+  const souls = normSetSoul(p)[setIndex];
+  souls.push(cardId);
+  log(g, `[Sandbox] ใส่การ์ด 1 ใบเข้า Soul ของการ์ด Set ${getCard(p.setZone[setIndex])?.name ?? ""} (จาก${from === "hand" ? "มือ" : from === "dropZone" ? "สุสาน" : from === "gauge" ? "เกจ" : "เด็ค"}) รวม Soul ${souls.length}`);
+  recalcAuras(g);
+  return g;
+}
+
+// Sandbox: ถอด Soul ใบที่เลือกของการ์ด Set ไปที่ มือ / สุสาน / เกจ / บนเด็ค / ใต้เด็ค
+export function sandboxRemoveSetSoul(state: GameState, side: Side, setIndex: number, soulIndex: number, to: "hand" | "dropZone" | "gauge" | "deckTop" | "deckBottom"): GameState {
+  const g = structuredClone(state);
+  const p = g[side];
+  if (p.setZone[setIndex] === undefined) return state;
+  const souls = normSetSoul(p)[setIndex];
+  const cardId = souls.splice(soulIndex, 1)[0];
+  if (!cardId) return state;
+  if (to === "hand") p.hand.push(cardId);
+  else if (to === "dropZone") p.dropZone.push(cardId);
+  else if (to === "gauge") { p.gaugePile.push(cardId); syncGauge(p); }
+  else if (to === "deckTop") p.deck.unshift(cardId);
+  else p.deck.push(cardId);
+  log(g, `[Sandbox] ถอด Soul 1 ใบของการ์ด Set ${getCard(p.setZone[setIndex])?.name ?? ""} (เหลือ ${souls.length})`);
+  recalcAuras(g);
+  return g;
+}
+
+export function sandboxMoveSet(
+  state: GameState,
+  side: Side,
+  index: number,
+  to: "hand" | "dropZone" | "gauge" | "deck" | "deckBottom" | "soul",
+  soulUid?: string
+): GameState {
+  const g = structuredClone(state);
+  const p = g[side];
+  const id = p.setZone[index];
+  if (id === undefined) return state;
+  const host = to === "soul" ? findFc(p, soulUid ?? "") : null;
+  if (to === "soul" && !host) return state;
+  popSet(p, index); // Soul ใต้การ์ด Set ลงสุสาน
+  if (to === "hand") p.hand.push(id);
+  else if (to === "dropZone") p.dropZone.push(id);
+  else if (to === "gauge") { p.gaugePile.push(id); syncGauge(p); }
+  else if (to === "deck") p.deck.unshift(id);
+  else if (to === "deckBottom") p.deck.push(id);
+  else if (host) host.soul.push(id);
+  log(g, `[Sandbox] ${nameOf(side)} ย้าย ${getCard(id)?.name ?? "การ์ด Set"} จากช่อง Set ไป ${to === "soul" ? "Soul" : to}`);
+  recalcAuras(g);
   return g;
 }
 

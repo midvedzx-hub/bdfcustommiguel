@@ -16,7 +16,7 @@ const QUICK: { label: string; eff: AutoEffect }[] = [
   { label: "+ ดูกอง", eff: { type: "lookTop", value: 3, toHand: 1, toDrop: 0, toBottom: 0 } },
 ];
 
-const toSkill = (k: CustomKeyword): AutoSkill => ({ name: k.name, trigger: k.trigger, timing: k.timing, effects: structuredClone(k.effects) });
+const toSkill = (k: CustomKeyword): AutoSkill => ({ name: k.name, trigger: k.trigger, timing: k.timing, cost: k.cost, effects: structuredClone(k.effects) });
 
 // คีย์เวิร์ดกำหนดเอง: สร้างครั้งเดียว ใส่ในการ์ดกี่ใบก็ได้ (คัดลอกสกิลลงการ์ด)
 export function CustomKeywordPanel({ skills, onChange }: { skills: AutoSkill[]; onChange: (s: AutoSkill[]) => void }) {
@@ -83,7 +83,7 @@ export function CustomKeywordPanel({ skills, onChange }: { skills: AutoSkill[]; 
               {TRIGGER_LABELS.map(t => <option key={t.value} value={t.value}>ทำงาน: {t.label}</option>)}
             </select>
           </div>
-          <CounterOptions skill={{ trigger: editing.trigger, effects: [], timing: editing.timing }} onChange={sk => setEditing({ ...editing, timing: sk.timing })} />
+          <CounterOptions skill={{ trigger: editing.trigger, effects: [], timing: editing.timing, cost: editing.cost }} onChange={sk => setEditing({ ...editing, timing: sk.timing, cost: sk.cost })} />
           <div>
             {editing.effects.map((eff, i) => (
               <EffectRow key={i} eff={eff}
