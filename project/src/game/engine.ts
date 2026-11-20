@@ -1,7 +1,7 @@
 import type {
   GameState, PlayerState, Card, Flag, Deck, FieldCard, AutoEffectType, AutoTrigger, RuleSet, AttackTarget, FxEvent, FxInput, AutoSkill, CounterTiming,
 } from "@/types";
-import { DEFAULT_RULES } from "@/types";
+import { DEFAULT_RULES, callCostAmounts } from "@/types";
 import { uid } from "@/storage";
 
 export type Side = "host" | "guest";
@@ -772,23 +772,23 @@ function guardTurn(state: GameState, side: Side, needPhase: "main" | "final" | "
   return null;
 }
 
-// ตรวจค่าใช้จ่าย: คืนข้อความอธิบายถ้าจ่ายไม่ได้
+// ตรวจค่าใช้จ่าย: คืนข้อความอธิบายถ้าจ่ายไม่ได้ (จ่ายได้ทั้งเกจและ Life พร้อมกัน)
 function costProblem(g: GameState, side: Side, card: Card): string | null {
   const p = g[side];
-  if (card.callCostType === "Gauge") {
-    if (p.gaugePile.length < card.callCost)
-      return `เกจไม่พอ: ต้องจ่ายเกจ ${card.callCost} แต่คุณมีเกจเพียง ${p.gaugePile.length}`;
-  } else if (p.life <= card.callCost) {
-    return `Life ไม่พอ: ต้องจ่าย Life ${card.callCost} แต่คุณมี Life ${p.life} (หลังจ่ายต้องเหลืออย่างน้อย 1)`;
-  }
+  const c = callCostAmounts(card);
+  if (p.gaugePile.length < c.gauge)
+    return `เกจไม่พอ: ต้องจ่ายเกจ ${c.gauge} แต่คุณมีเกจเพียง ${p.gaugePile.length}`;
+  if (c.life > 0 && p.life <= c.life)
+    return `Life ไม่พอ: ต้องจ่าย Life ${c.life} แต่คุณมี Life ${p.life} (หลังจ่ายต้องเหลืออย่างน้อย 1)`;
   return null;
 }
 
 function payCost(g: GameState, side: Side, card: Card): string | null {
   const bad = costProblem(g, side, card);
   if (bad) return bad;
-  if (card.callCostType === "Gauge") mPayGauge(g, side, card.callCost);
-  else g[side].life -= card.callCost;
+  const c = callCostAmounts(card);
+  if (c.gauge > 0) mPayGauge(g, side, c.gauge);
+  if (c.life > 0) g[side].life -= c.life;
   return null;
 }
 
@@ -1214,8 +1214,9 @@ function extraCostOf(card: Card, trig: AutoTrigger, timing: CounterTiming | null
 // withCall = รวม Call Cost ของการ์ดในมือเข้าไปด้วย (ใช้กับ Counter จากมือ)
 function canAffordExtra(p: PlayerState, card: Card, trig: AutoTrigger, timing: CounterTiming | null, withCall: boolean): boolean {
   const ex = extraCostOf(card, trig, timing);
-  const gaugeNeed = ex.gauge + (withCall && card.callCostType === "Gauge" ? card.callCost : 0);
-  const lifeNeed = ex.life + (withCall && card.callCostType === "Life" ? card.callCost : 0);
+  const cc = withCall ? callCostAmounts(card) : { gauge: 0, life: 0 };
+  const gaugeNeed = ex.gauge + cc.gauge;
+  const lifeNeed = ex.life + cc.life;
   if (p.gaugePile.length < gaugeNeed) return false;
   if (lifeNeed > 0 && p.life <= lifeNeed) return false; // ต้องเหลือ Life อย่างน้อย 1
   return true;

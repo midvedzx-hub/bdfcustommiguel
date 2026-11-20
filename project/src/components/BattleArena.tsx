@@ -5,7 +5,7 @@ import {
   Copy, LogIn, Users, RefreshCw, Wrench, X, Shield, Star, AlertTriangle, Link2, Eye,
 } from "lucide-react";
 import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet, FieldCard } from "@/types";
-import { TRIGGER_LABELS, customTextList } from "@/types";
+import { TRIGGER_LABELS, customTextList, callCostLabel } from "@/types";
 import { DEFAULT_RULES } from "@/types";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
@@ -999,7 +999,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         <CardView card={card} flag={flagOf(me.flagId)} size="md" onClick={() => openInspect(card, me.flagId)} />
         <div className="flex-1 min-w-0">
           <div className="font-display font-bold text-cyan-300">{card.name}</div>
-          <div className="text-xs text-slate-400 mb-2">Cost {card.callCost} {card.callCostType}{card.type === "Monster" ? ` · Size ${card.size}` : ""}{hasCounter(card) ? " · มี Counter Act" : ""} · ลากการ์ดไปวางบนสนามได้</div>
+          <div className="text-xs text-slate-400 mb-2">Cost {callCostLabel(card)}{card.type === "Monster" ? ` · Size ${card.size}` : ""}{hasCounter(card) ? " · มี Counter Act" : ""} · ลากการ์ดไปวางบนสนามได้</div>
           <div className="flex flex-wrap gap-2 items-center">
             {card.type === "Monster" && empty.map(pos => (
               <button key={pos} onClick={() => tryCall(handSel, pos)} className={`${btn} bg-cyan-600 hover:bg-cyan-500`}>ลงช่อง{POSITION_NAMES[pos]}</button>
@@ -1151,7 +1151,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 <div key={k} className="flex flex-col items-center gap-1">
                   <CardView card={c} flag={flagOf(me.flagId)} size="md" onClick={() => doFreeCounter(o)} onInspect={() => openInspect(c, me.flagId)} className="hover:ring-4 hover:ring-sky-400" />
                   <span className="text-[11px] text-sky-300">{zoneLabel(o)}</span>
-                  <button onClick={() => doFreeCounter(o)} className="px-3 py-1 bg-sky-600 hover:bg-sky-500 rounded-lg text-xs font-bold">ใช้ Counter{o.zone === "hand" ? ` (Cost ${c.callCost})` : ""}</button>
+                  <button onClick={() => doFreeCounter(o)} className="px-3 py-1 bg-sky-600 hover:bg-sky-500 rounded-lg text-xs font-bold">ใช้ Counter{o.zone === "hand" ? ` (Cost ${callCostLabel(c)})` : ""}</button>
                   {counterExtraCostLabel(c, o, null) && <span className="text-[11px] text-amber-300">เพิ่ม: {counterExtraCostLabel(c, o, null)}</span>}
                 </div>
               );
@@ -1211,7 +1211,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 <div key={k} className="flex flex-col items-center gap-1">
                   <CardView card={c} flag={flagOf(me.flagId)} size="md" onClick={() => doCounter(o)} onInspect={() => openInspect(c, me.flagId)} className="hover:ring-4 hover:ring-sky-400" />
                   <span className="text-[11px] text-sky-300">{zoneLabel(o)}</span>
-                  <button onClick={() => doCounter(o)} className="px-3 py-1 bg-sky-600 hover:bg-sky-500 rounded-lg text-xs font-bold">ใช้ Counter{o.zone === "hand" ? ` (Cost ${c.callCost})` : ""}</button>
+                  <button onClick={() => doCounter(o)} className="px-3 py-1 bg-sky-600 hover:bg-sky-500 rounded-lg text-xs font-bold">ใช้ Counter{o.zone === "hand" ? ` (Cost ${callCostLabel(c)})` : ""}</button>
                   {counterExtraCostLabel(c, o, b ? "attack" : "cast") && <span className="text-[11px] text-amber-300">เพิ่ม: {counterExtraCostLabel(c, o, b ? "attack" : "cast")}</span>}
                 </div>
               );
@@ -1336,7 +1336,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-300">
                 <span>ประเภท: <b className="text-white">{card.type}</b></span>
                 <span>สังกัด: <b className="text-white">{flag?.name ?? "-"}</b></span>
-                <span>Cost: <b className="text-white">{card.callCostType === "Life" ? "Life" : "เกจ"} {card.callCost}</b></span>
+                <span>Cost: <b className="text-white">{callCostLabel(card)}</b></span>
                 {card.type === "Monster" && <span>Size: <b className="text-white">{card.size}</b></span>}
                 {(card.type === "Monster" || card.type === "Item" || card.type === "Impact") && (<>
                   <span>Power: <b className="text-rose-400">{st ? st.power : card.power}</b>{st && st.power !== card.power ? <span className="text-slate-500"> (ปกติ {card.power})</span> : null}</span>

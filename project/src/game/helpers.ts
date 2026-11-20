@@ -1,5 +1,5 @@
 import type { Flag, Card, AutoSkill, AutoEffect } from "@/types";
-import { TRIGGER_LABELS } from "@/types";
+import { TRIGGER_LABELS, callCostLabel } from "@/types";
 import { KEYWORD_DEFS } from "@/game/keywords";
 
 export function getFlagColor(flag?: Flag | null): string {
@@ -114,7 +114,7 @@ export function keywordBadges(card: Card): string[] {
 // ข้อความ Call Cost บนการ์ด
 export function costText(card: Card): string {
   const parts: string[] = [];
-  if (card.callCost > 0 || card.type === "Monster") parts.push(`จ่าย ${card.callCostType === "Life" ? "Life" : "เกจ"} ${card.callCost}`);
+  if (card.callCost > 0 || (card.callCostExtra ?? 0) > 0 || card.type === "Monster") parts.push(`จ่าย ${callCostLabel(card)}`);
   if ((card.callSoulFromDeck ?? 0) > 0) parts.push(`นำการ์ดบนเด็ค ${card.callSoulFromDeck} ใบเข้า Soul ของการ์ดนี้`);
   return parts.join(" และ ");
 }

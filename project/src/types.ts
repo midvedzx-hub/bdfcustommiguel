@@ -170,6 +170,7 @@ export interface Card {
   critical: number;
   callCost: number;
   callCostType: "Gauge" | "Life";
+  callCostExtra?: number; // จ่ายอีกอย่างเพิ่ม: จำนวนของทรัพยากรอีกชนิดที่ไม่ใช่ callCostType (เช่น จ่ายเกจ 2 + Life 1) 0/ไม่ใส่ = จ่ายอย่างเดียว
   customText: string; // รวมทุกข้อความ (คั่นด้วยบรรทัดใหม่) เก็บไว้เพื่อความเข้ากันได้กับการ์ดเก่า
   customTexts?: string[]; // สกิลอิสระหลายข้อ
   flavorText?: string; // Flavor Text: คำพูด/เรื่องราวของการ์ด (แสดงเป็นตัวเอียงท้ายกล่องข้อความ ไม่มีผลต่อเกม)
@@ -361,4 +362,19 @@ export interface SyncMessage {
 export function customTextList(card: { customText?: string; customTexts?: string[] }): string[] {
   if (card.customTexts) return card.customTexts.map(t => t.trim()).filter(Boolean);
   return card.customText?.trim() ? [card.customText.trim()] : [];
+}
+
+// Call Cost แยกเป็นเกจ / Life (การ์ดจ่ายได้ทั้งสองอย่างพร้อมกัน)
+export function callCostAmounts(card: Pick<Card, "callCost" | "callCostType" | "callCostExtra">): { gauge: number; life: number } {
+  const main = Math.max(0, card.callCost || 0);
+  const extra = Math.max(0, Math.floor(card.callCostExtra ?? 0));
+  return card.callCostType === "Life" ? { gauge: extra, life: main } : { gauge: main, life: extra };
+}
+// ข้อความสั้น เช่น "เกจ 2 + Life 1" (ถ้าเป็น 0 ทั้งคู่ = "เกจ 0")
+export function callCostLabel(card: Pick<Card, "callCost" | "callCostType" | "callCostExtra">): string {
+  const a = callCostAmounts(card);
+  const parts: string[] = [];
+  if (a.gauge > 0) parts.push(`เกจ ${a.gauge}`);
+  if (a.life > 0) parts.push(`Life ${a.life}`);
+  return parts.length ? parts.join(" + ") : `${card.callCostType === "Life" ? "Life" : "เกจ"} 0`;
 }

@@ -2,7 +2,7 @@ import { useState, useRef, useLayoutEffect, useEffect } from "react";
 import { Plus, Save, Trash2, Download, Upload, Edit3, Copy, Zap, Search, Layers, ChevronLeft, ChevronRight } from "lucide-react";
 import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Card, Flag, CardType, AutoTrigger, AutoEffectType, AutoEffect, AutoSkill } from "@/types";
-import { TRIGGER_LABELS, EFFECT_LABELS, DROP_FILTERS } from "@/types";
+import { TRIGGER_LABELS, EFFECT_LABELS, DROP_FILTERS, callCostLabel } from "@/types";
 import type { CardFilter } from "@/types";
 import { getCards, saveCards, getFlags, saveFlags, getDecks, saveDecks, uid, downloadJSON, importAll, exportCards } from "@/storage";
 import { ImageUpload } from "@/components/ImageUpload";
@@ -299,6 +299,13 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                     <option value="Gauge">Gauge</option>
                     <option value="Life">Life</option>
                   </select>
+                </div>
+                <div className="col-span-2 sm:col-span-3">
+                  <label className="text-sm text-slate-400">จ่ายเพิ่มด้วย {editing.callCostType === "Life" ? "Gauge" : "Life"} (ใส่เพื่อให้จ่ายทั้งสองอย่างพร้อมกัน · 0 = ไม่จ่ายเพิ่ม)</label>
+                  <input type="number" min={0} max={9} value={editing.callCostExtra ?? 0}
+                    onChange={e => setEditing({ ...editing, callCostExtra: Math.max(0, Math.min(9, parseInt(e.target.value) || 0)) })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 mt-1 focus:border-cyan-500 outline-none" />
+                  <div className="text-[11px] text-sky-300 mt-1">ตอนนี้จ่าย: {callCostLabel(editing)}</div>
                 </div>
               </div>
 
