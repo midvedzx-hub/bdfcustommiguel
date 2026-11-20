@@ -10,7 +10,7 @@ import { DEFAULT_RULES } from "@/types";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
   callMonster, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
-  goToAttack, goToFinal, mulligan, legalTargets, statsOf, counterOptions, counterCardOf, counterAct, counterExtraCostLabel, freeCounterOptions, useCounterAnytime,
+  goToAttack, goToFinal, mulligan, legalTargets, statsOf, counterOptions, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
@@ -587,14 +587,24 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const doGoAttack = () => act("เปลี่ยนเฟสไม่ได้", s => goToAttack(s, mySide));
   const doGoFinal = () => act("เปลี่ยนเฟสไม่ได้", s => goToFinal(s, mySide));
   const doEndTurn = () => doAction(s => endTurn(s));
-  const doCounter = (opt: CounterOption) => act("ใช้ Counter ไม่ได้", s => counterAct(s, mySide, opt));
+  const [discardPick, setDiscardPick] = useState<{ opt: CounterOption; free: boolean; need: number; sel: number[] } | null>(null);
+  const doCounterRaw = (opt: CounterOption) => act("ใช้ Counter ไม่ได้", s => counterAct(s, mySide, opt));
   const doPassCounter = () => act("ผิดพลาด", s => passCounter(s, mySide));
   // Counter ใช้ได้ทุกเวลา (Main / Attack / Final ของเทิร์นใครก็ได้ ที่ไม่ได้อยู่ในจังหวะรอ Counter)
   const freeOpts = freeCounterOptions(game, mySide);
-  const doFreeCounter = (opt: CounterOption) => {
+  const doFreeCounterRaw = (opt: CounterOption) => {
     const ok = act("ใช้ Counter ไม่ได้", s => useCounterAnytime(s, mySide, opt));
     if (ok) setShowFreeCounter(false);
   };
+  // ถ้าสกิลมีค่าใช้จ่าย "ทิ้งการ์ดบนมือ" ให้เปิดหน้าเลือกการ์ดก่อน แล้วค่อยใช้ Counter
+  const requestCounter = (opt: CounterOption, free: boolean) => {
+    const c = counterCardOf(game, mySide, opt);
+    const need = c ? counterHandCost(c, opt, free ? null : (game.battle ? "attack" : "cast")) : 0;
+    if (need > 0 && !opt.discard) { setDiscardPick({ opt, free, need, sel: [] }); return; }
+    if (free) doFreeCounterRaw(opt); else doCounterRaw(opt);
+  };
+  const doCounter = (opt: CounterOption) => requestCounter(opt, false);
+  const doFreeCounter = (opt: CounterOption) => requestCounter(opt, true);
   function requestSync() {
     if (roleRef.current === "guest") mp.send({ type: "requestSync" });
     else mp.send({ type: "state", state: gameRef.current });
@@ -1128,6 +1138,44 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             <button onClick={() => { act("Mulligan ไม่ได้", s => mulligan(s, mySide, mullSel)); setMullSel([]); }} className="flex-1 py-2.5 bg-cyan-600 hover:bg-cyan-500 rounded-xl font-bold">
               {mullSel.length > 0 ? `เปลี่ยน ${mullSel.length} ใบ` : "เก็บมือเดิม"}
             </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderDiscardPick() {
+    if (!discardPick) return null;
+    const { opt, free, need, sel } = discardPick;
+    const src = counterCardOf(game, mySide, opt);
+    const toggle = (i: number) => setDiscardPick({ ...discardPick, sel: sel.includes(i) ? sel.filter(x => x !== i) : sel.length < need ? [...sel, i] : sel });
+    const confirm = () => {
+      const o: CounterOption = { ...opt, discard: sel };
+      setDiscardPick(null);
+      if (free) doFreeCounterRaw(o); else doCounterRaw(o);
+    };
+    return (
+      <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
+        <div className="bg-slate-900 border-2 border-amber-500 rounded-2xl p-5 max-w-3xl w-full max-h-[92vh] overflow-y-auto">
+          <h3 className="font-display text-xl font-bold text-amber-300 mb-1">เลือกการ์ดในมือที่จะทิ้ง {need} ใบ</h3>
+          <div className="text-xs text-slate-400 mb-4">เป็นค่าใช้จ่ายของ Counter{src ? `: ${src.name}` : ""} · เลือกแล้ว {sel.length}/{need}</div>
+          <div className="flex flex-wrap gap-3 mb-4">
+            {me.hand.map((id, i) => {
+              const c = cardOf(id);
+              if (!c) return null;
+              const self = opt.zone === "hand" && opt.index === i;
+              const on = sel.includes(i);
+              return (
+                <div key={i} className={`flex flex-col items-center gap-1 ${self ? "opacity-30" : ""}`}>
+                  <CardView card={c} flag={flagOf(me.flagId)} size="md" onClick={self ? undefined : () => toggle(i)} className={on ? "ring-4 ring-amber-400" : self ? "" : "hover:ring-4 hover:ring-amber-300"} />
+                  <span className="text-[11px] text-slate-400">{self ? "การ์ดที่กำลังใช้" : on ? "✔ จะทิ้งใบนี้" : ""}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setDiscardPick(null)} className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">ยกเลิก</button>
+            <button disabled={sel.length !== need} onClick={confirm} className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 rounded-xl font-bold">ยืนยันและใช้ Counter</button>
           </div>
         </div>
       </div>
@@ -1804,6 +1852,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       )}
       {renderCounterModal()}
       {renderFreeCounterModal()}
+      {renderDiscardPick()}
       {renderLookModal()}
       {renderSoulModal()}
       {oppSoulPick && !game.winner && (

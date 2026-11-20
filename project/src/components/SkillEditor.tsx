@@ -58,19 +58,19 @@ export function CounterOptions({ skill, onChange }: { skill: AutoSkill; onChange
       </div>
       <div className="flex items-center gap-2 flex-wrap">
         <span>ค่าใช้จ่ายเพื่อใช้:</span>
-        {([["gauge", "จ่ายเกจ"], ["life", "เสียพลังชีวิต"]] as const).map(([k, label]) => (
+        {([["gauge", "จ่ายเกจ"], ["life", "เสียพลังชีวิต"], ["deckToDrop", "ทิ้งการ์ดบนเด็คลงสุสาน"], ["handToDrop", "ทิ้งการ์ดบนมือ"]] as const).map(([k, label]) => (
           <label key={k} className="flex items-center gap-1">{label}
             <input type="number" min={0} max={9} value={skill.cost?.[k] ?? 0}
               onChange={e => {
                 const v = Math.max(0, Math.min(9, parseInt(e.target.value) || 0));
                 const cost: CounterCost = { ...skill.cost, [k]: v };
-                if (!cost.gauge && !cost.life) onChange({ ...skill, cost: undefined });
+                if (!cost.gauge && !cost.life && !cost.deckToDrop && !cost.handToDrop) onChange({ ...skill, cost: undefined });
                 else onChange({ ...skill, cost });
               }}
               className={`${num} w-14 !py-0.5 text-xs`} />
           </label>
         ))}
-        <span className="text-slate-500">(0 = ไม่มี · ถ้าจ่ายไม่ไหวจะใช้ไม่ได้ · Life ต้องเหลืออย่างน้อย 1)</span>
+        <span className="text-slate-500">(0 = ไม่มี · ถ้าจ่ายไม่ไหวจะใช้ไม่ได้ · Life ต้องเหลืออย่างน้อย 1 · ทิ้งการ์ดบนมือ: ผู้เล่นเลือกใบที่ทิ้งตอนกดใช้)</span>
       </div>
       <p>{act
         ? "Counter 【Act】: ความสามารถของการ์ด \"บนสนาม\" กดใช้ได้ 1 ครั้งต่อเทิร์น (การ์ดยังอยู่บนสนาม) จ่ายตามที่เขียน เช่น เอฟเฟกต์แรกเป็น \"ถอด Soul\" ถ้าจ่ายไม่ได้ก็ใช้ไม่ได้"

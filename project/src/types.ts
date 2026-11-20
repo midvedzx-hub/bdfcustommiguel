@@ -148,6 +148,8 @@ export type CounterTiming = "attack" | "cast" | "any"; // จังหวะท�
 export interface CounterCost {
   gauge?: number; // จ่ายเกจ N (ย้ายจากกองเกจลงสุสาน)
   life?: number;  // เสียพลังชีวิต N (ต้องเหลือ Life อย่างน้อย 1)
+  deckToDrop?: number; // ทิ้งการ์ดบนสุดของเด็ค N ใบลงสุสาน
+  handToDrop?: number; // ทิ้งการ์ดในมือ N ใบลงสุสาน (ผู้เล่นเลือกใบที่ทิ้งตอนกดใช้)
 }
 
 export interface AutoSkill {

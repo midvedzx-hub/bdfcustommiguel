@@ -7,11 +7,12 @@ import { uid } from "@/storage";
 export type Side = "host" | "guest";
 export type { AttackTarget };
 export type Result = { state: GameState; ok: boolean; msg: string };
-export type CounterOption =
+export type CounterOption = (
   | { zone: "hand"; index: number }
   | { zone: "set"; index: number }       // การ์ดคว่ำในช่อง Set ใช้เป็น 【Counter】 (ใช้แล้วลงสุสาน)
   | { zone: "setAct"; index: number }    // การ์ด Set ที่เปิดอยู่: ใช้ Counter 【Act】 ของมัน (การ์ดยังอยู่ในช่อง Set ใช้ได้ 1 ครั้งต่อเทิร์น)
-  | { zone: "field"; uid: string };
+  | { zone: "field"; uid: string }
+) & { discard?: number[] }; // discard = ตำแหน่งการ์ดในมือที่เลือกทิ้งเป็นค่าใช้จ่าย (เมื่อสกิลมี "ทิ้งการ์ดบนมือ")
 
 export const POSITION_NAMES = ["ซ้าย", "กลาง", "ขวา"];
 const other = (s: Side): Side => (s === "host" ? "guest" : "host");
@@ -1202,16 +1203,23 @@ function skillNeedsSoul(card: Card, timing: CounterTiming | null): number {
 }
 
 // ---- ค่าใช้จ่ายเพิ่มเติมที่กำหนดในสกิล Counter (เกจ / Life) ----
-interface ExtraCost { gauge: number; life: number }
+interface ExtraCost { gauge: number; life: number; deck: number; hand: number }
 function extraCostOf(card: Card, trig: AutoTrigger, timing: CounterTiming | null): ExtraCost {
-  const out: ExtraCost = { gauge: 0, life: 0 };
+  const out: ExtraCost = { gauge: 0, life: 0, deck: 0, hand: 0 };
   counterSkills(card, trig, timing).forEach(s => {
     out.gauge += Math.max(0, Math.floor(s.cost?.gauge ?? 0));
     out.life += Math.max(0, Math.floor(s.cost?.life ?? 0));
+    out.deck += Math.max(0, Math.floor(s.cost?.deckToDrop ?? 0));
+    out.hand += Math.max(0, Math.floor(s.cost?.handToDrop ?? 0));
   });
   return out;
 }
-// withCall = รวม Call Cost ของการ์ดในมือเข้าไปด้วย (ใช้กับ Counter จากมือ)
+const trigOfOpt = (opt: CounterOption): AutoTrigger => (opt.zone === "hand" || opt.zone === "set" ? "onCounter" : "onCounterAct");
+// จำนวนการ์ดในมือที่ต้องเลือกทิ้งเป็นค่าใช้จ่าย (UI ใช้เพื่อเปิดหน้าเลือกการ์ด)
+export function counterHandCost(card: Card, opt: CounterOption, timing: CounterTiming | null = null): number {
+  return extraCostOf(card, trigOfOpt(opt), timing).hand;
+}
+// withCall = รวม Call Cost ของการ์ดในมือเข้าไปด้วย (ใช้กับ Counter จากมือ — การ์ดที่ใช้เองไม่นับเป็นการ์ดที่ทิ้งได้)
 function canAffordExtra(p: PlayerState, card: Card, trig: AutoTrigger, timing: CounterTiming | null, withCall: boolean): boolean {
   const ex = extraCostOf(card, trig, timing);
   const cc = withCall ? callCostAmounts(card) : { gauge: 0, life: 0 };
@@ -1219,19 +1227,51 @@ function canAffordExtra(p: PlayerState, card: Card, trig: AutoTrigger, timing: C
   const lifeNeed = ex.life + cc.life;
   if (p.gaugePile.length < gaugeNeed) return false;
   if (lifeNeed > 0 && p.life <= lifeNeed) return false; // ต้องเหลือ Life อย่างน้อย 1
+  if (p.deck.length < ex.deck) return false;
+  if (p.hand.length - (withCall ? 1 : 0) < ex.hand) return false;
   return true;
 }
+// ตรวจรายการการ์ดในมือที่เลือกทิ้ง: คืน id ของการ์ด หรือข้อความผิดพลาด
+function pickDiscard(p: PlayerState, need: number, opt: CounterOption): { ids: string[] } | { err: string } {
+  if (need <= 0) return { ids: [] };
+  const sel = opt.discard ?? [];
+  const uniq = new Set(sel);
+  if (sel.length !== need || uniq.size !== need) return { err: `ต้องเลือกการ์ดในมือที่จะทิ้ง ${need} ใบ` };
+  for (const i of sel) {
+    if (!Number.isInteger(i) || i < 0 || i >= p.hand.length) return { err: "เลือกการ์ดที่จะทิ้งไม่ถูกต้อง" };
+    if (opt.zone === "hand" && i === opt.index) return { err: "ทิ้งการ์ด Counter ใบที่กำลังใช้ซ้ำไม่ได้" };
+  }
+  return { ids: sel.map(i => p.hand[i]) };
+}
+// จ่ายค่าใช้จ่ายที่ไม่ต้องเลือก (เกจ / Life / การ์ดบนเด็ค) — การทิ้งการ์ดบนมือทำแยกด้วย discardFromHand หลังการ์ดที่ใช้ออกจากมือแล้ว
 function payExtra(g: GameState, side: Side, card: Card, trig: AutoTrigger, timing: CounterTiming | null) {
   const ex = extraCostOf(card, trig, timing);
   if (ex.gauge > 0) { mPayGauge(g, side, ex.gauge); log(g, `${nameOf(side)} จ่ายเกจ ${ex.gauge} เพื่อใช้ ${card.name}`); }
   if (ex.life > 0) mLife(g, side, -ex.life);
+  if (ex.deck > 0) {
+    const p = g[side];
+    let n = 0;
+    for (let i = 0; i < ex.deck && p.deck.length > 0; i++) { p.dropZone.push(p.deck.shift()!); n++; }
+    log(g, `${nameOf(side)} ทิ้งการ์ดบนเด็ค ${n} ใบลงสุสาน เพื่อใช้ ${card.name}`);
+  }
+}
+function discardFromHand(g: GameState, side: Side, ids: string[], cardName: string) {
+  if (ids.length === 0) return;
+  const p = g[side];
+  ids.forEach(id => {
+    const at = p.hand.indexOf(id);
+    if (at >= 0) { p.hand.splice(at, 1); p.dropZone.push(id); }
+  });
+  log(g, `${nameOf(side)} ทิ้งการ์ดบนมือ ${ids.length} ใบ (${ids.map(i => getCard(i)?.name ?? "?").join(", ")}) เพื่อใช้ ${cardName}`);
 }
 // ข้อความค่าใช้จ่ายเพิ่มเติม สำหรับแสดงบนปุ่ม (เช่น "เกจ 1 + Life 1") ว่างถ้าไม่มี
 export function counterExtraCostLabel(card: Card, opt: CounterOption, timing: CounterTiming | null = null): string {
-  const ex = extraCostOf(card, opt.zone === "hand" || opt.zone === "set" ? "onCounter" : "onCounterAct", timing);
+  const ex = extraCostOf(card, trigOfOpt(opt), timing);
   const parts: string[] = [];
   if (ex.gauge > 0) parts.push(`เกจ ${ex.gauge}`);
   if (ex.life > 0) parts.push(`Life ${ex.life}`);
+  if (ex.deck > 0) parts.push(`ทิ้งเด็ค ${ex.deck}`);
+  if (ex.hand > 0) parts.push(`ทิ้งมือ ${ex.hand}`);
   return parts.join(" + ");
 }
 
@@ -1343,20 +1383,26 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
   if (opt.zone === "hand") {
     const cardId = p.hand[opt.index];
     const card = getCard(cardId)!;
-    if (!canAffordExtra(p, card, "onCounter", timing, true)) return "เกจ / Life ไม่พอสำหรับค่าใช้จ่ายของ Counter นี้";
+    if (!canAffordExtra(p, card, "onCounter", timing, true)) return "ค่าใช้จ่ายของ Counter นี้ไม่พอ (เกจ / Life / การ์ดบนเด็ค / การ์ดบนมือ)";
+    const dis = pickDiscard(p, extraCostOf(card, "onCounter", timing).hand, opt);
+    if ("err" in dis) return dis.err;
     const costErr = payCost(g, side, card);
     if (costErr) return costErr;
     payExtra(g, side, card, "onCounter", timing);
     p.hand.splice(opt.index, 1);
     p.dropZone.push(cardId);
+    discardFromHand(g, side, dis.ids, card.name);
     log(g, `🛡 ${nameOf(side)} ใช้ Counter จากมือ: ${card.name}!`);
     fx(g, { k: "cast", side, cardId, label: "COUNTER!" });
     runSkills(g, side, card, counterSkills(card, "onCounter", timing), { fc: tgt });
   } else if (opt.zone === "set") {
     const cardId = p.setZone[opt.index];
     const card = getCard(cardId)!;
-    if (!canAffordExtra(p, card, "onCounter", timing, false)) return "เกจ / Life ไม่พอสำหรับค่าใช้จ่ายของ Counter นี้";
+    if (!canAffordExtra(p, card, "onCounter", timing, false)) return "ค่าใช้จ่ายของ Counter นี้ไม่พอ (เกจ / Life / การ์ดบนเด็ค / การ์ดบนมือ)";
+    const dis = pickDiscard(p, extraCostOf(card, "onCounter", timing).hand, opt);
+    if ("err" in dis) return dis.err;
     payExtra(g, side, card, "onCounter", timing);
+    discardFromHand(g, side, dis.ids, card.name);
     popSet(p, opt.index);
     p.dropZone.push(cardId);
     log(g, `🛡 ${nameOf(side)} เปิดการ์ด Set: ${card.name}!`);
@@ -1365,8 +1411,11 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
   } else if (opt.zone === "setAct") {
     const cardId = p.setZone[opt.index];
     const card = getCard(cardId)!;
-    if (!canAffordExtra(p, card, "onCounterAct", timing, false)) return "เกจ / Life ไม่พอสำหรับค่าใช้จ่ายของ Counter 【Act】 นี้";
+    if (!canAffordExtra(p, card, "onCounterAct", timing, false)) return "ค่าใช้จ่ายของ Counter 【Act】 นี้ไม่พอ (เกจ / Life / การ์ดบนเด็ค / การ์ดบนมือ)";
+    const dis = pickDiscard(p, extraCostOf(card, "onCounterAct", timing).hand, opt);
+    if ("err" in dis) return dis.err;
     payExtra(g, side, card, "onCounterAct", timing);
+    discardFromHand(g, side, dis.ids, card.name);
     p.setActUsed = { ...(p.setActUsed ?? {}), [setKey(p, opt.index)]: g.turn };
     log(g, `🛡 ${nameOf(side)} ใช้ Counter 【Act】 ของการ์ด Set: ${card.name} (การ์ดยังอยู่ในช่อง Set)`);
     fx(g, { k: "cast", side, cardId, label: "COUNTER ACT!" });
@@ -1374,8 +1423,11 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
   } else {
     const fc = findFc(p, opt.uid)!;
     const card = getCard(fc.cardId)!;
-    if (!canAffordExtra(p, card, "onCounterAct", timing, false)) return "เกจ / Life ไม่พอสำหรับค่าใช้จ่ายของ Counter 【Act】 นี้";
+    if (!canAffordExtra(p, card, "onCounterAct", timing, false)) return "ค่าใช้จ่ายของ Counter 【Act】 นี้ไม่พอ (เกจ / Life / การ์ดบนเด็ค / การ์ดบนมือ)";
+    const dis = pickDiscard(p, extraCostOf(card, "onCounterAct", timing).hand, opt);
+    if ("err" in dis) return dis.err;
     payExtra(g, side, card, "onCounterAct", timing);
+    discardFromHand(g, side, dis.ids, card.name);
     fc.counterUsedTurn = g.turn;
     log(g, `🛡 ${nameOf(side)} ใช้ Counter 【Act】 ของ ${card.name} บนสนาม!`);
     runSkills(g, side, card, counterSkills(card, "onCounterAct", timing), { fc });

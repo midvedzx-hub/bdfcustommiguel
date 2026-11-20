@@ -91,6 +91,8 @@ export function skillLines(card: Card): string[] {
     if ((sk.trigger === "onCounter" || sk.trigger === "onCounterAct") && sk.cost) {
       if ((sk.cost.gauge ?? 0) > 0) costParts.push(`เกจ ${sk.cost.gauge}`);
       if ((sk.cost.life ?? 0) > 0) costParts.push(`Life ${sk.cost.life}`);
+      if ((sk.cost.deckToDrop ?? 0) > 0) costParts.push(`ทิ้งการ์ดบนเด็ค ${sk.cost.deckToDrop} ใบ`);
+      if ((sk.cost.handToDrop ?? 0) > 0) costParts.push(`ทิ้งการ์ดบนมือ ${sk.cost.handToDrop} ใบ`);
     }
     const costStr = costParts.length ? `[จ่าย ${costParts.join(" + ")}] ` : "";
     const body = costStr + sk.effects.map(effectText).join("、");
