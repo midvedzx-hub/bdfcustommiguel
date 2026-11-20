@@ -131,7 +131,7 @@ export function CardView({
   const flavor = card.flavorText?.trim() ?? "";
   const flavorBox = (opts: { ml: string; mr: string; fs: string; maxH: string }) =>
     !compact && flavor ? (
-      <div className="rounded-[0.5em] italic text-center text-slate-100 overflow-hidden" style={{ marginLeft: opts.ml, marginRight: opts.mr, marginBottom: "0.4em", fontSize: opts.fs, lineHeight: 1.35, padding: "0.35em 0.6em", maxHeight: opts.maxH, background: "rgba(30,41,59,.9)", border: "0.08em solid rgba(255,255,255,.25)" }}>
+      <div className="rounded-[0.5em] italic text-center text-slate-100 overflow-hidden shrink-0" style={{ marginLeft: opts.ml, marginRight: opts.mr, marginBottom: "0.4em", fontSize: opts.fs, lineHeight: 1.35, padding: "0.35em 0.6em", maxHeight: opts.maxH, background: "rgba(30,41,59,.9)", border: "0.08em solid rgba(255,255,255,.25)" }}>
         “{flavor}”
       </div>
     ) : null;
@@ -170,10 +170,10 @@ export function CardView({
         </div>
 
         {/* ส่วนล่าง: กล่องข้อความ → ป้าย Tag → แถบชื่อ เรียงต่อกันในแนวตั้ง จึงไม่มีทางซ้อนทับ */}
-        <div className="relative z-10 shrink-0 flex flex-col">
+        <div className="relative z-10 shrink-0 flex flex-col" style={{ maxHeight: "19em" }}>
           {flavorBox({ ml: "2.7em", mr: "0.7em", fs: "0.6em", maxH: "5.6em" })}
           {!compact && (
-            <div className="rounded-[0.5em] text-white leading-snug overflow-hidden" style={{ marginLeft: "2.7em", marginRight: "0.7em", marginBottom: "0.4em", fontSize: "0.62em", background: "rgba(5,8,18,.74)", padding: "0.4em 0.6em", maxHeight: flavor ? "7em" : "9.6em", border: "0.08em solid rgba(255,255,255,.18)" }}>
+            <div className="rounded-[0.5em] text-white leading-snug overflow-hidden" style={{ marginLeft: "2.7em", marginRight: "0.7em", marginBottom: "0.4em", fontSize: "0.62em", background: "rgba(5,8,18,.74)", padding: "0.4em 0.6em", minHeight: 0, border: "0.08em solid rgba(255,255,255,.18)" }}>
               {cost && <div><span className="inline-block bg-white/90 text-slate-900 rounded px-1 mr-1 font-bold">Call Cost</span>{cost}</div>}
               {lines.map((l, i) => <div key={i} className="text-amber-100">▪ {l}</div>)}
               {customTextList(card).map((t, i) => <div key={`ct${i}`} className="text-slate-200">▪ {t}</div>)}
@@ -190,12 +190,12 @@ export function CardView({
             </div>
           )}
           {!compact && (tagA || tagB) && (
-            <div className="flex flex-wrap items-center" style={{ padding: "0 0.5em 0.35em 0.7em", gap: "0.25em 0.4em" }}>
+            <div className="flex flex-wrap items-center shrink-0" style={{ padding: "0 0.5em 0.35em 0.7em", gap: "0.25em 0.4em" }}>
               {tagA && <span className="px-[1.1em] rounded-full text-white font-semibold truncate max-w-[60%]" style={{ fontSize: "0.6em", lineHeight: 1.5, background: `linear-gradient(90deg, ${color}, ${color}99)`, border: "0.08em solid rgba(255,255,255,.5)" }}>{tagA}</span>}
               {tagB && <span className="px-[1.1em] rounded-full text-white font-semibold truncate max-w-[60%]" style={{ fontSize: "0.6em", lineHeight: 1.5, background: "linear-gradient(90deg, #1d4ed8, #3b82f6cc)", border: "0.08em solid rgba(255,255,255,.5)" }}>{tagB}</span>}
             </div>
           )}
-          <div className="flex items-center justify-center px-[0.5em] text-center" style={{ height: compact ? "2.6em" : "2.3em", background: `linear-gradient(180deg, ${color}cc, #0b1220f2)`, borderTop: "0.1em solid rgba(255,255,255,.5)" }}>
+          <div className="flex items-center justify-center px-[0.5em] text-center shrink-0" style={{ height: compact ? "2.6em" : "2.3em", background: `linear-gradient(180deg, ${color}cc, #0b1220f2)`, borderTop: "0.1em solid rgba(255,255,255,.5)" }}>
             <span className="font-display font-bold italic text-white truncate" style={{ fontSize: compact ? "1em" : "1.1em", textShadow: "0 0 0.3em #000" }}>{card.name}</span>
           </div>
         </div>
@@ -241,7 +241,7 @@ export function CardView({
   const pills = [tagA ? pill(tagA, "a") : null, tagB ? pill(tagB, "b", flag?.image) : null].filter(Boolean);
 
   const textBox = !compact && hasBody ? (
-    <div className="rounded-[0.5em] text-white leading-snug overflow-hidden" style={{ marginLeft: "0.7em", marginRight: isImpact ? "0.3em" : "0.7em", marginBottom: "0.4em", fontSize: isImpact ? "0.56em" : "0.62em", background: "rgba(5,8,18,.74)", padding: "0.4em 0.6em", maxHeight: flavor ? (isImpact ? "6em" : "7.5em") : (isImpact ? "9em" : "10.5em"), border: "0.08em solid rgba(255,255,255,.18)" }}>
+    <div className="rounded-[0.5em] text-white leading-snug overflow-hidden" style={{ marginLeft: "0.7em", marginRight: isImpact ? "0.3em" : "0.7em", marginBottom: "0.4em", fontSize: isImpact ? "0.56em" : "0.62em", background: "rgba(5,8,18,.74)", padding: "0.4em 0.6em", minHeight: 0, maxHeight: isImpact ? (flavor ? "11em" : "15em") : "none", border: "0.08em solid rgba(255,255,255,.18)" }}>
       {cost && (
         <div>
           <span className="inline-block bg-slate-950 text-white rounded px-1 mr-1 font-bold border border-white/70">{costLabel}</span>{cost}
@@ -258,7 +258,7 @@ export function CardView({
   ) : null;
 
   const nameBar = (
-    <div className="flex items-center justify-center px-[0.5em] text-center" style={{ height: compact ? "2.6em" : "2.3em", background: `linear-gradient(180deg, ${color}cc, #0b1220f2)`, borderTop: "0.1em solid rgba(255,255,255,.5)" }}>
+    <div className="flex items-center justify-center px-[0.5em] text-center shrink-0" style={{ height: compact ? "2.6em" : "2.3em", background: `linear-gradient(180deg, ${color}cc, #0b1220f2)`, borderTop: "0.1em solid rgba(255,255,255,.5)" }}>
       <span className="font-display font-bold italic text-white truncate" style={{ fontSize: compact ? "1em" : "1.1em", textShadow: "0 0 0.3em #000" }}>{card.name}</span>
     </div>
   );
@@ -299,7 +299,7 @@ export function CardView({
       </div>
 
       {/* ส่วนล่าง */}
-      <div className="relative z-10 shrink-0 flex flex-col">
+      <div className="relative z-10 shrink-0 flex flex-col" style={{ maxHeight: isImpact ? "9.7em" : "19em" }}>
         {compact && badges.length > 0 && (
           <div className="flex justify-end" style={{ padding: "0 0.4em 0.25em" }}>
             <span className="bg-red-600 text-white rounded px-[0.4em] font-bold border border-white/70" style={{ fontSize: "0.6em" }}>{badges.length} KW</span>
@@ -315,7 +315,7 @@ export function CardView({
           )
         ) : isSpell ? (
           <>
-            {!compact && pills.length > 0 && <div className="flex flex-col items-start" style={{ padding: "0 0.5em 0.3em 0.7em", gap: "0.2em" }}>{pills}</div>}
+            {!compact && pills.length > 0 && <div className="flex flex-col items-start shrink-0" style={{ padding: "0 0.5em 0.3em 0.7em", gap: "0.2em" }}>{pills}</div>}
             {flavorBox({ ml: "0.7em", mr: "0.7em", fs: "0.6em", maxH: "5.6em" })}
             {textBox}
           </>
@@ -323,7 +323,7 @@ export function CardView({
           <>
             {flavorBox({ ml: "0.7em", mr: "0.7em", fs: "0.6em", maxH: "5.6em" })}
             {textBox}
-            {!compact && pills.length > 0 && <div className="flex flex-wrap items-center" style={{ padding: "0 0.5em 0.35em 0.7em", gap: "0.25em 0.4em" }}>{pills}</div>}
+            {!compact && pills.length > 0 && <div className="flex flex-wrap items-center shrink-0" style={{ padding: "0 0.5em 0.35em 0.7em", gap: "0.25em 0.4em" }}>{pills}</div>}
           </>
         )}
         {nameBar}
