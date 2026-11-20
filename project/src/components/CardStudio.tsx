@@ -1,5 +1,5 @@
 import { useState, useRef, useLayoutEffect, useEffect } from "react";
-import { Plus, Save, Trash2, Download, Upload, Edit3, Copy, Zap, Search, Layers } from "lucide-react";
+import { Plus, Save, Trash2, Download, Upload, Edit3, Copy, Zap, Search, Layers, ChevronLeft, ChevronRight } from "lucide-react";
 import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Card, Flag, CardType, AutoTrigger, AutoEffectType, AutoEffect, AutoSkill } from "@/types";
 import { TRIGGER_LABELS, EFFECT_LABELS, DROP_FILTERS } from "@/types";
@@ -72,6 +72,8 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
   const [search, setSearch] = useState("");
   const [worldFilter, setWorldFilter] = useState<string>("all");
   const [copied, setCopied] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null); // การ์ดที่กำลังลากเพื่อจัดลำดับ
+  const [overId, setOverId] = useState<string | null>(null);
 
   function persist(next: Card[]) {
     setCards(next);
@@ -209,6 +211,26 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
     (worldFilter === "all" || c.flagId === worldFilter) &&
     (!q || c.name.toLowerCase().includes(q) || (c.attribute ?? "").toLowerCase().includes(q))
   );
+  // จัดลำดับการ์ดเอง: ย้ายการ์ด fromId ไปแทนที่ตำแหน่งของ toId (ลำดับใน cards = ลำดับที่แสดง และถูกบันทึกไว้)
+  function moveCard(fromId: string, toId: string) {
+    if (fromId === toId) return;
+    const from = cards.findIndex(c => c.id === fromId);
+    const to = cards.findIndex(c => c.id === toId);
+    if (from < 0 || to < 0) return;
+    const next = [...cards];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    persist(next);
+  }
+
+  // ปุ่มลูกศร: เลื่อนไปทางซ้าย/ขวาเทียบกับการ์ดข้างเคียงที่เห็นอยู่ (ใช้ได้ทั้งตอนกรองอยู่และบนจอสัมผัส)
+  function shiftCard(id: string, dir: -1 | 1) {
+    const i = filtered.findIndex(c => c.id === id);
+    const nb = filtered[i + dir];
+    if (i < 0 || !nb) return;
+    moveCard(id, nb.id);
+  }
+
   function dup(c: Card) {
     persist([...cards, { ...structuredClone(c), id: uid(), name: `${c.name} (สำเนา)` }]);
   }
@@ -448,15 +470,29 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
         </div>
       </div>
 
+      {filtered.length > 1 && <p className="text-xs text-slate-500 mb-3">ลากการ์ดไปวางทับใบอื่นเพื่อจัดลำดับเอง · หรือเอาเมาส์ชี้การ์ดแล้วกดลูกศร ◀ ▶ · ลำดับถูกบันทึกอัตโนมัติ</p>}
+
       {filtered.length === 0 ? (
         <EmptyState icon={Layers} title={cards.length === 0 ? "ยังไม่มีการ์ด" : "ไม่พบการ์ดที่ตรงกับเงื่อนไข"} hint={cards.length === 0 ? 'กด "สร้างการ์ด" เพื่อเริ่มออกแบบการ์ดใบแรก' : "ลองเปลี่ยนตัวกรองหรือคำค้นหา"} action={cards.length === 0 ? <button onClick={startNew} className="btn btn-primary"><Plus size={16} /> สร้างการ์ดใบแรก</button> : undefined} />
       ) : (
         <div className="grid gap-x-5 gap-y-7 justify-items-center" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
           {filtered.map(c => (
-            <div key={c.id} className="relative group lift rounded-xl" style={{ ["--glow" as string]: `${flagOf(c)?.color ?? "#22d3ee"}88` }}>
+            <div
+              key={c.id}
+              draggable
+              onDragStart={e => { setDragId(c.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", c.id); }}
+              onDragOver={e => { if (dragId) { e.preventDefault(); if (overId !== c.id) setOverId(c.id); } }}
+              onDragLeave={() => { if (overId === c.id) setOverId(null); }}
+              onDrop={e => { e.preventDefault(); if (dragId) moveCard(dragId, c.id); setDragId(null); setOverId(null); }}
+              onDragEnd={() => { setDragId(null); setOverId(null); }}
+              className={`relative group lift rounded-xl cursor-grab active:cursor-grabbing transition ${dragId === c.id ? "opacity-40" : ""} ${overId === c.id && dragId !== c.id ? "ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950" : ""}`}
+              style={{ ["--glow" as string]: `${flagOf(c)?.color ?? "#22d3ee"}88` }}
+            >
               <CardView card={c} flag={flagOf(c)} size="md" onClick={() => setEditing(c)} />
               <div className="absolute -bottom-3 inset-x-0 z-30 flex justify-center gap-1.5 opacity-0 group-hover:opacity-100 transition">
+                <button title="เลื่อนไปทางซ้าย" onClick={() => shiftCard(c.id, -1)} className="btn !p-1.5 !rounded-lg"><ChevronLeft size={14} /></button>
                 <button title="แก้ไข" onClick={() => setEditing(c)} className="btn !p-1.5 !rounded-lg"><Edit3 size={14} /></button>
+                <button title="เลื่อนไปทางขวา" onClick={() => shiftCard(c.id, 1)} className="btn !p-1.5 !rounded-lg"><ChevronRight size={14} /></button>
                 <button title="ทำสำเนา" onClick={() => dup(c)} className="btn !p-1.5 !rounded-lg"><Copy size={14} /></button>
                 <button title="ลบ" onClick={() => del(c.id)} className="btn btn-danger !p-1.5 !rounded-lg"><Trash2 size={14} /></button>
               </div>

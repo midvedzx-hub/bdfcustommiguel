@@ -173,7 +173,7 @@ export function CardView({
         <div className="relative z-10 shrink-0 flex flex-col" style={{ maxHeight: "19em" }}>
           {flavorBox({ ml: "2.7em", mr: "0.7em", fs: "0.6em", maxH: "5.6em" })}
           {!compact && (
-            <div className="rounded-[0.5em] text-white leading-snug overflow-hidden" style={{ marginLeft: "2.7em", marginRight: "0.7em", marginBottom: "0.4em", fontSize: "0.62em", background: "rgba(5,8,18,.74)", padding: "0.4em 0.6em", minHeight: 0, border: "0.08em solid rgba(255,255,255,.18)" }}>
+            <div className="rounded-[0.5em] text-white leading-snug overflow-x-hidden" style={{ marginLeft: "2.7em", marginRight: "0.7em", marginBottom: "0.4em", fontSize: "0.62em", background: "rgba(5,8,18,.74)", padding: "0.4em 0.6em", minHeight: 0, maxHeight: flavor ? "7em" : "9.6em", overflowY: "auto", overscrollBehavior: "contain", scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,.4) transparent", border: "0.08em solid rgba(255,255,255,.18)" }}>
               {cost && <div><span className="inline-block bg-white/90 text-slate-900 rounded px-1 mr-1 font-bold">Call Cost</span>{cost}</div>}
               {lines.map((l, i) => <div key={i} className="text-amber-100">▪ {l}</div>)}
               {customTextList(card).map((t, i) => <div key={`ct${i}`} className="text-slate-200">▪ {t}</div>)}
@@ -241,7 +241,7 @@ export function CardView({
   const pills = [tagA ? pill(tagA, "a") : null, tagB ? pill(tagB, "b", flag?.image) : null].filter(Boolean);
 
   const textBox = !compact && hasBody ? (
-    <div className="rounded-[0.5em] text-white leading-snug overflow-hidden" style={{ marginLeft: "0.7em", marginRight: isImpact ? "0.3em" : "0.7em", marginBottom: "0.4em", fontSize: isImpact ? "0.56em" : "0.62em", background: "rgba(5,8,18,.74)", padding: "0.4em 0.6em", minHeight: 0, maxHeight: isImpact ? (flavor ? "11em" : "15em") : "none", border: "0.08em solid rgba(255,255,255,.18)" }}>
+    <div className="rounded-[0.5em] text-white leading-snug overflow-x-hidden" style={{ marginLeft: "0.7em", marginRight: isImpact ? "0.3em" : "0.7em", marginBottom: "0.4em", fontSize: isImpact ? "0.56em" : "0.62em", background: "rgba(5,8,18,.74)", padding: "0.4em 0.6em", minHeight: 0, maxHeight: flavor ? (isImpact ? "6em" : "7.5em") : (isImpact ? "9em" : "10.5em"), overflowY: "auto", overscrollBehavior: "contain", scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,.4) transparent", border: "0.08em solid rgba(255,255,255,.18)" }}>
       {cost && (
         <div>
           <span className="inline-block bg-slate-950 text-white rounded px-1 mr-1 font-bold border border-white/70">{costLabel}</span>{cost}
