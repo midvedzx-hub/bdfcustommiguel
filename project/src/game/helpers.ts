@@ -45,7 +45,8 @@ export function effectText(e: AutoEffect): string {
       const stats = (e.cmpStats && e.cmpStats.length ? e.cmpStats : ["power"]).map(k => names[k]);
       const joiner = e.cmpMode === "any" ? " หรือ " : " และ ";
       const ref = (e.refName ?? "").trim();
-      return `ทำลายมอนสเตอร์${e.includeItem ? "/ไอเทม" : ""}ของศัตรูทุกใบที่ ${stats.join(joiner)} น้อยกว่า${ref ? ` “${ref}” (ต้องอยู่ในสนามของเรา)` : "การ์ดใบนี้"}`;
+      const pk = Math.max(0, Math.floor(e.lifePerKill ?? 0));
+      return `ทำลายมอนสเตอร์${e.includeItem ? "/ไอเทม" : ""}ของศัตรูทุกใบที่ ${stats.join(joiner)} น้อยกว่า${ref ? ` “${ref}” (ต้องอยู่ในสนามของเรา)` : "การ์ดใบนี้"}${pk > 0 ? ` แล้วทำดาเมจตรง ${pk} ต่อการ์ด 1 ใบที่ถูกทำลาย` : ""}`;
     }
     case "restOpponent": return `Rest มอนสเตอร์ศัตรู ${v} ตัว`;
     case "opponentDiscard": return `ศัตรูทิ้งการ์ดในมือ ${v} ใบ`;

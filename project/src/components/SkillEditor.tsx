@@ -48,7 +48,12 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
             <span>ของการ์ดชื่อ</span>
             <input value={eff.refName ?? ""} onChange={e => onChange({ ...eff, refName: e.target.value })} placeholder="ว่าง = การ์ดใบนี้ / พิมพ์ชื่อการ์ดที่กำหนด" className={`${num} !py-0.5 text-xs w-64`} />
             <label className="flex items-center gap-1"><input type="checkbox" checked={!!eff.includeItem} onChange={e => onChange({ ...eff, includeItem: e.target.checked })} /> รวมไอเทมของศัตรูด้วย</label>
-            <p className="basis-full text-slate-500">ตัวที่กำหนดต้องอยู่ในสนามของเราตอนใช้ ถ้าไม่อยู่ ความสามารถนี้ไม่ทำงาน · ชื่อพิมพ์บางส่วนได้ ไม่สนตัวพิมพ์เล็กใหญ่ · ถ้ามีหลายใบที่ชื่อตรง ใช้ค่าสูงสุดของแต่ละสถานะ · ใช้ค่าปัจจุบัน (รวมบัฟ) ของทั้งสองฝ่าย · ถ้าเลือกหลายค่า “ทุกค่า” = ต้องน้อยกว่าทุกค่าที่เลือก · การ์ดที่ไม่สามารถถูกทำลายจากความสามารถ / Soulguard จะรอดตามปกติ</p>
+            <span className="basis-full" />
+            <label className="flex items-center gap-1">ยิงดาเมจตรงใส่ Life ศัตรู
+              <input type="number" min={0} max={9} value={eff.lifePerKill ?? 0} onChange={e => onChange({ ...eff, lifePerKill: Math.max(0, Math.min(9, parseInt(e.target.value) || 0)) })} className={`${num} w-14 !py-0.5 text-xs`} />
+              ต่อการ์ด 1 ใบที่ถูกทำลาย <span className="text-slate-500">(0 = ไม่ยิง)</span>
+            </label>
+            <p className="basis-full text-slate-500">ตัวที่กำหนดต้องอยู่ในสนามของเราตอนใช้ ถ้าไม่อยู่ ความสามารถนี้ไม่ทำงาน · ชื่อพิมพ์บางส่วนได้ ไม่สนตัวพิมพ์เล็กใหญ่ · ถ้ามีหลายใบที่ชื่อตรง ใช้ค่าสูงสุดของแต่ละสถานะ · ใช้ค่าปัจจุบัน (รวมบัฟ) ของทั้งสองฝ่าย · ถ้าเลือกหลายค่า “ทุกค่า” = ต้องน้อยกว่าทุกค่าที่เลือก · การ์ดที่ไม่สามารถถูกทำลายจากความสามารถ / Soulguard จะรอดตามปกติ และไม่นับเป็นใบที่ถูกทำลาย (ไม่ถูกคิดดาเมจ)</p>
           </div>
         );
       })()}

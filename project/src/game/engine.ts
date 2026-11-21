@@ -457,7 +457,8 @@ function runSkills(
           const itemFc = g[opp].item;
           const hitItem = !!eff.includeItem && !!itemFc && weaker(itemFc);
           log(g, `${card.name}: ทำลายการ์ดศัตรูที่ค่าน้อยกว่า ${label} (${victims.length + (hitItem ? 1 : 0)} ใบ)`);
-          victims.forEach(u => mDestroyMonster(g, opp, u));
+          let destroyed = 0; // นับเฉพาะใบที่ถูกทำลายได้จริง (ใบที่รอดจาก Soulguard / ไม่สามารถถูกทำลายฯ ไม่นับ)
+          victims.forEach(u => { if (mDestroyMonster(g, opp, u)) destroyed++; });
           if (hitItem && itemFc) {
             const ic = cardOfFc(itemFc);
             if (isIndestructible(itemFc, ic)) log(g, `${ic?.name ?? "ไอเทม"} ไม่สามารถถูกทำลายจากความสามารถของการ์ดคู่แข่งได้ — รอด!`);
@@ -465,7 +466,16 @@ function runSkills(
               g[opp].dropZone.push(itemFc.cardId, ...itemFc.soul);
               g[opp].item = null;
               log(g, `${ic?.name ?? "ไอเทม"} ถูกทำลาย`);
+              destroyed++;
             }
+          }
+          const perKill = Math.max(0, Math.floor(eff.lifePerKill ?? 0));
+          if (perKill > 0 && destroyed > 0 && !g.winner) {
+            const dmg = perKill * destroyed;
+            log(g, `${card.name}: ทำลายได้จริง ${destroyed} ใบ × ${perKill} → ยิงดาเมจตรง ${dmg} ใส่ผู้เล่นศัตรู`);
+            mLife(g, opp, -dmg);
+          } else if (perKill > 0 && destroyed === 0) {
+            log(g, `${card.name}: ไม่มีการ์ดถูกทำลาย จึงไม่ยิงดาเมจ`);
           }
           break;
         }
