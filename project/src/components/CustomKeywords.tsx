@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Plus, Pencil, Trash2, Save, X } from "lucide-react";
 import type { AutoEffect, AutoSkill, AutoTrigger, CustomKeyword } from "@/types";
 import { TRIGGER_LABELS } from "@/types";
-import { getCustomKeywords, saveCustomKeywords, uid } from "@/storage";
+import { getCustomKeywords, saveCustomKeywords, getCards, saveCards, uid } from "@/storage";
 import { effectText } from "@/game/helpers";
 import { EffectRow, CounterOptions } from "@/components/SkillEditor";
 
@@ -43,6 +43,17 @@ export function CustomKeywordPanel({ skills, onChange }: { skills: AutoSkill[]; 
     persist(old ? list.map(k => (k.id === kw.id ? kw : k)) : [...list, kw]);
     // ถ้าการ์ดใบนี้ใช้คีย์เวิร์ดนี้อยู่ ให้อัปเดตตามที่แก้ด้วย
     if (old && skills.some(s => s.name === old.name)) onChange(skills.map(s => (s.name === old.name ? toSkill(kw) : s)));
+    // อัปเดตการ์ดทุกใบที่ใช้คีย์เวิร์ดนี้อยู่ด้วย (เดิมแก้ได้เฉพาะการ์ดที่เปิดอยู่ ใบอื่นยังถือสกิลเวอร์ชันเก่า)
+    if (old) {
+      const all = getCards();
+      let changed = false;
+      const updated = all.map(c => {
+        if (!c.autoSkills?.some(s => s.name === old.name)) return c;
+        changed = true;
+        return { ...c, autoSkills: c.autoSkills.map(s => (s.name === old.name ? toSkill(kw) : s)) };
+      });
+      if (changed) saveCards(updated);
+    }
     setEditing(null);
     setErr("");
   }

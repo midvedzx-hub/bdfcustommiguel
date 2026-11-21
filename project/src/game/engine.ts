@@ -458,6 +458,13 @@ function runSkills(
           break;
         }
         case "addSoul": {
+          const ss = ownSetSoul(g, side, card, ctx);
+          if (ss) {
+            let moved = 0;
+            for (let i = 0; i < n && g[side].deck.length > 0; i++) { ss.push(g[side].deck.shift()!); moved++; }
+            if (moved > 0) { log(g, `${card.name} (Set) ได้รับ Soul +${moved} (รวม ${ss.length})`); recalcAuras(g); }
+            break;
+          }
           // จากเวท/การ์ด Set ที่ไม่มีการ์ดเป้าหมาย: ใส่ให้มอนสเตอร์ของเราตัวแรก (ช่องกลาง → ซ้าย → ขวา)
           const fc = ctx.fc ?? [1, 0, 2].map(pos => g[side].monsters.find(m => m.position === pos)).find(Boolean);
           if (!fc) break;
@@ -468,6 +475,15 @@ function runSkills(
           break;
         }
         case "dropToSoul": {
+          const ss = ownSetSoul(g, side, card, ctx);
+          if (ss) {
+            const got = pickFromDrop(g, side, n, eff.filter);
+            if (got.length === 0) { log(g, `${card.name}: ไม่มีการ์ดที่ตรงเงื่อนไขในสุสาน`); break; }
+            ss.push(...got);
+            log(g, `${card.name} (Set) นำการ์ดจากสุสาน ${got.length} ใบเข้า Soul ของตัวเอง (รวม ${ss.length})`);
+            recalcAuras(g);
+            break;
+          }
           // เป้าหมาย: การ์ดที่ใช้สกิล > มอนสเตอร์ที่มี Soulguard > มอนสเตอร์ตัวล่าสุด
           const fc = ctx?.fc
             ?? g[side].monsters.find(m => { const c = cardOfFc(m); return !!c && keywordValue(c, "soulguard") > 0; })
@@ -481,6 +497,15 @@ function runSkills(
           break;
         }
         case "soulToHand": {
+          const ss = ownSetSoul(g, side, card, ctx);
+          if (ss) {
+            if (ss.length === 0) { log(g, `${card.name}: ไม่มี Soul ให้ถอดขึ้นมือ`); break; }
+            let moved = 0;
+            for (let i = 0; i < n && ss.length > 0; i++) { g[side].hand.push(ss.pop()!); moved++; }
+            log(g, `${card.name} (Set) ถอด Soul ${moved} ใบขึ้นมือ`);
+            recalcAuras(g);
+            break;
+          }
           const fc = ctx?.fc;
           if (!fc || fc.soul.length === 0) { log(g, `${card.name}: ไม่มี Soul ให้ถอดขึ้นมือ`); break; }
           let moved = 0;
@@ -517,6 +542,14 @@ function runSkills(
           break;
         }
         case "removeSoul": {
+          const ss = ownSetSoul(g, side, card, ctx);
+          if (ss) {
+            if (ss.length < n) { abort = true; log(g, `${card.name}: Soul ไม่พอ เอฟเฟกต์ที่เหลือไม่ทำงาน`); break; }
+            for (let i = 0; i < n; i++) g[side].dropZone.push(ss.pop()!);
+            log(g, `${card.name} (Set) ถอด Soul ${n} ใบลงสุสาน (เหลือ ${ss.length})`);
+            recalcAuras(g);
+            break;
+          }
           let fc = ctx.fc;
           if (!fc) {
             // ใช้จากเวท/ไม่มีการ์ดเป้าหมาย: เลือกการ์ดของเราที่มี Soul มากที่สุด (ที่มีพอ)
@@ -941,6 +974,14 @@ export function activeSetCards(p: PlayerState): Card[] {
   return p.setZone.map(id => getCard(id)).filter((c): c is Card => !!c && hasSetKeyword(c));
 }
 
+// Soul ใต้การ์ด Set ของเราที่เป็นต้นทางของเอฟเฟกต์ (เมื่อไม่มีการ์ดบนสนามเป็นเป้าหมาย): ใช้เก็บ Soul ของการ์ด Set ใบนั้นเอง
+function ownSetSoul(g: GameState, side: Side, card: Card, ctx?: { fc?: FieldCard }): string[] | null {
+  if (ctx?.fc || !hasSetKeyword(card)) return null;
+  const p = g[side];
+  const i = p.setZone.lastIndexOf(card.id);
+  return i < 0 ? null : normSetSoul(p)[i];
+}
+
 // ผลต่อเนื่องจากการ์ด Set: บัฟ Power/Defense/Critical ให้มอนสเตอร์และไอเทมของเจ้าของ (คำนวณใหม่ทุกครั้งที่ Set เปลี่ยน)
 export function recalcAuras(g: GameState) {
   (["host", "guest"] as Side[]).forEach(side => {
@@ -1030,15 +1071,24 @@ export function recalcAuras(g: GameState) {
 }
 
 // ---- soulCond: นับการ์ดในโซลของการ์ดใบนี้ที่ตรงเงื่อนไข (คุณสมบัติ/ชื่อ; คั่นหลายค่าด้วย , = ตรงอย่างใดอย่างหนึ่ง; ว่าง = การ์ดใดก็ได้) ----
-const splitAlts = (t: string | undefined) => (t ?? "").split(",").map(x => x.trim().toLowerCase()).filter(Boolean);
+// เทียบข้อความแบบทนต่อความต่างเล็กน้อย: ไม่สนตัวพิมพ์เล็กใหญ่/ช่องว่างซ้ำ/ช่องว่างพิเศษ/อักขระเต็มความกว้าง (ใช้กับ soulCond)
+const normTxt = (t: string) => t.normalize("NFKC").toLowerCase().replace(/[\s\u00a0\u200b]+/g, " ").trim();
+// คั่นหลายค่าด้วย , ， 、 ; / | หรือขึ้นบรรทัดใหม่ (ตรงอย่างใดอย่างหนึ่ง)
+const splitAlts = (t: string | undefined) => (t ?? "").normalize("NFKC").split(/[,;\/|、\n]+/).map(normTxt).filter(Boolean);
+const altHas = (hay: string | undefined, alt: string) => {
+  if (!hay) return false;
+  const h = normTxt(hay);
+  return h.includes(alt) || h.replace(/ /g, "").includes(alt.replace(/ /g, ""));
+};
 // จำนวนการ์ดในโซลของ fc ที่ตรงเงื่อนไข (ว่าง = นับทุกใบ)
 function soulCondCount(soul: string[], e: AutoEffect): number {
   const alts = splitAlts(e.condText);
+  if (alts.length === 0) return soul.length; // ไม่กำหนดเงื่อนไข = นับทุกใบ (ไม่ต้องรู้จักการ์ด)
   return soul.filter(id => {
     const sc = getCard(id);
     if (!sc) return false;
     if (alts.length === 0) return true;
-    return alts.some(a => (e.condMatch === "name" ? textHas(sc.name, a) : textHas(sc.attribute, a)));
+    return alts.some(a => (e.condMatch === "name" ? altHas(sc.name, a) : altHas(sc.attribute, a)));
   }).length;
 }
 // ผู้ได้รับผล: ไม่ระบุ targetText = การ์ดใบนี้เอง; ระบุ = การ์ดอื่นของเราบนสนามที่คุณสมบัติ/ชื่อตรง (รวมใบนี้ถ้าติ๊ก includeSelf)
@@ -1048,7 +1098,7 @@ function soulCondTargets(p: PlayerState, self: FieldCard | null, e: AutoEffect):
   return fieldCardsOf(p).filter(f => {
     if (self && f.uid === self.uid && !e.includeSelf) return false;
     const c = getCard(f.cardId);
-    return !!c && alts.some(a => (e.targetMatch === "name" ? textHas(c.name, a) : textHas(c.attribute, a)));
+    return !!c && alts.some(a => (e.targetMatch === "name" ? altHas(c.name, a) : altHas(c.attribute, a)));
   });
 }
 
