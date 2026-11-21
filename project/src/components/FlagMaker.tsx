@@ -6,6 +6,7 @@ import { getFlags, saveFlags, getCards, uid, downloadJSON, importAll, exportFlag
 import { CardView } from "@/components/CardView";
 import { ImageUpload } from "@/components/ImageUpload";
 import { clampColor } from "@/game/helpers";
+import { FlagInfoDialog } from "@/components/FlagInfo";
 
 const DEFAULT_FLAG: Flag = {
   id: "",
@@ -21,6 +22,7 @@ const DEFAULT_FLAG: Flag = {
 export function FlagMaker({ onBack }: { onBack: () => void }) {
   const [flags, setFlags] = useState<Flag[]>(getFlags());
   const [editing, setEditing] = useState<Flag | null>(null);
+  const [viewing, setViewing] = useState<Flag | null>(null);
   const [copied, setCopied] = useState(false);
   const [monsters] = useState(() => getCards().filter(c => c.type === "Monster"));
 
@@ -151,11 +153,12 @@ export function FlagMaker({ onBack }: { onBack: () => void }) {
       title="Flag Maker" subtitle="สร้างโลก/ธงประจำเด็ค กำหนด Life เกจ และ Buddy ประจำโลก" icon={FlagIcon} accent="#22d3ee" onBack={onBack}
       actions={<>
         <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(flags, null, 2)); setCopied(true); setTimeout(() => setCopied(false), 1500); }} className="btn"><Copy size={14} /> {copied ? "คัดลอกแล้ว" : "ก๊อปปี้"}</button>
-        <button onClick={exportFlags} className="btn"><Download size={14} /> Export</button>
-        <label className="btn cursor-pointer"><Upload size={14} /> Import<input type="file" accept=".json" className="hidden" onChange={handleImport} /></label>
+        <button onClick={exportFlags} className="btn"><Upload size={14} /> Export</button>
+        <label className="btn cursor-pointer"><Download size={14} /> Import<input type="file" accept=".json" className="hidden" onChange={handleImport} /></label>
         <button onClick={startNew} className="btn btn-primary"><Plus size={16} /> สร้าง Flag</button>
       </>}
     >
+      {viewing && <FlagInfoDialog flag={viewing} buddies={(viewing.buddyIds ?? []).map(id => allCards.find(c => c.id === id)).filter((c): c is NonNullable<typeof c> => !!c)} onEdit={() => { setEditing(viewing); setViewing(null); }} onClose={() => setViewing(null)} />}
       {flags.length === 0 ? (
         <EmptyState icon={FlagIcon} title="ยังไม่มี Flag" hint='กด "สร้าง Flag" เพื่อสร้างธงประจำโลกของคุณ' action={<button onClick={startNew} className="btn btn-primary"><Plus size={16} /> สร้าง Flag แรก</button>} />
       ) : (
@@ -165,7 +168,7 @@ export function FlagMaker({ onBack }: { onBack: () => void }) {
             const buddies = (f.buddyIds ?? []).map(id => allCards.find(c => c.id === id)).filter(Boolean);
             return (
               <div key={f.id} className="panel lift group overflow-hidden" style={{ borderColor: `${col}66`, ["--glow" as string]: `${col}66` }}>
-                <div className="relative h-36 overflow-hidden cursor-pointer" onClick={() => setEditing(f)}>
+                <div className="relative h-36 overflow-hidden cursor-pointer" title="กดเพื่อดูความสามารถ" onClick={() => setViewing(f)}>
                   {f.image
                     ? <img src={f.image} alt={f.name} className="w-full h-full object-cover transition duration-500 group-hover:scale-110" />
                     : <div className="w-full h-full" style={{ background: `linear-gradient(135deg, ${col}, #0f172a)` }} />}

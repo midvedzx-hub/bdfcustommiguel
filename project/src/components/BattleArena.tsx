@@ -18,6 +18,7 @@ import { keywordValue,
   setSoulguardAuto, closeMoveWindow, movableMonsters, recalcAuras, hasSetKeyword, activeSetCards, sandboxDestroySet, sandboxMoveSet, resolveLook, resolveSoulChoice, resolveTargetChoice, targetEffectLabel,
 } from "@/game/engine";
 import { getFlags, getCards, getDecks } from "@/storage";
+import { FlagInfoDialog } from "@/components/FlagInfo";
 import { getFlagColor, hasCounter, skillLines, keywordBadges, costText, effectText, KEYWORD_HELP, TRIGGER_HELP } from "@/game/helpers";
 import { mp } from "@/game/multiplayer";
 import { CardView } from "@/components/CardView";
@@ -352,6 +353,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const [, setImgTick] = useState(0);
   const dragRef = useRef<Drag>(null);
   const [inspectMode, setInspectMode] = useState(false);
+  const [flagInfo, setFlagInfo] = useState<Flag | null>(null);
   const [hidden, setHidden] = useState<string[]>([]);
   const [banner, setBanner] = useState<{ key: number; text: string; sub?: string; color: string } | null>(null);
   const bannerTimer = useRef<number | undefined>(undefined);
@@ -831,8 +833,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       >
         {/* Life track */}
         <div data-fx={`life:${side}`} style={{ ...place(10, 0, 81, 8.5, mirror), background: "linear-gradient(180deg,#7f1d1d,#5b1414)", borderRadius: mirror ? "0 0 10px 10px" : "10px 10px 0 0" }}
-          className={`flex items-center gap-[1%] px-[1.2%] ${fighterLegal ? "glow-target cursor-crosshair" : ""}`}
-          onClick={() => !isMine && atkSels.length > 0 && tryAttack({ kind: "fighter" })}
+          className={`flex items-center gap-[1%] px-[1.2%] ${fighterLegal ? "glow-target cursor-crosshair" : "cursor-pointer"}`} title="กดเพื่อดูความสามารถของ Flag"
+          onClick={() => { if (!isMine && atkSels.length > 0) tryAttack({ kind: "fighter" }); else if (flag) setFlagInfo(flag); }}
           onDragOver={draggingAttack ? (e) => e.preventDefault() : undefined}
           onDrop={draggingAttack ? (e) => { e.preventDefault(); handleDropAttack({ kind: "fighter" }); } : undefined}>
           <span className="font-display font-bold text-white shrink-0" style={{ fontSize: "calc(var(--mh) * 0.04)" }}>พลังชีวิต</span>
@@ -1457,7 +1459,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 {(card.type === "Monster" || card.type === "Item" || card.type === "Impact") && (<>
                   <span>Power: <b className="text-rose-400">{st ? st.power : card.power}</b>{st && st.power !== card.power ? <span className="text-slate-500"> (ปกติ {card.power})</span> : null}</span>
                   <span>Critical: <b className="text-rose-300">{st ? st.critical : card.critical}</b></span>
-                  {card.type === "Monster" && <span>Defense: <b className="text-sky-300">{st ? st.defense : card.defense}</b></span>}
+                  {(card.type === "Monster" || (card.type === "Item" && (st ? st.defense : card.defense) > 0)) && <span>Defense: <b className="text-sky-300">{st ? st.defense : card.defense}</b></span>}
                 </>)}
                 {card.attribute && <span className="col-span-2">สายพันธุ์: <b className="text-white">{card.attribute}</b></span>}
               </div>
@@ -1852,9 +1854,9 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           <div className="flex items-center gap-2 min-w-0">
             <button onClick={onExit} title="ออกจากเกม" className="btn !py-1.5 !px-3 !text-xs"><LogOut size={14} /> ออก</button>
             <div className="hidden sm:flex items-center gap-2 text-sm font-display font-bold min-w-0">
-              <span className="truncate max-w-[10rem]" style={{ color: getFlagColor(flagOf(me.flagId)) }}>{flagOf(me.flagId)?.name ?? "คุณ"}</span>
+              <button className="truncate max-w-[10rem] hover:underline" title="ดูความสามารถของ Flag" onClick={() => { const f = flagOf(me.flagId); if (f) setFlagInfo(f); }} style={{ color: getFlagColor(flagOf(me.flagId)) }}>{flagOf(me.flagId)?.name ?? "คุณ"}</button>
               <span className="text-slate-500 text-xs">VS</span>
-              <span className="truncate max-w-[10rem]" style={{ color: getFlagColor(flagOf(foe.flagId)) }}>{flagOf(foe.flagId)?.name ?? "ศัตรู"}</span>
+              <button className="truncate max-w-[10rem] hover:underline" title="ดูความสามารถของ Flag" onClick={() => { const f = flagOf(foe.flagId); if (f) setFlagInfo(f); }} style={{ color: getFlagColor(flagOf(foe.flagId)) }}>{flagOf(foe.flagId)?.name ?? "ศัตรู"}</button>
             </div>
             {mode === "bot" && (
               <select value={guestDeckId} onChange={e => changeBotDeck(e.target.value)} title="เปลี่ยนเด็คของบอท (เริ่มเกมใหม่)" className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs">
@@ -1924,6 +1926,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       )}
       {renderCounterModal()}
       {renderFreeCounterModal()}
+      {flagInfo && <FlagInfoDialog flag={flagInfo} buddies={(flagInfo.buddyIds ?? []).map(id => cardOf(id)).filter((c): c is Card => !!c)} onClose={() => setFlagInfo(null)} />}
       {renderDiscardPick()}
       {renderLookModal()}
       {renderSoulModal()}

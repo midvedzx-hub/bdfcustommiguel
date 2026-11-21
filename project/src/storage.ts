@@ -134,9 +134,11 @@ function mergeById<T extends { id: string }>(old: T[], incoming: T[]): T[] {
 }
 
 export interface ImportResult { flags: number; cards: number; decks: number }
+export interface ParsedImport { flags: Flag[]; cards: Card[]; decks: Deck[]; kws: CustomKeyword[] | null }
+export interface ImportSelection { flags?: Set<string>; cards?: Set<string>; decks?: Set<string> }
 
-// รับได้ทั้งไฟล์แบบรวม {flags,cards,decks} และไฟล์แบบอาร์เรย์เดี่ยว ๆ ([...การ์ด], [...เด็ค], [...Flag]) ที่เคย Export ไว้
-export function importAll(json: string): ImportResult {
+// อ่านไฟล์ที่ Export ไว้ (รับได้ทั้งไฟล์รวม {flags,cards,decks} และอาร์เรย์เดี่ยว ๆ) โดยยังไม่บันทึกอะไร
+export function parseImport(json: string): ParsedImport {
   const data: unknown = JSON.parse(json.replace(/^\uFEFF/, ""));
   let flags: Flag[] = [];
   let cards: Card[] = [];
@@ -160,7 +162,24 @@ export function importAll(json: string): ImportResult {
 
   if (flags.length === 0 && cards.length === 0 && decks.length === 0 && !kws)
     throw new Error("ไม่พบข้อมูล Flag / การ์ด / เด็ค ในไฟล์นี้");
+  return { flags, cards, decks, kws };
+}
 
+// บันทึกเข้าเครื่อง ถ้าระบุ sel = นำเข้าเฉพาะที่เลือก (เด็คที่เลือกจะพ่วงการ์ดของเด็คนั้น และการ์ด/เด็คจะพ่วง Flag ที่ใช้ ถ้ามีอยู่ในไฟล์)
+export function applyImport(p: ParsedImport, sel?: ImportSelection): ImportResult {
+  let { flags, cards, decks } = p;
+  let kws = p.kws;
+  if (sel) {
+    const deckSet = sel.decks ?? new Set<string>();
+    decks = decks.filter(d => deckSet.has(d.id));
+    const cardIds = new Set(sel.cards ?? []);
+    decks.forEach(d => { d.cardIds.forEach(id => cardIds.add(id)); if (d.buddyId) cardIds.add(d.buddyId); });
+    cards = cards.filter(c => cardIds.has(c.id));
+    const flagIds = new Set(sel.flags ?? []);
+    [...cards.map(c => c.flagId), ...decks.map(d => d.flagId)].forEach(id => id && flagIds.add(id));
+    flags = flags.filter(f => flagIds.has(f.id));
+    kws = null;
+  }
   let ok = true;
   if (flags.length) ok = saveFlags(mergeById(getFlags(), flags)) && ok;
   if (cards.length) ok = saveCards(mergeById(getCards(), cards)) && ok;
@@ -168,6 +187,10 @@ export function importAll(json: string): ImportResult {
   if (kws) saveCustomKeywords(mergeById(getCustomKeywords(), kws));
   if (!ok) throw new Error("พื้นที่เก็บข้อมูลของเบราว์เซอร์เต็ม (รูปการ์ดใหญ่เกินไป) บันทึกไม่ครบ");
   return { flags: flags.length, cards: cards.length, decks: decks.length };
+}
+
+export function importAll(json: string): ImportResult {
+  return applyImport(parseImport(json));
 }
 
 export function fileToBase64(file: File): Promise<string> {

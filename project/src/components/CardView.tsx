@@ -215,7 +215,7 @@ export function CardView({
   const stroke: CSSProperties = { WebkitTextStroke: "0.07em #000", paintOrder: "stroke fill" } as CSSProperties;
   const box: CSSProperties = isImpact ? { ...base, aspectRatio: "88 / 63" } : base; // Impact จริงเป็นการ์ดแนวนอน
   const pillBg = isSpell ? "linear-gradient(180deg, #7c3aed, #3b0764)" : "linear-gradient(180deg, #94a3b8, #334155)";
-  const showStat = (isItem || isImpact) && (st.power > 0 || st.critical > 0);
+  const showStat = (isItem || isImpact) && (st.power > 0 || st.critical > 0 || (isItem && st.defense > 0));
   const hasBody = !!cost || lines.length > 0 || customTextList(card).length > 0 || badges.length > 0;
 
   const renderLine = (l: string, i: number) => {
@@ -279,9 +279,10 @@ export function CardView({
           <span className="text-white font-semibold leading-none" style={{ fontSize: "0.58em", marginTop: "0.35em" }}>{TYPE_LABEL[card.type] ?? card.type}</span>
         </div>
 
-        {/* Item: Critical กลาง · Power (แดง) ล่าง เรียงแนวตั้งด้านซ้ายแบบเดียวกับมอนสเตอร์ (ไม่มี Defense) */}
+        {/* Item: Defense (ฟ้า, แสดงเมื่อ > 0) บน · Critical กลาง · Power (แดง) ล่าง เรียงแนวตั้งด้านซ้ายแบบเดียวกับมอนสเตอร์ */}
         {isItem && showStat && (
           <div className="absolute left-0 flex flex-col items-center justify-between font-display font-bold overflow-hidden" style={{ top: "4.9em", bottom: "0.3em", width: "2.3em", padding: "0.15em 0", background: "linear-gradient(90deg, rgba(0,0,0,.6), rgba(0,0,0,0))" }}>
+            {st.defense > 0 && <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: vertSize(st.defense, compact), lineHeight: 1, whiteSpace: "nowrap", color: "#7dd3fc", ...stroke }} title="Defense">{st.defense}</span>}
             <span className="text-white" style={{ fontSize: compact ? "2.2em" : "1.9em", lineHeight: 1, ...stroke }} title="Critical">{st.critical}</span>
             <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: vertSize(st.power, compact), lineHeight: 1, whiteSpace: "nowrap", color: "#fb7185", ...stroke }} title="Power">{st.power}</span>
           </div>

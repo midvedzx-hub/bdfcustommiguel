@@ -137,8 +137,8 @@ export function Lobby({ onFlagMaker, onCardStudio, onDeckBuilder, onPlay }: Prop
         </section>
 
         <div className="flex justify-center gap-3 mt-10">
-          <button onClick={() => downloadJSON(exportAll(), "custom-buddyfight-all.json")} className="btn"><Download size={14} /> Export ทั้งหมด</button>
-          <button onClick={() => fileRef.current?.click()} className="btn"><Upload size={14} /> Import ทั้งหมด</button>
+          <button onClick={() => downloadJSON(exportAll(), "custom-buddyfight-all.json")} className="btn"><Upload size={14} /> Export ทั้งหมด</button>
+          <button onClick={() => fileRef.current?.click()} className="btn"><Download size={14} /> Import ทั้งหมด</button>
           <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
         </div>
         {importMsg && <p className="text-center text-sm text-cyan-400 mt-3">{importMsg}</p>}

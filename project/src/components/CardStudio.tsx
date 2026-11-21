@@ -4,7 +4,9 @@ import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Card, Flag, CardType, AutoTrigger, AutoEffectType, AutoEffect, AutoSkill } from "@/types";
 import { TRIGGER_LABELS, EFFECT_LABELS, DROP_FILTERS, callCostLabel } from "@/types";
 import type { CardFilter } from "@/types";
-import { getCards, saveCards, getFlags, saveFlags, getDecks, saveDecks, uid, downloadJSON, importAll, exportCards } from "@/storage";
+import { getCards, saveCards, getFlags, saveFlags, getDecks, saveDecks, uid, downloadJSON, parseImport, applyImport, exportCards } from "@/storage";
+import type { ParsedImport } from "@/storage";
+import { TransferDialog } from "@/components/TransferDialog";
 import { ImageUpload } from "@/components/ImageUpload";
 import { CardView } from "@/components/CardView";
 import { SKILL_TEMPLATES } from "@/game/helpers";
@@ -57,6 +59,7 @@ function AutoTextarea({ value, onChange, placeholder, className = "", minRows = 
 
 export function CardStudio({ onBack, startEditing }: { onBack: () => void; startEditing?: Card }) {
   const [cards, setCards] = useState<Card[]>(getCards());
+  const [transfer, setTransfer] = useState<null | { mode: "export" } | { mode: "import"; parsed: ParsedImport }>(null);
   const [flags] = useState<Flag[]>(getFlags());
   const [editing, setEditing] = useState<Card | null>(null);
 
@@ -205,16 +208,32 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const result = importAll(reader.result as string);
-        setCards(getCards());
-        alert(`นำเข้าสำเร็จ: ${result.flags} Flag, ${result.cards} การ์ด, ${result.decks} เด็ค`);
-        if (result.flags > 0) window.location.reload(); // โหลด Flag ใหม่เข้าตัวเลือกของการ์ด
+        const parsed = parseImport(reader.result as string);
+        if (parsed.cards.length === 0) throw new Error("ไม่พบการ์ดในไฟล์นี้ (ถ้าเป็นไฟล์เด็ค ให้ Import ที่หน้า Deck Builder)");
+        setTransfer({ mode: "import", parsed });
       } catch (err) {
         alert(err instanceof Error && err.message ? err.message : "ไฟล์ไม่ถูกต้อง");
       }
     };
     reader.readAsText(file);
     e.target.value = "";
+  }
+
+  function confirmTransfer(sel: Record<string, Set<string>>) {
+    if (!transfer) return;
+    try {
+      if (transfer.mode === "export") {
+        downloadJSON(exportCards(cards.filter(c => sel.cards.has(c.id))), "cards.json");
+      } else {
+        const r = applyImport({ ...transfer.parsed, decks: [] }, { cards: sel.cards });
+        setCards(getCards());
+        alert(`นำเข้าสำเร็จ: ${r.cards} การ์ด${r.flags ? `, ${r.flags} Flag` : ""}`);
+        if (r.flags > 0) window.location.reload(); // โหลด Flag ใหม่เข้าตัวเลือกของการ์ด
+      }
+      setTransfer(null);
+    } catch (err) {
+      alert(err instanceof Error && err.message ? err.message : "ทำรายการไม่สำเร็จ");
+    }
   }
 
   const flagOf = (c: Card) => flags.find(f => f.id === c.flagId);
@@ -481,9 +500,18 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
       title="Card Studio" subtitle="ออกแบบ Monster / Spell / Item / Impact พร้อมสกิลอัตโนมัติ" icon={Layers} accent="#34d399" onBack={onBack} maxW="max-w-7xl"
       actions={<>
         <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(cards, null, 2)); setCopied(true); setTimeout(() => setCopied(false), 1500); }} className="btn"><Copy size={14} /> {copied ? "คัดลอกแล้ว" : "ก๊อปปี้"}</button>
-        <button onClick={() => downloadJSON(exportCards(cards), "cards.json")} className="btn"><Download size={14} /> Export</button>
-        <label className="btn cursor-pointer"><Upload size={14} /> Import<input type="file" accept=".json" className="hidden" onChange={handleImport} /></label>
+        <button onClick={() => setTransfer({ mode: "export" })} className="btn"><Upload size={14} /> Export</button>
+        <label className="btn cursor-pointer"><Download size={14} /> Import<input type="file" accept=".json" className="hidden" onChange={handleImport} /></label>
         <button onClick={startNew} className="btn btn-primary"><Plus size={16} /> สร้างการ์ด</button>
+        {transfer && (
+          <TransferDialog
+            mode={transfer.mode}
+            title={transfer.mode === "export" ? "Export การ์ด (เลือกได้)" : "Import การ์ด (เลือกได้)"}
+            groups={[{ key: "cards", label: "การ์ด", items: (transfer.mode === "export" ? cards : transfer.parsed.cards).map(c => ({ id: c.id, name: c.name, sub: c.type })) }]}
+            onConfirm={confirmTransfer}
+            onClose={() => setTransfer(null)}
+          />
+        )}
       </>}
     >
       {flags.length === 0 && (

@@ -1788,12 +1788,21 @@ function resolveBattle(g: GameState) {
       }
     }
   } else {
-    log(g, `ทำดาเมจใส่ผู้เล่น ${total.critical}${linkNote}`);
-    mLife(g, oppSide, -total.critical);
-    if (!g.winner) parts.forEach(({ fc, card }) => {
-      const alive = me.monsters.some(m => m.uid === fc.uid) || me.item?.uid === fc.uid;
-      if (alive) { applyEffects(g, side, card, "onDamage", { fc }); fireSet(g, side, "onDamage", { fc }); }
-    });
+    // ไอเทมของฝั่งที่ถูกโจมตีมี Defense: ถ้า Power รวมของผู้โจมตี < Defense ของไอเทม → ป้องกันได้ ผู้เล่นไม่ได้รับดาเมจ
+    const guard = foe.item;
+    const guardCard = guard ? getCard(guard.cardId) : undefined;
+    const guardDef = guard && guardCard && !guard.nullified ? statsOf(guard).defense : 0;
+    if (guardDef > 0 && total.power < guardDef) {
+      log(g, `🛡 ${guardCard!.name} ป้องกันไว้! Power ${total.power} < Def ${guardDef} → ผู้เล่นไม่ได้รับดาเมจ${linkNote}`);
+    } else {
+      if (guardDef > 0) log(g, `${guardCard!.name} ป้องกันไม่ไหว (Power ${total.power} ≥ Def ${guardDef})`);
+      log(g, `ทำดาเมจใส่ผู้เล่น ${total.critical}${linkNote}`);
+      mLife(g, oppSide, -total.critical);
+      if (!g.winner) parts.forEach(({ fc, card }) => {
+        const alive = me.monsters.some(m => m.uid === fc.uid) || me.item?.uid === fc.uid;
+        if (alive) { applyEffects(g, side, card, "onDamage", { fc }); fireSet(g, side, "onDamage", { fc }); }
+      });
+    }
   }
 
   finish();

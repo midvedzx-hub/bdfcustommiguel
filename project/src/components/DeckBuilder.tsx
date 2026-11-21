@@ -2,11 +2,16 @@ import { useState } from "react";
 import { Plus, Minus, Save, Trash2, Star, Search, Download, Upload, BookOpen } from "lucide-react";
 import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Deck, Card, Flag } from "@/types";
-import { getDecks, saveDecks, getCards, getFlags, uid, downloadJSON, importAll, exportDecks } from "@/storage";
+import { getDecks, saveDecks, getCards, getFlags, uid, downloadJSON, parseImport, applyImport, exportDecks } from "@/storage";
+import type { ParsedImport } from "@/storage";
+import { TransferDialog } from "@/components/TransferDialog";
+import { FlagInfoDialog } from "@/components/FlagInfo";
 import { CardView } from "@/components/CardView";
 
 export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (deck: Deck) => void }) {
   const [decks, setDecks] = useState<Deck[]>(getDecks());
+  const [flagView, setFlagView] = useState<Flag | null>(null);
+  const [transfer, setTransfer] = useState<null | { mode: "export" } | { mode: "import"; parsed: ParsedImport }>(null);
   const [cards] = useState<Card[]>(getCards());
   const [flags] = useState<Flag[]>(getFlags);
   const [editing, setEditing] = useState<Deck | null>(null);
@@ -55,14 +60,28 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const r = importAll(reader.result as string);
-        setDecks(getDecks());
-        alert(`นำเข้าสำเร็จ: ${r.flags} Flag, ${r.cards} การ์ด, ${r.decks} เด็ค`);
-        if (r.cards > 0 || r.flags > 0) window.location.reload(); // โหลดการ์ด/Flag ใหม่เข้าตัวเลือกเด็ค
+        const parsed = parseImport(reader.result as string);
+        if (parsed.decks.length === 0) throw new Error("ไม่พบเด็คในไฟล์นี้ (ถ้าเป็นไฟล์การ์ด ให้ Import ที่หน้า Card Studio)");
+        setTransfer({ mode: "import", parsed });
       } catch (err) { alert(err instanceof Error && err.message ? err.message : "ไฟล์ไม่ถูกต้อง"); }
     };
     reader.readAsText(file);
     e.target.value = "";
+  }
+
+  function confirmTransfer(sel: Record<string, Set<string>>) {
+    if (!transfer) return;
+    try {
+      if (transfer.mode === "export") {
+        downloadJSON(exportDecks(decks.filter(d => sel.decks.has(d.id))), "decks.json");
+      } else {
+        const r = applyImport(transfer.parsed, { decks: sel.decks });
+        setDecks(getDecks());
+        alert(`นำเข้าสำเร็จ: ${r.decks} เด็ค, ${r.cards} การ์ด${r.flags ? `, ${r.flags} Flag` : ""}`);
+        if (r.cards > 0 || r.flags > 0) window.location.reload(); // โหลดการ์ด/Flag ใหม่เข้าตัวเลือกเด็ค
+      }
+      setTransfer(null);
+    } catch (err) { alert(err instanceof Error && err.message ? err.message : "ทำรายการไม่สำเร็จ"); }
   }
 
   const flagOf = (id: string) => flags.find(f => f.id === id);
@@ -108,7 +127,7 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
         {/* ตั้งค่าเด็ค */}
         <div className="panel p-4 mb-5 grid lg:grid-cols-[1.2fr_1fr_1fr] gap-4 items-center" style={{ borderColor: `${col}55` }}>
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 border-2" style={{ borderColor: col, background: `linear-gradient(135deg, ${col}, #0f172a)` }}>
+            <div className={`w-16 h-16 rounded-xl overflow-hidden shrink-0 border-2 ${flag ? "cursor-pointer hover:brightness-110" : ""}`} title={flag ? "กดเพื่อดูความสามารถของ Flag" : undefined} onClick={() => flag && setFlagView(flag)} style={{ borderColor: col, background: `linear-gradient(135deg, ${col}, #0f172a)` }}>
               {flag?.image && <img src={flag.image} className="w-full h-full object-cover" />}
             </div>
             <div className="min-w-0 flex-1">
@@ -121,7 +140,8 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
             <select value={editing.flagId} onChange={e => setEditing({ ...editing, flagId: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2">
               {flags.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
             </select>
-            {flag && <div className="text-xs mt-1" style={{ color: col }}>Life {flag.life} · จั่ว {flag.startHand} · เกจ {flag.startGauge}</div>}
+            {flag && <div className="text-xs mt-1" style={{ color: col }}>Life {flag.life} · จั่ว {flag.startHand} · เกจ {flag.startGauge} · <button type="button" onClick={() => setFlagView(flag)} className="underline hover:text-white">ดูความสามารถ</button></div>}
+            {flagView && <FlagInfoDialog flag={flagView} buddies={(flagView.buddyIds ?? []).map(id => cardOf(id)).filter((c): c is NonNullable<typeof c> => !!c)} onClose={() => setFlagView(null)} />}
           </div>
           <div>
             <label className="text-xs text-slate-400 flex items-center gap-1"><Star size={11} className="text-amber-400" fill="currentColor" /> Buddy</label>
@@ -239,9 +259,18 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
     <ScreenShell
       title="Deck Builder" subtitle="จัดเด็ค เลือก Flag และ Buddy ประจำเด็ค" icon={BookOpen} accent="#fbbf24" onBack={onBack}
       actions={<>
-        <button onClick={() => downloadJSON(exportDecks(decks), "decks.json")} className="btn"><Download size={14} /> Export</button>
-        <label className="btn cursor-pointer"><Upload size={14} /> Import<input type="file" accept=".json" className="hidden" onChange={handleImport} /></label>
+        <button onClick={() => setTransfer({ mode: "export" })} className="btn"><Upload size={14} /> Export</button>
+        <label className="btn cursor-pointer"><Download size={14} /> Import<input type="file" accept=".json" className="hidden" onChange={handleImport} /></label>
         <button onClick={startNew} className="btn btn-primary"><Plus size={16} /> สร้างเด็ค</button>
+        {transfer && (
+          <TransferDialog
+            mode={transfer.mode}
+            title={transfer.mode === "export" ? "Export เด็ค (เลือกได้)" : "Import เด็ค (เลือกได้)"}
+            groups={[{ key: "decks", label: "เด็ค", items: (transfer.mode === "export" ? decks : transfer.parsed.decks).map(d => ({ id: d.id, name: d.name, sub: `${d.cardIds.length} ใบ` })) }]}
+            onConfirm={confirmTransfer}
+            onClose={() => setTransfer(null)}
+          />
+        )}
       </>}
     >
       {decks.length === 0 ? (
