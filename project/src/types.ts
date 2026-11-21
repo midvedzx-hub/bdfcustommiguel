@@ -251,12 +251,24 @@ export interface PendingSoul {
   resumeCounter?: boolean;
 }
 
+// รอผู้เล่นเลือก "เป้าหมาย" มอนสเตอร์ศัตรู สำหรับเอฟเฟกต์ ทำลาย / Rest / ยกเลิกความสามารถ / ดึงกลับมือ ฯลฯ
+export interface PendingTarget {
+  side: "host" | "guest";  // ผู้เลือก (ฝั่งที่ใช้เอฟเฟกต์)
+  cardId: string;          // การ์ดที่ใช้เอฟเฟกต์
+  effType: AutoEffectType; // ชนิดเอฟเฟกต์
+  n: number;               // เลือกกี่ตัว
+  candidates: string[];    // uid ของมอนสเตอร์ศัตรูที่เลือกได้
+  cont: { skills: AutoSkill[]; fcUid?: string } | null; // เอฟเฟกต์ที่เหลือหลังเลือกเสร็จ
+  resumeCounter?: boolean;
+}
+
 export interface BattleState {
   attackerSide: "host" | "guest";
   attackerUid: string;     // ตัวนำ
   linkUids: string[];      // ผู้โจมตีทั้งหมด (รวมตัวนำ) ถ้ามากกว่า 1 = Link Attack
   target: AttackTarget;
   negated: boolean;
+  triggered?: boolean;     // เอฟเฟกต์ "เมื่อโจมตี" ของผู้โจมตีทำงานแล้ว (ทำงานหลังจังหวะ Counter ไม่ใช่ตอนประกาศ)
 }
 
 export interface Deck {
@@ -281,6 +293,7 @@ export interface FieldCard {
   soul: string[]; // การ์ดใต้การ์ดนี้ (Soul)
   movedTurn?: number; // เทิร์นที่ใช้ Move ไปแล้ว
   counterUsedTurn?: number; // เทิร์นที่ใช้ Counter Act จากสนามไปแล้ว (ใช้ได้ 1 ครั้งต่อเทิร์น)
+  counterUsedSkills?: number[]; // ดัชนีสกิล Counter Act (ใน autoSkills) ที่ใช้ไปแล้วในเทิร์น counterUsedTurn — การ์ดที่มี Act หลายอันใช้ได้อันละ 1 ครั้งต่อเทิร์น
   guardUsed?: boolean;
   auraPower?: number;   // บัฟต่อเนื่องจากการ์ด Set (คำนวณใหม่ทุกครั้ง)
   auraCritical?: number;
@@ -320,6 +333,7 @@ export interface GameState {
   spellWindow?: SpellWindow | null; // รอฝั่งตรงข้ามตัดสินใจ Counter ต่อเวทที่เพิ่งร่าย
   pendingLook?: PendingLook | null; // รอผู้เล่นเลือกการ์ดหลังดูกอง
   pendingSoul?: PendingSoul | null; // รอผู้เล่นเลือกการ์ดที่จะถอด Soul
+  pendingTarget?: PendingTarget | null; // รอผู้เล่นเลือกเป้าหมายมอนสเตอร์ศัตรู
   moveWindow?: "host" | "guest" | null; // ฝั่งป้องกันกำลังเลือก Move ตอนเริ่ม Attack Phase // การโจมตีที่กำลังรอ Counter
   firstPlayer: "host" | "guest";
   attacksThisTurn: number; // ใช้จำกัดเทิร์นแรกของผู้เล่นคนแรก
