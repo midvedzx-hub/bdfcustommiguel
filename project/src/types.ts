@@ -60,6 +60,7 @@ export type AutoEffectType =
   | "nullifyOpponentMonster"  // ยกเลิกความสามารถมอนสเตอร์ศัตรู N ตัวจนจบเทิร์น (Soulguard/Lifelink/Counterattack/Battle Proof ไม่ทำงาน)
   | "powerPerSoul"            // Power +N ต่อการ์ด 1 ใบในโซล (ถาวร)
   | "criticalPerSoul"         // Critical +N ต่อการ์ด 1 ใบในโซล (ถาวร)
+  | "soulGrant"               // ถาวร: ถ้าการ์ดนี้อยู่ใน Soul ของการ์ด (ชื่อ ...) การ์ดนั้นจะได้รับความสามารถทั้งหมดของการ์ดนี้
   | "condBuff";                // ถาวร: ถ้าในสนามมีการ์ดที่มีคุณสมบัติ/ชื่อที่กำหนด → การ์ดนี้ (หรือการ์ดที่ชื่อ ...) ได้ Power/Critical/Defense เพิ่ม
 
 export const TRIGGER_LABELS: { value: AutoTrigger; label: string }[] = [
@@ -123,6 +124,7 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "nullifyOpponentMonster", label: "Nullify ยกเลิกความสามารถมอนสเตอร์ศัตรู (จนจบเทิร์น)", hint: "จำนวนตัว" },
   { value: "powerPerSoul", label: "Power เพิ่มต่อ Soul 1 ใบ (ถาวร)", hint: "เช่น 1000" },
   { value: "criticalPerSoul", label: "Critical เพิ่มต่อ Soul 1 ใบ (ถาวร)", hint: "เช่น 1" },
+  { value: "soulGrant", label: "อยู่ใน Soul → ให้ความสามารถทั้งหมดแก่เจ้าของโซล", hint: "ไม่ต้องใส่ค่า" },
   { value: "condBuff", label: "บัฟถาวรแบบมีเงื่อนไข (ถ้าบนสนามมีการ์ด…)", hint: "ค่าที่เพิ่ม เช่น 1 หรือ 5000" },
 ];
 
@@ -332,6 +334,7 @@ export interface FieldCard {
   manualPower?: number;    // Sandbox: ค่าที่ปรับเองด้วยมือ (คงอยู่ตราบที่การ์ดอยู่บนสนาม)
   manualCritical?: number;
   manualDefense?: number;
+  grantedSkills?: AutoSkill[]; // ความสามารถที่ได้รับจากการ์ดใน Soul (soulGrant) — คำนวณใหม่ทุก action
   auraSize?: number;       // Size ที่เปลี่ยนจากสกิลถาวรแบบมีเงื่อนไข (คำนวณใหม่ทุก action)
   tempSize?: number;       // Size ที่เปลี่ยนชั่วคราวจนจบเทิร์น (จากสกิลแบบมีเงื่อนไขที่ทำงานตอนลงสนาม/โจมตี ฯลฯ)
   manualSize?: number;     // Sandbox: ปรับ Size ด้วยมือ (บวก/ลบจาก Size ของการ์ด) คงอยู่ตราบที่การ์ดอยู่บนสนาม

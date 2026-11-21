@@ -13,7 +13,7 @@ import { keywordValue,
   goToAttack, goToFinal, mulligan, transformCard, legalTargets, statsOf, counterOptions, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
-  sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
+  sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, cardOfFc, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
   type AttackTarget, type CounterOption, type Result,
   setSoulguardAuto, closeMoveWindow, movableMonsters, recalcAuras, hasSetKeyword, activeSetCards, sandboxDestroySet, sandboxMoveSet, resolveLook, resolveSoulChoice, resolveTargetChoice, targetEffectLabel,
 } from "@/game/engine";
@@ -742,7 +742,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
 
     const monsterHex = (pos: number) => {
       const m = p.monsters.find(x => x.position === pos);
-      const card = m ? cardOf(m.cardId) : null;
+      const card = m ? cardOfFc(m) ?? null : null;
       const isTarget = !isMine && legal.some(t => t.kind === "monster" && t.position === pos);
       const callable = isMine && canPlayNow && handSel !== null && !m && cardOf(me.hand[handSel] ?? "")?.type === "Monster";
       const moveTarget = isMine && canMoveNow && moveSel !== null && !m;
@@ -939,7 +939,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               style={{ width: "calc(var(--mh) * 0.23)", aspectRatio: "63 / 88", border: "2px dashed #64748b", borderRadius: 8 }}
               onClick={() => {
                 if (!p.item) return;
-                const itemCard = cardOf(p.item.cardId);
+                const itemCard = cardOfFc(p.item);
                 if (inspectMode && itemCard) return openInspect(itemCard, p.flagId, p.item);
                 if (!isMine && atkSels.length > 0) return;
                 if (isMine && canAttackNow && p.item.state === "stand") {
@@ -950,12 +950,12 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 if (itemCard) openInspect(itemCard, p.flagId, p.item, whyBlocked() ?? (p.item.state === "rest" ? `${itemCard.name} อยู่ในสถานะ Rest จะ Stand ตอนต้นเทิร์นของเจ้าของ` : game.phase !== attackPhaseName ? "ไอเทมโจมตีได้ใน Attack Phase" : undefined));
               }}
             >
-              {p.item && cardOf(p.item.cardId) ? (
+              {p.item && cardOfFc(p.item) ? (
                 <div key={p.item.uid} className="anim-call" style={{ visibility: hidden.includes(p.item.uid) ? "hidden" : "visible" }}>
-                <div className="transition-transform duration-500 relative" style={{ transform: p.item.state === "rest" ? "rotate(90deg)" : "none" }} onMouseEnter={() => setHovered({ card: cardOf(p.item!.cardId)!, flagId: p.flagId, stats: statsOf(p.item!), soul: p.item!.soul.length })}>
+                <div className="transition-transform duration-500 relative" style={{ transform: p.item.state === "rest" ? "rotate(90deg)" : "none" }} onMouseEnter={() => setHovered({ card: cardOfFc(p.item!)!, flagId: p.flagId, stats: statsOf(p.item!), soul: p.item!.soul.length })}>
                   <SoulStack n={p.item.soul.length} />
-                  <CardView card={cardOf(p.item.cardId)!} flag={flag} width="calc(var(--mh) * 0.22)" hideText stats={statsOf(p.item)} soul={p.item.soul.length}
-                    onInspect={() => openInspect(cardOf(p.item!.cardId)!, p.flagId, p.item)}
+                  <CardView card={cardOfFc(p.item)!} flag={flag} width="calc(var(--mh) * 0.22)" hideText stats={statsOf(p.item)} soul={p.item.soul.length}
+                    onInspect={() => openInspect(cardOfFc(p.item!)!, p.flagId, p.item)}
                     draggable={isMine && canAttackNow && p.item.state === "stand"}
                     onDragStart={() => { dragRef.current = { kind: "unit", uid: p.item!.uid }; if (!atkSels.includes(p.item!.uid)) setAtkSels([p.item!.uid]); }}
                     onDragEnd={() => { dragRef.current = null; }}>

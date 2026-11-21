@@ -39,6 +39,13 @@ export function getCard(cardId: string): Card | undefined {
   return _cardCache[cardId];
 }
 
+// การ์ดของ FieldCard รวมความสามารถที่ได้รับจาก Soul (soulGrant) — ใช้เมื่อต้องอ่านสกิลของการ์ดบนสนาม
+export function cardOfFc(fc: FieldCard): Card | undefined {
+  const c = getCard(fc.cardId);
+  if (!c || !fc.grantedSkills || fc.grantedSkills.length === 0) return c;
+  return { ...c, autoSkills: [...(c.autoSkills ?? []), ...fc.grantedSkills] };
+}
+
 export function registerCards(cards: Card[]) {
   cards.forEach(c => {
     const existing = _cardCache[c.id];
@@ -150,7 +157,7 @@ function continuousSum(card: Card, type: AutoEffectType): number {
 }
 
 export function statsOf(fc: FieldCard): { power: number; defense: number; critical: number } {
-  const c = getCard(fc.cardId);
+  const c = cardOfFc(fc);
   if (!c) return { power: 0, defense: 0, critical: 0 };
   return {
     power: c.power + fc.tempPower + (fc.manualPower ?? 0) + (fc.auraPower ?? 0) + continuousSum(c, "buffPower") + continuousSum(c, "powerPerSoul") * fc.soul.length,
@@ -213,7 +220,7 @@ function mRemoveSoul(g: GameState, side: Side, fc: FieldCard, n: number): number
     moved++;
   }
   if (moved > 0) {
-    const card = getCard(fc.cardId);
+    const card = cardOfFc(fc);
     log(g, `${card?.name ?? "การ์ด"} ถูกถอด Soul ${moved} ใบลงสุสาน`);
     fx(g, { k: "soulOut", side, uid: fc.uid, pos: posOf(g, side, fc), n: moved });
     if (card) applyEffects(g, side, card, "onSoulRemoved", { fc });
@@ -249,7 +256,7 @@ function mDestroyMonster(g: GameState, side: Side, monsterUid: string): boolean 
   const p = g[side];
   const m = p.monsters.find(x => x.uid === monsterUid);
   if (!m) return false;
-  const card = getCard(m.cardId);
+  const card = cardOfFc(m);
   if (trySoulguard(g, side, m, card, "การถูกทำลาย")) return false;
 
   fx(g, { k: "destroy", side, uid: m.uid, cardId: m.cardId, pos: m.position });
@@ -271,7 +278,7 @@ function mLeaveField(g: GameState, side: Side, monsterUid: string, dest: "hand" 
   const p = g[side];
   const m = p.monsters.find(x => x.uid === monsterUid);
   if (!m) return false;
-  const card = getCard(m.cardId);
+  const card = cardOfFc(m);
   const label = dest === "hand" ? "ถูกดึงกลับมือ" : dest === "drop" ? "ถูกส่งลงสุสาน" : "ถูกใส่กลับเด็ค";
   if (trySoulguard(g, side, m, card, `การ${label.replace("ถูก", "ถูก")}`)) return false;
   fx(g, { k: "destroy", side, uid: m.uid, cardId: m.cardId, pos: m.position });
@@ -309,7 +316,7 @@ function applyTargetEffect(g: GameState, side: Side, card: Card, type: AutoEffec
   uids.forEach(uid => {
     const m = g[opp].monsters.find(x => x.uid === uid);
     if (!m) return;
-    const nm = getCard(m.cardId)?.name ?? "มอนสเตอร์";
+    const nm = cardOfFc(m)?.name ?? "มอนสเตอร์";
     switch (type) {
       case "destroyOpponentMonster": mDestroyMonster(g, opp, uid); break;
       case "restOpponent": m.state = "rest"; log(g, `${card.name} Rest ${nm}`); break;
@@ -447,7 +454,7 @@ function runSkills(
           if (ts.length === 0) break;
           ts.forEach(t => { t.tempPower += amt.power; t.tempCritical += amt.critical; t.tempDefense += amt.defense; t.tempSize = (t.tempSize ?? 0) + amt.size; });
           const parts = [amt.power ? `Power +${amt.power}` : "", amt.critical ? `Critical +${amt.critical}` : "", amt.defense ? `Defense +${amt.defense}` : "", amt.size ? `Size ${amt.size > 0 ? "+" : ""}${amt.size}` : ""].filter(Boolean).join(" ");
-          log(g, `${card.name}: เงื่อนไขครบ — ${ts.map(t => getCard(t.cardId)?.name ?? "การ์ด").join(", ")} ได้รับ ${parts} จนจบเทิร์น`);
+          log(g, `${card.name}: เงื่อนไขครบ — ${ts.map(t => cardOfFc(t)?.name ?? "การ์ด").join(", ")} ได้รับ ${parts} จนจบเทิร์น`);
           break;
         }
         case "addSoul": {
@@ -463,13 +470,13 @@ function runSkills(
         case "dropToSoul": {
           // เป้าหมาย: การ์ดที่ใช้สกิล > มอนสเตอร์ที่มี Soulguard > มอนสเตอร์ตัวล่าสุด
           const fc = ctx?.fc
-            ?? g[side].monsters.find(m => { const c = getCard(m.cardId); return !!c && keywordValue(c, "soulguard") > 0; })
+            ?? g[side].monsters.find(m => { const c = cardOfFc(m); return !!c && keywordValue(c, "soulguard") > 0; })
             ?? g[side].monsters[g[side].monsters.length - 1];
           if (!fc) { log(g, `${card.name}: ไม่มีมอนสเตอร์ให้ใส่ Soul`); break; }
           const got = pickFromDrop(g, side, n, eff.filter);
           if (got.length === 0) { log(g, `${card.name}: ไม่มีการ์ดที่ตรงเงื่อนไขในสุสาน`); break; }
           fc.soul.push(...got);
-          log(g, `${card.name} นำการ์ดจากสุสาน ${got.length} ใบเข้า Soul ของ ${getCard(fc.cardId)?.name ?? "การ์ด"} (รวม ${fc.soul.length})`);
+          log(g, `${card.name} นำการ์ดจากสุสาน ${got.length} ใบเข้า Soul ของ ${cardOfFc(fc)?.name ?? "การ์ด"} (รวม ${fc.soul.length})`);
           fx(g, { k: "soulIn", side, uid: fc.uid, pos: posOf(g, side, fc), n: got.length, from: "drop" });
           break;
         }
@@ -480,7 +487,7 @@ function runSkills(
           for (let i = 0; i < n && fc.soul.length > 0; i++) { g[side].hand.push(fc.soul.pop()!); moved++; }
           log(g, `${card.name} ถอด Soul ${moved} ใบขึ้นมือ`);
           fx(g, { k: "soulOut", side, uid: fc.uid, pos: posOf(g, side, fc), n: moved });
-          const c0 = getCard(fc.cardId);
+          const c0 = cardOfFc(fc);
           if (c0) applyEffects(g, side, c0, "onSoulRemoved", { fc });
           break;
         }
@@ -506,7 +513,7 @@ function runSkills(
           [...g[opp].monsters]
             .sort((a, b) => order.indexOf(a.position) - order.indexOf(b.position))
             .slice(0, n)
-            .forEach(m => { m.nullified = true; log(g, `${card.name} Nullify! ความสามารถของ ${getCard(m.cardId)?.name ?? "มอนสเตอร์"} ถูกยกเลิกจนจบเทิร์น`); });
+            .forEach(m => { m.nullified = true; log(g, `${card.name} Nullify! ความสามารถของ ${cardOfFc(m)?.name ?? "มอนสเตอร์"} ถูกยกเลิกจนจบเทิร์น`); });
           break;
         }
         case "removeSoul": {
@@ -635,7 +642,7 @@ function startTurn(g: GameState, skipDraw: boolean) {
   log(g, `— เทิร์น ${g.turn}: ${nameOf(side)} (Stand${skipDraw ? " · เทิร์นแรกไม่จั่ว" : ""}) —`);
   if (g.winner) return;
   p.monsters.forEach(m => {
-    const c = getCard(m.cardId);
+    const c = cardOfFc(m);
     if (c) applyEffects(g, side, c, "onTurnStart", { fc: m });
   });
   fireSet(g, side, "onTurnStart");
@@ -729,7 +736,7 @@ export function changeLife(state: GameState, side: Side, delta: number): GameSta
 
 // Size จริงของมอนสเตอร์บนสนาม = Size ของการ์ด + ค่าที่ปรับเองใน Sandbox (ต่ำสุด 0)
 export function sizeOfFc(fc: FieldCard): number {
-  return Math.max(0, (getCard(fc.cardId)?.size ?? 0) + (fc.manualSize ?? 0) + (fc.auraSize ?? 0) + (fc.tempSize ?? 0));
+  return Math.max(0, (cardOfFc(fc)?.size ?? 0) + (fc.manualSize ?? 0) + (fc.auraSize ?? 0) + (fc.tempSize ?? 0));
 }
 
 export function totalMonsterSize(player: PlayerState): number {
@@ -811,7 +818,7 @@ export function goToFinal(state: GameState, side: Side): Result {
   g.phase = "final";
   log(g, `${nameOf(side)} เข้าสู่ Final Phase`);
   g[side].monsters.forEach(m => {
-    const c = getCard(m.cardId);
+    const c = cardOfFc(m);
     if (c) applyEffects(g, side, c, "onFinal", { fc: m });
   });
   fireSet(g, side, "onFinal");
@@ -938,6 +945,26 @@ export function activeSetCards(p: PlayerState): Card[] {
 export function recalcAuras(g: GameState) {
   (["host", "guest"] as Side[]).forEach(side => {
     const p = g[side];
+    // soulGrant: การ์ดใน Soul ที่ระบุว่าให้ความสามารถแก่เจ้าของโซล (ชื่อเจ้าของโซลตรงกับ targetName หรือว่าง = ทุกใบ)
+    fieldCardsOf(p).forEach(fc => {
+      const hostName = getCard(fc.cardId)?.name ?? "";
+      const seen = new Set<string>();
+      const granted: AutoSkill[] = [];
+      fc.soul.forEach(id => {
+        const sc = getCard(id);
+        if (!sc || seen.has(id)) return;
+        const isGrant = (sk: AutoSkill) => sk.effects.some(e => e.type === "soulGrant");
+        const ok = (sc.autoSkills ?? []).some(sk => sk.trigger === "continuous" && sk.effects.some(e => {
+          if (e.type !== "soulGrant") return false;
+          const tn = (e.targetName ?? "").trim().toLowerCase();
+          return !tn || textHas(hostName, tn);
+        }));
+        if (!ok) return;
+        seen.add(id); // การ์ดชื่อ/ใบเดียวกันหลายใบใน Soul นับครั้งเดียว กันสกิลทำงานซ้ำ
+        (sc.autoSkills ?? []).forEach(sk => { if (!isGrant(sk)) granted.push(sk); });
+      });
+      fc.grantedSkills = granted.length > 0 ? granted : undefined;
+    });
     let pw = 0, df = 0, cr = 0, pps = 0, cps = 0;
     activeSetCards(p).forEach(c => {
       pw += continuousSum(c, "buffPower"); df += continuousSum(c, "buffDefense"); cr += continuousSum(c, "buffCritical");
@@ -965,7 +992,7 @@ export function recalcAuras(g: GameState) {
     };
     fieldCardsOf(p).forEach(fc => {
       if (fc.nullified) return; // ถูก Nullify: ความสามารถของการ์ดใบนี้ใช้ไม่ได้
-      const c = getCard(fc.cardId);
+      const c = cardOfFc(fc);
       if (c) runCond(c, fc);
     });
     activeSetCards(p).forEach(c => runCond(c, null));
@@ -983,7 +1010,7 @@ function condBuffMet(g: GameState, side: Side, e: AutoEffect, self: FieldCard | 
   const sides: Side[] = e.condWhere === "opponent" ? [opp] : e.condWhere === "any" ? [side, opp] : [side];
   return sides.some(sd => fieldCardsOf(g[sd]).some(f => {
     if (self && f.uid === self.uid) return false; // ไม่นับการ์ดใบที่ถือสกิลนี้เอง
-    const c = getCard(f.cardId);
+    const c = cardOfFc(f);
     return !!c && (e.condMatch === "name" ? textHas(c.name, need) : textHas(c.attribute, need));
   }));
 }
@@ -1007,7 +1034,7 @@ function sizeModWhenCalled(g: GameState, side: Side, card: Card): number {
 function condBuffTargets(g: GameState, side: Side, e: AutoEffect, self: FieldCard | null): FieldCard[] {
   const tn = (e.targetName ?? "").trim().toLowerCase();
   const out: FieldCard[] = [];
-  if (tn) fieldCardsOf(g[side]).forEach(t => { if (textHas(getCard(t.cardId)?.name, tn)) out.push(t); });
+  if (tn) fieldCardsOf(g[side]).forEach(t => { if (textHas(cardOfFc(t)?.name, tn)) out.push(t); });
   if (self && (!tn || e.includeSelf) && !out.includes(self)) out.push(self);
   return out;
 }
@@ -1188,7 +1215,7 @@ export function transformCard(state: GameState, side: Side, src: TransformSource
 
   if (p.item) {
     p.dropZone.push(p.item.cardId, ...p.item.soul);
-    log(g, `${getCard(p.item.cardId)?.name ?? "ไอเทมเดิม"} ถูกแทนที่และลงสุสาน`);
+    log(g, `${cardOfFc(p.item)?.name ?? "ไอเทมเดิม"} ถูกแทนที่และลงสุสาน`);
   }
   const item = newFieldCard(cardId, 0);
   if (src.zone === "hand") {
@@ -1221,7 +1248,7 @@ export function movableMonsters(state: GameState, side: Side): FieldCard[] {
   const hasFree = [0, 1, 2].some(pos => !p.monsters.some(m => m.position === pos));
   if (!hasFree) return [];
   return p.monsters.filter(m => {
-    const c = getCard(m.cardId);
+    const c = cardOfFc(m);
     return !!c && !m.nullified && hasKeyword(c, "move") && m.movedTurn !== state.turn;
   });
 }
@@ -1237,7 +1264,7 @@ export function moveMonster(state: GameState, side: Side, monsterUid: string, po
   const g = structuredClone(state);
   const p = g[side];
   const m = p.monsters.find(x => x.uid === monsterUid);
-  const card = m ? getCard(m.cardId) : undefined;
+  const card = m ? cardOfFc(m) : undefined;
   if (!m || !card) return { state, ok: false, msg: "ไม่พบมอนสเตอร์" };
   if (!hasKeyword(card, "move")) return { state, ok: false, msg: `${card.name} ไม่มีความสามารถ Move` };
   if (m.nullified) return { state, ok: false, msg: `${card.name} ถูก Nullify จึงใช้ Move ไม่ได้` };
@@ -1296,7 +1323,7 @@ export function legalTargets(state: GameState, side: Side, attackerUid: string, 
   const uids = [...new Set([attackerUid, ...linkUids])];
   const ignore = uids.some(u => {
     const fc = findFc(me, u);
-    const c = fc ? getCard(fc.cardId) : undefined;
+    const c = fc ? cardOfFc(fc) : undefined;
     return !!c && hasKeyword(c, "ignoreCenter");
   });
   const targets: AttackTarget[] = foe.monsters.map(m => ({ kind: "monster", position: m.position }));
@@ -1325,13 +1352,13 @@ export function declareAttack(
   for (const u of uids) {
     const fc = findFc(me, u);
     if (!fc) return { state, ok: false, msg: "ไม่พบผู้โจมตี" };
-    const c = getCard(fc.cardId);
+    const c = cardOfFc(fc);
     if (!c) return { state, ok: false, msg: "ไม่พบข้อมูลการ์ด" };
     if (fc.state !== "stand") return { state, ok: false, msg: `${c.name} อยู่ในสถานะ Rest โจมตีไม่ได้` };
     fcs.push(fc);
   }
   const lead = fcs[0];
-  const leadCard = getCard(lead.cardId)!;
+  const leadCard = cardOfFc(lead)!;
 
   const legal = legalTargets(state, side, attackerUid, uids);
   const chosen: AttackTarget = target ??
@@ -1348,7 +1375,7 @@ export function declareAttack(
   fcs.forEach(fc => { fc.attacks++; fc.state = "rest"; });
   g.attacksThisTurn++;
   const label = chosen.kind === "fighter" ? "ผู้เล่น" : `มอนสเตอร์ช่อง${POSITION_NAMES[chosen.position]}`;
-  const names = fcs.map(f => getCard(f.cardId)!.name).join(" + ");
+  const names = fcs.map(f => cardOfFc(f)!.name).join(" + ");
   log(g, `${fcs.length > 1 ? "⚔ Link Attack! " : "⚔ "}${names} โจมตี${label}!`);
   // เอฟเฟกต์ "เมื่อโจมตี" ของผู้โจมตีจะทำงานหลังจังหวะ Counter (ใน resolveBattle) เพื่อให้ฝั่งป้องกันมีโอกาสใช้ Counter ก่อน
   void leadCard;
@@ -1525,7 +1552,7 @@ export function counterOptions(state: GameState, side: Side): CounterOption[] {
   });
   out.push(...setActOptions(state, side, timing, false));
   [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
-    const c = getCard(fc.cardId);
+    const c = cardOfFc(fc);
     if (!c || fc.nullified) return;
     actSkillIdxs(c, timing, false).forEach(idx => {
       if (actUsed(fc, state.turn, idx)) return;
@@ -1551,7 +1578,7 @@ export function counterCardOf(state: GameState, side: Side, opt: CounterOption):
   if (opt.zone === "hand") return getCard(p.hand[opt.index]);
   if (opt.zone === "set" || opt.zone === "setAct") return getCard(p.setZone[opt.index]);
   const fc = findFc(p, opt.uid);
-  return fc ? getCard(fc.cardId) : undefined;
+  return fc ? cardOfFc(fc) : undefined;
 }
 
 function sameOption(a: CounterOption, b: CounterOption) {
@@ -1637,7 +1664,7 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
     runSkills(g, side, card, counterSkills(card, "onCounterAct", timing), {});
   } else {
     const fc = findFc(p, opt.uid)!;
-    const card = getCard(fc.cardId)!;
+    const card = cardOfFc(fc)!;
     // เลือกสกิล Act ที่ระบุ (ถ้าไม่ระบุและมีหลายอัน ใช้อันแรกที่ใช้ได้)
     const only = opt.skill ?? actSkillIdxs(card, timing, timing === null).find(i => !actUsed(fc, g.turn, i));
     if (only === undefined || !counterSkills(card, "onCounterAct", timing, only).length) return "ไม่พบ Counter 【Act】 ที่เลือก";
@@ -1699,7 +1726,7 @@ export function freeCounterOptions(state: GameState, side: Side): CounterOption[
   });
   out.push(...setActOptions(state, side, null, true));
   [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
-    const c = getCard(fc.cardId);
+    const c = cardOfFc(fc);
     if (!c || fc.nullified) return;
     actSkillIdxs(c, null, true).forEach(idx => {
       if (actUsed(fc, state.turn, idx)) return;
@@ -1816,7 +1843,7 @@ function resolveBattle(g: GameState) {
   let parts = b.linkUids
     .map(u => findFc(me, u))
     .filter((x): x is FieldCard => !!x)
-    .map(fc => ({ fc, card: getCard(fc.cardId)!, isItem: me.item?.uid === fc.uid }))
+    .map(fc => ({ fc, card: cardOfFc(fc)!, isItem: me.item?.uid === fc.uid }))
     .filter(x => !!x.card);
   if (parts.length === 0) { log(g, "ผู้โจมตีหายไปแล้ว การโจมตีไม่เกิดผล"); return; }
 
@@ -1875,7 +1902,7 @@ function resolveBattle(g: GameState) {
       finish();
       return;
     }
-    const tgtCard = getCard(tgt.cardId);
+    const tgtCard = cardOfFc(tgt);
     const tgtStats = statsOf(tgt);
     const tgtName = tgtCard?.name ?? "มอนสเตอร์";
 
@@ -1919,7 +1946,7 @@ function resolveBattle(g: GameState) {
   } else {
     // ไอเทมของฝั่งที่ถูกโจมตีมี Defense: ถ้า Power รวมของผู้โจมตี < Defense ของไอเทม → ป้องกันได้ ผู้เล่นไม่ได้รับดาเมจ
     const guard = foe.item;
-    const guardCard = guard ? getCard(guard.cardId) : undefined;
+    const guardCard = guard ? cardOfFc(guard) : undefined;
     const guardDef = guard && guardCard && !guard.nullified ? statsOf(guard).defense : 0;
     if (guardDef > 0 && total.power < guardDef) {
       log(g, `🛡 ${guardCard!.name} ป้องกันไว้! Power ${total.power} < Def ${guardDef} → ผู้เล่นไม่ได้รับดาเมจ${linkNote}`);
@@ -2002,7 +2029,7 @@ export function sandboxAdjustStat(state: GameState, side: Side, uidStr: string, 
   if (stat === "power") fc.manualPower = (fc.manualPower ?? 0) + delta;
   else if (stat === "defense") fc.manualDefense = (fc.manualDefense ?? 0) + delta;
   else fc.manualCritical = (fc.manualCritical ?? 0) + delta;
-  log(g, `[Sandbox] ${getCard(fc.cardId)?.name ?? "การ์ด"} ${stat === "power" ? "Power" : stat === "defense" ? "Defense" : "Critical"} ${delta > 0 ? "+" : ""}${delta}`);
+  log(g, `[Sandbox] ${cardOfFc(fc)?.name ?? "การ์ด"} ${stat === "power" ? "Power" : stat === "defense" ? "Defense" : "Critical"} ${delta > 0 ? "+" : ""}${delta}`);
   return g;
 }
 
@@ -2011,10 +2038,10 @@ export function sandboxAdjustSize(state: GameState, side: Side, uidStr: string, 
   const g = structuredClone(state);
   const fc = findFc(g[side], uidStr);
   if (!fc) return state;
-  const base = getCard(fc.cardId)?.size ?? 0;
+  const base = cardOfFc(fc)?.size ?? 0;
   if (reset) fc.manualSize = 0;
   else fc.manualSize = Math.max(-base, (fc.manualSize ?? 0) + delta); // Size รวมต้องไม่ต่ำกว่า 0
-  log(g, `[Sandbox] ${getCard(fc.cardId)?.name ?? "การ์ด"} Size = ${sizeOfFc(fc)}`);
+  log(g, `[Sandbox] ${cardOfFc(fc)?.name ?? "การ์ด"} Size = ${sizeOfFc(fc)}`);
   return g;
 }
 
@@ -2029,7 +2056,7 @@ export function sandboxAddSoul(state: GameState, side: Side, uidStr: string, fro
   if (!cardId) return state;
   if (from === "gauge") syncGauge(p);
   fc.soul.push(cardId);
-  log(g, `[Sandbox] ใส่การ์ด 1 ใบเข้า Soul ของ ${getCard(fc.cardId)?.name ?? "การ์ด"} (จาก${from === "hand" ? "มือ" : from === "dropZone" ? "สุสาน" : from === "gauge" ? "เกจ" : "เด็ค"}) รวม Soul ${fc.soul.length}`);
+  log(g, `[Sandbox] ใส่การ์ด 1 ใบเข้า Soul ของ ${cardOfFc(fc)?.name ?? "การ์ด"} (จาก${from === "hand" ? "มือ" : from === "dropZone" ? "สุสาน" : from === "gauge" ? "เกจ" : "เด็ค"}) รวม Soul ${fc.soul.length}`);
   return g;
 }
 
@@ -2046,7 +2073,7 @@ export function sandboxRemoveSoul(state: GameState, side: Side, uidStr: string, 
   else if (to === "gauge") { p.gaugePile.push(cardId); syncGauge(p); }
   else if (to === "deckTop") p.deck.unshift(cardId);
   else p.deck.push(cardId);
-  log(g, `[Sandbox] ถอด Soul 1 ใบของ ${getCard(fc.cardId)?.name ?? "การ์ด"} (เหลือ ${fc.soul.length})`);
+  log(g, `[Sandbox] ถอด Soul 1 ใบของ ${cardOfFc(fc)?.name ?? "การ์ด"} (เหลือ ${fc.soul.length})`);
   return g;
 }
 

@@ -24,8 +24,16 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
           {DROP_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
       )}
-      {eff.type !== "condBuff" && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
+      {eff.type !== "condBuff" && eff.type !== "soulGrant" && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
       <button onClick={onRemove} className="p-1 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={12} /></button>
+      {eff.type === "soulGrant" && (
+        <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
+          <span>เมื่อการ์ดใบนี้อยู่ใน Soul ของการ์ดชื่อ</span>
+          <input value={eff.targetName ?? ""} onChange={e => onChange({ ...eff, targetName: e.target.value })} placeholder="เช่น Aelfa (ว่าง = ใบใดก็ได้)" className={`${num} !py-0.5 text-xs w-56`} />
+          <span>→ การ์ดนั้นได้รับความสามารถทั้งหมดของการ์ดใบนี้</span>
+          <p className="basis-full text-slate-500">ใช้กับสกิลแบบ “ถาวร” · ได้รับสกิลอัตโนมัติทุกอย่างของการ์ดใบนี้ (ยกเว้นสกิลให้ความสามารถนี้เอง) ตราบที่การ์ดใบนี้ยังอยู่ใน Soul · ชื่อพิมพ์บางส่วนได้ ไม่สนตัวพิมพ์เล็กใหญ่ · ค่าสถานะพื้นฐาน (Power/Defense/Critical/Size) ของการ์ดไม่ถูกส่งต่อ</p>
+        </div>
+      )}
       {eff.type === "condBuff" && (() => {
         const amt = condBuffAmounts(eff);
         const setAmt = (k: "bPower" | "bCritical" | "bDefense" | "bSize", v: number) => onChange({ ...eff, bPower: amt.power, bCritical: amt.critical, bDefense: amt.defense, bSize: amt.size, [k]: v });
