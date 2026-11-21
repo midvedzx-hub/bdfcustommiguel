@@ -59,7 +59,8 @@ export type AutoEffectType =
   | "opponentMonsterToDeck"   // ใส่มอนสเตอร์ศัตรู N ตัวกลับบนกองเด็ค (Soulguard กันได้)
   | "nullifyOpponentMonster"  // ยกเลิกความสามารถมอนสเตอร์ศัตรู N ตัวจนจบเทิร์น (Soulguard/Lifelink/Counterattack/Battle Proof ไม่ทำงาน)
   | "powerPerSoul"            // Power +N ต่อการ์ด 1 ใบในโซล (ถาวร)
-  | "criticalPerSoul";        // Critical +N ต่อการ์ด 1 ใบในโซล (ถาวร)
+  | "criticalPerSoul"         // Critical +N ต่อการ์ด 1 ใบในโซล (ถาวร)
+  | "condBuff";                // ถาวร: ถ้าในสนามมีการ์ดที่มีคุณสมบัติ/ชื่อที่กำหนด → การ์ดนี้ (หรือการ์ดที่ชื่อ ...) ได้ Power/Critical/Defense เพิ่ม
 
 export const TRIGGER_LABELS: { value: AutoTrigger; label: string }[] = [
   { value: "onCall", label: "เมื่อลงสนาม / ติดตั้ง" },
@@ -122,6 +123,7 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "nullifyOpponentMonster", label: "Nullify ยกเลิกความสามารถมอนสเตอร์ศัตรู (จนจบเทิร์น)", hint: "จำนวนตัว" },
   { value: "powerPerSoul", label: "Power เพิ่มต่อ Soul 1 ใบ (ถาวร)", hint: "เช่น 1000" },
   { value: "criticalPerSoul", label: "Critical เพิ่มต่อ Soul 1 ใบ (ถาวร)", hint: "เช่น 1" },
+  { value: "condBuff", label: "บัฟถาวรแบบมีเงื่อนไข (ถ้าบนสนามมีการ์ด…)", hint: "ค่าที่เพิ่ม เช่น 1 หรือ 5000" },
 ];
 
 // ชนิดการ์ดที่เลือกได้เมื่อดึงจากสุสาน (dropToSoul / recoverFromDrop)
@@ -142,6 +144,12 @@ export interface AutoEffect {
   toHand?: number;     // lookTop: เลือกขึ้นมือได้สูงสุดกี่ใบ
   toDrop?: number;     // lookTop: เลือกลงดรอปได้สูงสุดกี่ใบ
   toBottom?: number;   // lookTop: เลือกใส่ใต้สุดของกองได้สูงสุดกี่ใบ
+  // condBuff (ใช้กับสกิลแบบ "ถาวร"): เงื่อนไข + เป้าหมาย + ค่าสถานะที่เพิ่ม
+  stat?: "power" | "critical" | "defense"; // ค่าที่เพิ่ม (power = ดาเมจ/พลังโจมตี) ค่าเริ่มต้น power
+  condMatch?: "attr" | "name";             // ตรวจจาก "คุณสมบัติ" (attribute) หรือ "ชื่อ" ของการ์ดบนสนาม
+  condText?: string;                       // ข้อความที่ต้องมี (ไม่สนตัวพิมพ์) ว่าง = ไม่มีเงื่อนไข ได้บัฟเสมอ
+  condWhere?: "own" | "opponent" | "any";  // ตรวจสนามฝั่งไหน (ค่าเริ่มต้น own = ของเรา)
+  targetName?: string;                     // ผู้ได้รับบัฟ: ชื่อการ์ดของเรา ว่าง = การ์ดใบนี้
 }
 
 export type CounterTiming = "attack" | "cast" | "any"; // จังหวะที่ Counter ใช้ได้: ตอนศัตรูโจมตี / ตอนศัตรูร่ายเวท / ทั้งสอง

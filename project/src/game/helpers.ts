@@ -56,6 +56,16 @@ export function effectText(e: AutoEffect): string {
     case "bounceOpponentMonster": return `ดึงมอนสเตอร์ศัตรู ${v} ตัวกลับมือ`;
     case "powerPerSoul": return `Power +${v} ต่อการ์ด 1 ใบใน Soul`;
     case "criticalPerSoul": return `Critical +${v} ต่อการ์ด 1 ใบใน Soul`;
+    case "condBuff": {
+      const stat = e.stat === "critical" ? "Critical" : e.stat === "defense" ? "Defense" : "Power";
+      const where = e.condWhere === "opponent" ? "ฝั่งศัตรู" : e.condWhere === "any" ? "ทั้งสองฝั่ง" : "ของเรา";
+      const kind = e.condMatch === "name" ? "ชื่อ" : "คุณสมบัติ";
+      const need = (e.condText ?? "").trim();
+      const tn = (e.targetName ?? "").trim();
+      const cond = need ? `ถ้าในสนาม${where}มีการ์ดใบอื่นที่มี${kind} “${need}” ` : "";
+      const target = tn ? `การ์ดชื่อ “${tn}” ของเรา` : "การ์ดใบนี้";
+      return `${cond}${target}ได้รับ ${stat} +${v}`;
+    }
     case "chooseRemoveSoul": return `เลือกการ์ดของเรา 1 ใบ ถอด Soul ${v} ใบ (ถ้าถอดได้ จึงทำต่อ)`;
     case "destroyOpponentSet": return `ทำลายการ์ด Set ของศัตรู ${v} ใบ`;
     case "negateSpell": return `ยกเลิกเวทที่ศัตรูกำลังร่าย`;

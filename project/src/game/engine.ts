@@ -1,5 +1,5 @@
 import type {
-  GameState, PlayerState, Card, Flag, Deck, FieldCard, AutoEffectType, AutoTrigger, RuleSet, AttackTarget, FxEvent, FxInput, AutoSkill, CounterTiming,
+  GameState, PlayerState, Card, Flag, Deck, FieldCard, AutoEffectType, AutoTrigger, RuleSet, AttackTarget, FxEvent, FxInput, AutoSkill, CounterTiming, AutoEffect,
 } from "@/types";
 import { DEFAULT_RULES, callCostAmounts, canTransform, transformCostAmounts } from "@/types";
 import { uid } from "@/storage";
@@ -932,6 +932,43 @@ export function recalcAuras(g: GameState) {
     [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
       fc.auraPower = pw + pps * fc.soul.length; fc.auraDefense = df; fc.auraCritical = cr + cps * fc.soul.length;
     });
+
+    // บัฟถาวรแบบมีเงื่อนไข (condBuff): ถ้าบนสนามมีการ์ดที่มีคุณสมบัติ/ชื่อที่กำหนด → บัฟการ์ดใบนี้ หรือการ์ดที่ชื่อ ...
+    const fields = (q: PlayerState): FieldCard[] => [...q.monsters, ...(q.item ? [q.item] : [])];
+    const has = (hay: string | undefined, needle: string) => !!hay && hay.toLowerCase().includes(needle);
+    const bump = (t: FieldCard, e: AutoEffect) => {
+      if (e.stat === "critical") t.auraCritical = (t.auraCritical ?? 0) + e.value;
+      else if (e.stat === "defense") t.auraDefense = (t.auraDefense ?? 0) + e.value;
+      else t.auraPower = (t.auraPower ?? 0) + e.value;
+    };
+    const condMet = (e: AutoEffect, self: FieldCard | null): boolean => {
+      const need = (e.condText ?? "").trim().toLowerCase();
+      if (!need) return true;
+      const opp: Side = side === "host" ? "guest" : "host";
+      const sides: Side[] = e.condWhere === "opponent" ? [opp] : e.condWhere === "any" ? [side, opp] : [side];
+      return sides.some(sd => fields(g[sd]).some(f => {
+        if (self && f.uid === self.uid) return false; // ไม่นับการ์ดใบที่ถือสกิลนี้เอง
+        const c = getCard(f.cardId);
+        return !!c && (e.condMatch === "name" ? has(c.name, need) : has(c.attribute, need));
+      }));
+    };
+    const runCond = (card: Card, self: FieldCard | null) => {
+      (card.autoSkills ?? []).forEach(sk => {
+        if (sk.trigger !== "continuous") return;
+        sk.effects.forEach(e => {
+          if (e.type !== "condBuff" || !condMet(e, self)) return;
+          const tn = (e.targetName ?? "").trim().toLowerCase();
+          if (tn) fields(p).forEach(t => { if (has(getCard(t.cardId)?.name, tn)) bump(t, e); });
+          else if (self) bump(self, e);
+        });
+      });
+    };
+    fields(p).forEach(fc => {
+      if (fc.nullified) return; // ถูก Nullify: ความสามารถของการ์ดใบนี้ใช้ไม่ได้
+      const c = getCard(fc.cardId);
+      if (c) runCond(c, fc);
+    });
+    activeSetCards(p).forEach(c => runCond(c, null));
   });
 }
 
