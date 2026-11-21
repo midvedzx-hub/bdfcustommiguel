@@ -114,9 +114,19 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
             {(eff.targetName ?? "").trim() !== "" && (
               <label className="flex items-center gap-1"><input type="checkbox" checked={!!eff.includeSelf} onChange={e => onChange({ ...eff, includeSelf: e.target.checked })} /> รวมการ์ดใบนี้ด้วย</label>
             )}
+            <span className="basis-full" />
+            <span>และความสามารถ/คีย์เวิร์ดเพิ่มเติม:</span>
+            {SOUL_GRANT_KEYWORDS.map(k => {
+              const on = (eff.grantKw ?? []).includes(k.value);
+              return (
+                <button key={k.value} type="button"
+                  onClick={() => onChange({ ...eff, grantKw: on ? (eff.grantKw ?? []).filter(x => x !== k.value) : [...(eff.grantKw ?? []), k.value] })}
+                  className={`px-2 py-0.5 rounded-full border text-xs ${on ? "bg-cyan-700 border-cyan-400 text-white" : "bg-slate-800 border-slate-600 text-slate-300 hover:border-cyan-500"}`}>{k.label}</button>
+              );
+            })}
             <p className="basis-full text-slate-500">
               เลือกตัวกระตุ้นของสกิลเป็น “ถาวร” = มีผลตลอดตราบที่เงื่อนไขครบ (หายเมื่อเงื่อนไขไม่ครบ) · เลือกตัวกระตุ้นอื่น เช่น “เมื่อลงสนาม” “เมื่อโจมตี” = ตรวจเงื่อนไขตอนสกิลทำงาน แล้วบัฟจนจบเทิร์น ·
-              คุณสมบัติ = ข้อความช่อง attribute ของการ์ด · พิมพ์บางส่วนได้ ไม่สนตัวพิมพ์เล็กใหญ่ · ไม่นับการ์ดใบที่ถือสกิลนี้เอง · เว้นเงื่อนไขว่าง = ได้บัฟเสมอ
+              คุณสมบัติ = ข้อความช่อง attribute ของการ์ด · พิมพ์บางส่วนได้ ไม่สนตัวพิมพ์เล็กใหญ่ · ไม่นับการ์ดใบที่ถือสกิลนี้เอง · เว้นเงื่อนไขว่าง = ได้บัฟเสมอ · ความสามารถ/คีย์เวิร์ดเพิ่มเติมใช้ได้โดยไม่ต้องใส่ค่าบัฟ (ปล่อยเป็น 0) และผู้ได้รับคีย์เวิร์ดคือผู้ได้รับบัฟเดียวกัน · ถ้าผู้ได้รับถูก Nullify คีย์เวิร์ดที่ได้รับจะใช้ไม่ได้ในเทิร์นนั้น
             </p>
           </div>
         );
@@ -172,5 +182,15 @@ export function CounterOptions({ skill, onChange }: { skill: AutoSkill; onChange
         : "【Counter】: ใช้จาก \"มือ\" หรือช่อง Set (ใช้แล้วการ์ดลงสุสาน) จ่าย Cost ตามปกติ ใช้ได้ในเทิร์นของศัตรูตอนเขาโจมตีหรือร่ายเวท ตามจังหวะที่เลือก ใช้ได้กับทุกประเภทการ์ด"}
         {" "}ตอนศัตรูโจมตีใช้เอฟเฟกต์อย่าง "ยกเลิกการโจมตี" ได้ ตอนร่ายเวทใช้ "ยกเลิกเวท" ได้</p>
     </div>
+  );
+}
+
+// สกิลนี้ไม่สามารถถูกยกเลิกด้วยความสามารถ (Nullify) ได้
+export function NullifyProofToggle({ skill, onChange }: { skill: AutoSkill; onChange: (s: AutoSkill) => void }) {
+  return (
+    <label className="flex items-center gap-2 text-xs text-slate-300 mb-2 cursor-pointer">
+      <input type="checkbox" checked={!!skill.nullifyProof} onChange={e => onChange({ ...skill, nullifyProof: e.target.checked || undefined })} />
+      ความสามารถนี้ไม่สามารถถูกยกเลิกด้วยความสามารถได้ (ถูก Nullify แล้วสกิลนี้ยังทำงาน)
+    </label>
   );
 }

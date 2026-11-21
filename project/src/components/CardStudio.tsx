@@ -10,7 +10,7 @@ import { TransferDialog } from "@/components/TransferDialog";
 import { ImageUpload } from "@/components/ImageUpload";
 import { CardView } from "@/components/CardView";
 import { SKILL_TEMPLATES } from "@/game/helpers";
-import { EffectRow, CounterOptions } from "@/components/SkillEditor";
+import { EffectRow, CounterOptions, NullifyProofToggle } from "@/components/SkillEditor";
 import { CustomKeywordPanel } from "@/components/CustomKeywords";
 import { KEYWORD_DEFS, KW_CATEGORIES, type KeywordDef } from "@/game/keywords";
 
@@ -548,6 +548,7 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                       <button onClick={() => removeSkill(si)} className="ml-auto p-1 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={14} /></button>
                     </div>
                     <CounterOptions skill={skill} onChange={sk => updateSkill(si, sk)} />
+                    <NullifyProofToggle skill={skill} onChange={sk => updateSkill(si, sk)} />
                     {skill.effects.map((eff, ei) => (
                       <EffectRow key={ei} eff={eff} onChange={e2 => updateEffect(si, ei, e2)} onRemove={() => removeEffect(si, ei)} />
                     ))}

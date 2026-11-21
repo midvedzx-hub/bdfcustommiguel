@@ -64,7 +64,7 @@ export type AutoEffectType =
   | "criticalPerSoul"         // Critical +N ต่อการ์ด 1 ใบในโซล (ถาวร)
   | "soulGrant"               // ถาวร: ถ้าการ์ดนี้อยู่ใน Soul ของการ์ด (ชื่อ ...) การ์ดนั้นจะได้รับความสามารถทั้งหมดของการ์ดนี้
   | "soulCond"                // ถาวร: ถ้าโซลของการ์ดนี้มีการ์ด (คุณสมบัติ/ชื่อที่กำหนด) อย่างน้อย X ใบ → การ์ดนี้ได้ Power/Critical/Defense เพิ่ม และ/หรือได้คีย์เวิร์ด (Penetrate / Double Attack ...)
-  | "condBuff";                // ถาวร: ถ้าในสนามมีการ์ดที่มีคุณสมบัติ/ชื่อที่กำหนด → การ์ดนี้ (หรือการ์ดที่ชื่อ ...) ได้ Power/Critical/Defense เพิ่ม
+  | "condBuff";                // ถาวร: ถ้าในสนามมีการ์ดที่มีคุณสมบัติ/ชื่อที่กำหนด → การ์ดนี้ (หรือการ์ดที่ชื่อ ...) ได้ Power/Critical/Defense เพิ่ม และ/หรือได้คีย์เวิร์ด (grantKw)
 
 export const TRIGGER_LABELS: { value: AutoTrigger; label: string }[] = [
   { value: "onCall", label: "เมื่อลงสนาม / ติดตั้ง" },
@@ -166,7 +166,7 @@ export interface AutoEffect {
   perSoul?: boolean;                       // soulCond: คูณค่าบัฟตามจำนวนการ์ดใน Soul ที่ตรงเงื่อนไข (แทนที่จะได้ครั้งเดียว)
   targetMatch?: "attr" | "name";           // soulCond: ผู้ได้รับ = การ์ดอื่นของเราที่มีคุณสมบัติ/ชื่อ targetText (ว่าง = การ์ดใบนี้เอง)
   targetText?: string;                     // soulCond: ข้อความผู้ได้รับ คั่นหลายค่าด้วย , (ตรงอย่างใดอย่างหนึ่ง)
-  grantKw?: AutoEffectType[];              // soulCond: คีย์เวิร์ดที่ได้รับเมื่อเงื่อนไขโซลครบ (เช่น penetrate, doubleAttack)
+  grantKw?: AutoEffectType[];              // soulCond / condBuff: คีย์เวิร์ดที่ได้รับเมื่อเงื่อนไขครบ (เช่น penetrate, doubleAttack)
 }
 
 // คีย์เวิร์ดที่ soulCond ให้ได้ (ค่า 1 ทั้งหมด)
@@ -181,6 +181,8 @@ export const SOUL_GRANT_KEYWORDS: { value: AutoEffectType; label: string }[] = [
   { value: "indestructibleBattle", label: "ไม่ถูกทำลายจากการต่อสู้" },
   { value: "indestructible", label: "ไม่สามารถถูกทำลายได้ (ทุกทาง)" },
   { value: "unnullifiable", label: "ไม่สามารถถูกยกเลิกความสามารถได้" },
+  { value: "move", label: "Move" },
+  { value: "counterattack", label: "Counterattack" },
 ];
 
 // ค่าที่ condBuff เพิ่มให้ (รองรับข้อมูลแบบเก่าที่ใช้ stat + value)
@@ -213,6 +215,7 @@ export interface AutoSkill {
   help?: string;          // คำอธิบายเพิ่มเติมของคีย์เวิร์ดกำหนดเอง (แสดงบนการ์ด)
   timing?: CounterTiming; // ใช้กับ Counter / Counter Act (ค่าเริ่มต้น = ตอนศัตรูโจมตี)
   cost?: CounterCost;     // ใช้กับ Counter / Counter Act: ต้องจ่ายเกจ / Life เพิ่มเพื่อใช้
+  nullifyProof?: boolean; // สกิลนี้ไม่สามารถถูกยกเลิก (Nullify) ได้ — แม้การ์ดถูก Nullify สกิลนี้ยังทำงาน
 }
 
 export interface Card {
@@ -362,6 +365,7 @@ export interface FieldCard {
   manualCritical?: number;
   manualDefense?: number;
   grantedSkills?: AutoSkill[]; // ความสามารถที่ได้รับจากการ์ดใน Soul (soulGrant) — คำนวณใหม่ทุก action
+  tempGrantedSkills?: AutoSkill[]; // ความสามารถที่ได้รับชั่วคราวจนจบเทิร์น (เช่น condBuff ที่ตั้งทริกเกอร์ไม่ใช่ "ถาวร")
   auraSize?: number;       // Size ที่เปลี่ยนจากสกิลถาวรแบบมีเงื่อนไข (คำนวณใหม่ทุก action)
   tempSize?: number;       // Size ที่เปลี่ยนชั่วคราวจนจบเทิร์น (จากสกิลแบบมีเงื่อนไขที่ทำงานตอนลงสนาม/โจมตี ฯลฯ)
   manualSize?: number;     // Sandbox: ปรับ Size ด้วยมือ (บวก/ลบจาก Size ของการ์ด) คงอยู่ตราบที่การ์ดอยู่บนสนาม

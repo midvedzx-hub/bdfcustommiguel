@@ -84,7 +84,10 @@ export function effectText(e: AutoEffect): string {
       const tn = (e.targetName ?? "").trim();
       const cond = need ? `ถ้าในสนาม${where}มีการ์ดใบอื่นที่มี${kind} “${need}” ` : "";
       const target = tn ? (e.includeSelf ? `การ์ดใบนี้และการ์ดชื่อ “${tn}” ของเรา` : `การ์ดชื่อ “${tn}” ของเรา`) : "การ์ดใบนี้";
-      return `${cond}${target}ได้รับ ${gain}`;
+      const gainKws = (e.grantKw ?? []).map(t => SOUL_GRANT_KEYWORDS.find(k => k.value === t)?.label ?? String(t));
+      const hasStat = !!(amt.power || amt.critical || amt.defense || amt.size);
+      const gainAll = [...(hasStat || gainKws.length === 0 ? [gain] : []), ...gainKws].join(" และ ");
+      return `${cond}${target}ได้รับ ${gainAll}`;
     }
     case "chooseRemoveSoul": return `เลือกการ์ดของเรา 1 ใบ ถอด Soul ${v} ใบ (ถ้าถอดได้ จึงทำต่อ)`;
     case "destroyOpponentSet": return `ทำลายการ์ด Set ของศัตรู ${v} ใบ`;
@@ -112,7 +115,8 @@ export function skillLines(card: Card): string[] {
     const help = (sk.help ?? (sk.name ? getCustomKeywords().find(k => k.name === sk.name)?.help : undefined))?.trim();
     if ((sk.trigger === "continuous" || sk.trigger === "onAttack") && allKeywords) {
       // แสดงเป็นป้ายแดงแทน — แต่ถ้ามีคำอธิบายเพิ่มเติม ให้แสดงเป็นบรรทัดข้อความด้วย
-      if (help) lines.push(sk.name ? `【${sk.name}】${help}` : help);
+      if (help) lines.push(sk.name ? `【${sk.name}】${help}`  : help);
+      if (sk.nullifyProof) lines.push(`${sk.effects.map(e => effectText(e)).join("、")}: ความสามารถนี้ไม่สามารถถูกยกเลิกได้`);
       return;
     }
     const trig = TRIGGER_LABELS.find(t => t.value === sk.trigger)?.label.replace(/ \(.*\)$/, "") ?? sk.trigger;
@@ -127,8 +131,9 @@ export function skillLines(card: Card): string[] {
       if ((sk.cost.handToDrop ?? 0) > 0) costParts.push(`ทิ้งการ์ดบนมือ ${sk.cost.handToDrop} ใบ`);
     }
     const costStr = costParts.length ? `[จ่าย ${costParts.join(" + ")}] ` : "";
+    const proofStr = sk.nullifyProof ? " (ความสามารถนี้ไม่สามารถถูกยกเลิกได้)" : "";
     const body = costStr + sk.effects.map(e => effectText(e) + (e.type === "condBuff" && sk.trigger !== "continuous" ? " จนจบเทิร์น" : "")).join("、");
-    const helpStr = help ? ` — ${help}` : "";
+    const helpStr = (help ? ` — ${help}` : "") + proofStr;
     if (sk.name) lines.push(`【${sk.name}】${sk.trigger === "continuous" ? "" : `${trig}${timing}: `}${body}${helpStr}`);
     else lines.push(`【${trig}】${timing ? timing.trim() + " " : ""}${body}${helpStr}`);
   });

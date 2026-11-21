@@ -1,4 +1,4 @@
-import { condBuffAmounts, deckBuddies } from "@/types";
+import { condBuffAmounts, deckBuddies, SOUL_GRANT_KEYWORDS } from "@/types";
 import type {
   GameState, PlayerState, Card, Flag, Deck, FieldCard, AutoEffectType, AutoTrigger, RuleSet, AttackTarget, FxEvent, FxInput, AutoSkill, CounterTiming, AutoEffect,
 } from "@/types";
@@ -42,8 +42,9 @@ export function getCard(cardId: string): Card | undefined {
 // การ์ดของ FieldCard รวมความสามารถที่ได้รับจาก Soul (soulGrant) — ใช้เมื่อต้องอ่านสกิลของการ์ดบนสนาม
 export function cardOfFc(fc: FieldCard): Card | undefined {
   const c = getCard(fc.cardId);
-  if (!c || !fc.grantedSkills || fc.grantedSkills.length === 0) return c;
-  return { ...c, autoSkills: [...(c.autoSkills ?? []), ...fc.grantedSkills] };
+  const extra = [...(fc.grantedSkills ?? []), ...(fc.tempGrantedSkills ?? [])];
+  if (!c || extra.length === 0) return c;
+  return { ...c, autoSkills: [...(c.autoSkills ?? []), ...extra] };
 }
 
 export function registerCards(cards: Card[]) {
@@ -183,9 +184,23 @@ export function hasKeyword(card: Card, type: AutoEffectType): boolean {
   );
 }
 
-// ไม่สามารถถูกทำลายได้: ใช้ได้ตราบที่ความสามารถไม่ถูก Nullify
+// สกิลนี้ยังทำงานอยู่ไหม: ปกติทำงานเมื่อการ์ดไม่ถูก Nullify แต่สกิลที่ติดธง "ไม่สามารถถูกยกเลิกได้" ทำงานเสมอ
+const skillWorks = (fc: FieldCard | null | undefined, sk: AutoSkill) => !fc?.nullified || !!sk.nullifyProof;
+// คีย์เวิร์ด (สกิลถาวร / เมื่อโจมตี) ที่ยังมีผลอยู่ — คำนึงถึง Nullify รายสกิล
+function hasKeywordActive(fc: FieldCard | null | undefined, card: Card, type: AutoEffectType): boolean {
+  return !!card.autoSkills?.some(s => (s.trigger === "continuous" || s.trigger === "onAttack") && skillWorks(fc, s) && s.effects.some(e => e.type === type));
+}
+function keywordValueActive(fc: FieldCard | null | undefined, card: Card, type: AutoEffectType): number {
+  let v = 0;
+  card.autoSkills?.forEach(s => {
+    if ((s.trigger !== "continuous" && s.trigger !== "onAttack") || !skillWorks(fc, s)) return;
+    s.effects.forEach(e => { if (e.type === type) v = Math.max(v, Math.max(1, Math.floor(e.value))); });
+  });
+  return v;
+}
+// ไม่สามารถถูกทำลายได้: ใช้ได้ตราบที่สกิลนี้ไม่ถูก Nullify
 function isIndestructible(fc: FieldCard, card?: Card): boolean {
-  return !!card && !fc.nullified && hasKeyword(card, "indestructible");
+  return !!card && hasKeywordActive(fc, card, "indestructible");
 }
 // ไม่สามารถถูกยกเลิกความสามารถได้: Nullify ไม่มีผล
 function isNullifyProof(card?: Card): boolean {
@@ -250,7 +265,7 @@ function mRemoveSoul(g: GameState, side: Side, fc: FieldCard, n: number): number
 // คืน true = กันสำเร็จ (การ์ดไม่ออกจากสนาม)
 function trySoulguard(g: GameState, side: Side, m: FieldCard, card: Card | undefined, why: string): boolean {
   if (!card || keywordValue(card, "soulguard") <= 0) return false;
-  if (m.nullified) { log(g, `${card.name} ถูก Nullify — Soulguard ไม่ทำงาน`); return false; }
+  if (!hasKeywordActive(m, card, "soulguard")) { log(g, `${card.name} ถูก Nullify — Soulguard ไม่ทำงาน`); return false; }
   if (g[side].soulguardOff) { log(g, `${nameOf(side)} ปิด Soulguard ไว้ — ${card.name} ไม่ใช้ Soulguard`); return false; }
   if (m.soul.length < 1) return false;
   log(g, `${card.name} ใช้ Soulguard! ถอด Soul 1 ใบ กัน${why}ออกจากสนาม (เหลือ Soul ${m.soul.length - 1})`);
@@ -282,7 +297,7 @@ function mDestroyMonster(g: GameState, side: Side, monsterUid: string): boolean 
   log(g, `${card?.name ?? "มอนสเตอร์"} ถูกทำลาย`);
   if (card) applyEffects(g, side, card, "onDestroyed");
   // Lifelink: เมื่อการ์ดนี้ตาย เจ้าของโดนดาเมจตามค่า Lifelink
-  const ll = card && !m.nullified ? keywordValue(card, "lifelink") : 0;
+  const ll = card ? keywordValueActive(m, card, "lifelink") : 0;
   if (ll > 0 && !g.winner) {
     log(g, `Lifelink! ${card!.name} ตาย → ${nameOf(side)} โดนดาเมจ ${ll}`);
     mLife(g, side, -ll);
@@ -469,9 +484,13 @@ function runSkills(
           const amt = condBuffAmounts(eff);
           const ts = condBuffTargets(g, side, eff, self);
           if (ts.length === 0) break;
-          ts.forEach(t => { t.tempPower += amt.power; t.tempCritical += amt.critical; t.tempDefense += amt.defense; t.tempSize = (t.tempSize ?? 0) + amt.size; });
+          const grantKws: AutoEffect[] = (eff.grantKw ?? []).map(k => ({ type: k, value: 1 }));
+          ts.forEach(t => {
+            t.tempPower += amt.power; t.tempCritical += amt.critical; t.tempDefense += amt.defense; t.tempSize = (t.tempSize ?? 0) + amt.size;
+            if (grantKws.length > 0) t.tempGrantedSkills = [...(t.tempGrantedSkills ?? []), { trigger: "continuous", effects: grantKws }];
+          });
           const parts = [amt.power ? `Power +${amt.power}` : "", amt.critical ? `Critical +${amt.critical}` : "", amt.defense ? `Defense +${amt.defense}` : "", amt.size ? `Size ${amt.size > 0 ? "+" : ""}${amt.size}` : ""].filter(Boolean).join(" ");
-          log(g, `${card.name}: เงื่อนไขครบ — ${ts.map(t => cardOfFc(t)?.name ?? "การ์ด").join(", ")} ได้รับ ${parts} จนจบเทิร์น`);
+          log(g, `${card.name}: เงื่อนไขครบ — ${ts.map(t => cardOfFc(t)?.name ?? "การ์ด").join(", ")} ได้รับ ${[parts, ...grantKws.map(k => SOUL_GRANT_KEYWORDS.find(x => x.value === k.type)?.label ?? String(k.type))].filter(Boolean).join(" ")} จนจบเทิร์น`);
           break;
         }
         case "addSoul": {
@@ -884,7 +903,7 @@ export function endTurn(state: GameState): GameState {
   if (g.winner) return g;
   (["host", "guest"] as Side[]).forEach(s => {
     [...g[s].monsters, ...(g[s].item ? [g[s].item!] : [])].forEach(m => {
-      m.tempPower = 0; m.tempCritical = 0; m.tempDefense = 0; m.tempSize = 0; m.nullified = false;
+      m.tempPower = 0; m.tempCritical = 0; m.tempDefense = 0; m.tempSize = 0; m.nullified = false; m.tempGrantedSkills = undefined;
     });
   });
   g.currentTurn = other(g.currentTurn);
@@ -1084,7 +1103,7 @@ export function recalcAuras(g: GameState) {
     // บัฟถาวรแบบมีเงื่อนไข (condBuff ในสกิล "ถาวร"): มีผลตราบที่เงื่อนไขครบ
     const runCond = (card: Card, self: FieldCard | null) => {
       (card.autoSkills ?? []).forEach(sk => {
-        if (sk.trigger !== "continuous") return;
+        if (sk.trigger !== "continuous" || !skillWorks(self, sk)) return;
         sk.effects.forEach(e => {
           if (e.type !== "condBuff" || !condBuffMet(g, side, e, self)) return;
           const amt = condBuffAmounts(e);
@@ -1093,13 +1112,14 @@ export function recalcAuras(g: GameState) {
             t.auraCritical = (t.auraCritical ?? 0) + amt.critical;
             t.auraDefense = (t.auraDefense ?? 0) + amt.defense;
             t.auraSize = (t.auraSize ?? 0) + amt.size;
+            const kws: AutoEffect[] = (e.grantKw ?? []).map(k => ({ type: k, value: 1 }));
+            if (kws.length > 0) t.grantedSkills = [...(t.grantedSkills ?? []), { trigger: "continuous", effects: kws }]; // ได้คีย์เวิร์ดตราบที่เงื่อนไขครบ
           });
         });
       });
     };
     fieldCardsOf(p).forEach(fc => {
-      if (fc.nullified) return; // ถูก Nullify: ความสามารถของการ์ดใบนี้ใช้ไม่ได้
-      const c = cardOfFc(fc);
+      const c = cardOfFc(fc); // ถ้าถูก Nullify เฉพาะสกิลที่ไม่ติดธง "ไม่สามารถถูกยกเลิกได้" จะใช้ไม่ได้ (เช็กรายสกิลใน runCond)
       if (c) runCond(c, fc);
     });
     activeSetCards(p).forEach(c => runCond(c, null));
@@ -1108,7 +1128,7 @@ export function recalcAuras(g: GameState) {
     // (คำนวณใหม่ทุกครั้ง จึงหายเมื่อโซลไม่ครบ) — ใช้ได้ทั้งกับการ์ดบนสนามและการ์ด Set ที่เปิดอยู่ (ใช้ Soul ใต้การ์ด Set)
     const runSoulCond = (c: Card, soul: string[], self: FieldCard | null) => {
       (c.autoSkills ?? []).forEach(sk => {
-        if (sk.trigger !== "continuous") return;
+        if (sk.trigger !== "continuous" || !skillWorks(self, sk)) return;
         sk.effects.forEach(e => {
           if (e.type !== "soulCond") return;
           const n = soulCondCount(soul, e);
@@ -1125,7 +1145,6 @@ export function recalcAuras(g: GameState) {
       });
     };
     fieldCardsOf(p).forEach(fc => {
-      if (fc.nullified) return;
       const c = cardOfFc(fc);
       if (c) runSoulCond(c, fc.soul, fc);
     });
@@ -1442,7 +1461,7 @@ export function movableMonsters(state: GameState, side: Side): FieldCard[] {
   if (!hasFree) return [];
   return p.monsters.filter(m => {
     const c = cardOfFc(m);
-    return !!c && !m.nullified && hasKeyword(c, "move") && m.movedTurn !== state.turn;
+    return !!c && hasKeywordActive(m, c, "move") && m.movedTurn !== state.turn;
   });
 }
 
@@ -1460,7 +1479,7 @@ export function moveMonster(state: GameState, side: Side, monsterUid: string, po
   const card = m ? cardOfFc(m) : undefined;
   if (!m || !card) return { state, ok: false, msg: "ไม่พบมอนสเตอร์" };
   if (!hasKeyword(card, "move")) return { state, ok: false, msg: `${card.name} ไม่มีความสามารถ Move` };
-  if (m.nullified) return { state, ok: false, msg: `${card.name} ถูก Nullify จึงใช้ Move ไม่ได้` };
+  if (!hasKeywordActive(m, card, "move")) return { state, ok: false, msg: `${card.name} ถูก Nullify จึงใช้ Move ไม่ได้` };
   if (m.movedTurn === g.turn) return { state, ok: false, msg: `${card.name} ใช้ Move ไปแล้วในเทิร์นนี้` };
   if (m.position === position) return { state, ok: false, msg: "มอนสเตอร์อยู่ช่องนั้นอยู่แล้ว" };
   if (p.monsters.some(x => x.position === position))
@@ -1746,8 +1765,8 @@ export function counterOptions(state: GameState, side: Side): CounterOption[] {
   out.push(...setActOptions(state, side, timing, false));
   [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
     const c = cardOfFc(fc);
-    if (!c || fc.nullified) return;
-    actSkillIdxs(c, timing, false).forEach(idx => {
+    if (!c) return;
+    actSkillIdxs(c, timing, false).filter(idx => skillWorks(fc, c.autoSkills![idx])).forEach(idx => {
       if (actUsed(fc, state.turn, idx)) return;
       if (fc.soul.length < skillNeedsSoul(c, timing, idx)) return;
       if (!canAffordExtra(p, c, "onCounterAct", timing, false, idx)) return;
@@ -1920,8 +1939,8 @@ export function freeCounterOptions(state: GameState, side: Side): CounterOption[
   out.push(...setActOptions(state, side, null, true));
   [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
     const c = cardOfFc(fc);
-    if (!c || fc.nullified) return;
-    actSkillIdxs(c, null, true).forEach(idx => {
+    if (!c) return;
+    actSkillIdxs(c, null, true).filter(idx => skillWorks(fc, c.autoSkills![idx])).forEach(idx => {
       if (actUsed(fc, state.turn, idx)) return;
       if (fc.soul.length < skillNeedsSoul(c, null, idx)) return;
       if (!canAffordExtra(p, c, "onCounterAct", null, false, idx)) return;
@@ -2101,8 +2120,8 @@ function resolveBattle(g: GameState) {
 
     // ผู้โจมตีทำดาเมจใส่เป้าหมาย: Power ≥ Defense ของเป้า -> เป้าถูกทำลาย
     let targetDestroyed = false;
-    if (tgtCard && !tgt.nullified && (hasKeyword(tgtCard, "indestructibleBattle") || hasKeyword(tgtCard, "indestructible"))) {
-      log(g, `${tgtName} ${hasKeyword(tgtCard, "indestructible") ? "ไม่สามารถถูกทำลายได้" : "ไม่ถูกทำลายจากการต่อสู้"}`);
+    if (tgtCard && (hasKeywordActive(tgt, tgtCard, "indestructibleBattle") || hasKeywordActive(tgt, tgtCard, "indestructible"))) {
+      log(g, `${tgtName} ${hasKeywordActive(tgt, tgtCard, "indestructible") ? "ไม่สามารถถูกทำลายได้" : "ไม่ถูกทำลายจากการต่อสู้"}`);
     } else if (total.power >= tgtStats.defense) {
       log(g, `Power ${total.power} ≥ Def ${tgtStats.defense} → ทำลาย ${tgtName}${linkNote}`);
       targetDestroyed = mDestroyMonster(g, oppSide, tgt.uid);
@@ -2111,9 +2130,9 @@ function resolveBattle(g: GameState) {
     }
 
     // Counterattack: ถ้าเป้าหมายที่ถูกโจมตียังอยู่บนสนามหลังการโจมตี เลือกผู้โจมตี 1 ตัวที่ Defense ≤ Power ของเป้า แล้วทำลาย
-    if (tgtCard && !tgt.nullified && hasKeyword(tgtCard, "counterattack") && !g.winner && foe.monsters.some(m => m.uid === tgt.uid)) {
+    if (tgtCard && hasKeywordActive(tgt, tgtCard, "counterattack") && !g.winner && foe.monsters.some(m => m.uid === tgt.uid)) {
       const victims = parts
-        .filter(({ fc, card, isItem }) => !isItem && me.monsters.some(m => m.uid === fc.uid) && !(!fc.nullified && (hasKeyword(card, "indestructibleBattle") || hasKeyword(card, "indestructible"))) && statsOf(fc).defense <= tgtStats.power)
+        .filter(({ fc, card, isItem }) => !isItem && me.monsters.some(m => m.uid === fc.uid) && !(hasKeywordActive(fc, card, "indestructibleBattle") || hasKeywordActive(fc, card, "indestructible")) && statsOf(fc).defense <= tgtStats.power)
         .sort((x, y) => statsOf(y.fc).critical - statsOf(x.fc).critical);
       if (victims.length > 0) {
         const v = victims[0];
