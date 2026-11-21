@@ -47,7 +47,19 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
             <span className="basis-full" />
             <span>ของการ์ดชื่อ</span>
             <input value={eff.refName ?? ""} onChange={e => onChange({ ...eff, refName: e.target.value })} placeholder="ว่าง = การ์ดใบนี้ / พิมพ์ชื่อการ์ดที่กำหนด" className={`${num} !py-0.5 text-xs w-64`} />
-            <label className="flex items-center gap-1"><input type="checkbox" checked={!!eff.includeItem} onChange={e => onChange({ ...eff, includeItem: e.target.checked })} /> รวมไอเทมของศัตรูด้วย</label>
+            <span className="basis-full" />
+            <span>ทำลาย:</span>
+            {(() => {
+              const scope = eff.destroyScope ?? (eff.includeItem ? "all" : "monster");
+              const pill = (v: "monster" | "all", label: string, tip: string) => (
+                <button key={v} type="button" title={tip} onClick={() => onChange({ ...eff, destroyScope: v, includeItem: v === "all" })}
+                  className={`px-3 py-0.5 rounded-full border text-xs ${scope === v ? "bg-rose-700 border-rose-300 text-white" : "bg-slate-800 border-slate-600 text-slate-300 hover:border-rose-400"}`}>{label}</button>
+              );
+              return <>
+                {pill("monster", "มอนสเตอร์เท่านั้น", "ทำลายเฉพาะมอนสเตอร์ของศัตรู")}
+                {pill("all", "การ์ดทั้งหมด", "มอนสเตอร์ + ไอเทม + การ์ด Set ของศัตรู (การ์ด Set เทียบกับค่าที่พิมพ์บนการ์ด ซึ่งเวทมักเป็น 0)")}
+              </>;
+            })()}
             <span className="basis-full" />
             <label className="flex items-center gap-1">ยิงดาเมจตรงใส่ Life ศัตรู
               <input type="number" min={0} max={9} value={eff.lifePerKill ?? 0} onChange={e => onChange({ ...eff, lifePerKill: Math.max(0, Math.min(9, parseInt(e.target.value) || 0)) })} className={`${num} w-14 !py-0.5 text-xs`} />

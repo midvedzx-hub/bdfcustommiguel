@@ -172,7 +172,8 @@ export interface AutoEffect {
   cmpStats?: ("power" | "critical" | "defense")[]; // ค่าที่ใช้เทียบ (ไม่เลือก = Power)
   cmpMode?: "all" | "any";                          // all = น้อยกว่าทุกค่าที่เลือก (ค่าเริ่มต้น) · any = น้อยกว่าอย่างใดอย่างหนึ่ง
   refName?: string;                                 // ชื่อการ์ดที่กำหนดว่าต้องอยู่ในสนามเรา (ว่าง = การ์ดใบที่ถือสกิลนี้เอง)
-  includeItem?: boolean;                            // รวมไอเทมของศัตรูด้วย
+  includeItem?: boolean;                            // (เก่า) รวมไอเทมของศัตรูด้วย — ถ้าไม่มี destroyScope: true ถือเป็น "all"
+  destroyScope?: "monster" | "all";                 // destroyWeaker: ทำลายเฉพาะมอนสเตอร์ หรือ "การ์ดทั้งหมด" (มอนสเตอร์ + ไอเทม + การ์ด Set)
   lifePerKill?: number;                             // ยิงดาเมจตรงใส่ผู้เล่นศัตรู N ต่อการ์ดที่ถูกทำลายได้จริง 1 ใบ (0/ไม่ใส่ = ไม่ยิง)
   grantKw?: AutoEffectType[];              // soulCond / condBuff: คีย์เวิร์ดที่ได้รับเมื่อเงื่อนไขครบ (เช่น penetrate, doubleAttack)
 }

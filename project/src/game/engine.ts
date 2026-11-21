@@ -453,12 +453,23 @@ function runSkills(
             return eff.cmpMode === "any" ? tests.some(Boolean) : tests.every(Boolean);
           };
           const label = keys.map(k => `${k === "power" ? "Power" : k === "critical" ? "Critical" : "Defense"} ${ref[k]}`).join(" / ");
+          const scopeAll = (eff.destroyScope ?? (eff.includeItem ? "all" : "monster")) === "all";
           const victims = g[opp].monsters.filter(weaker).map(m => m.uid);
           const itemFc = g[opp].item;
-          const hitItem = !!eff.includeItem && !!itemFc && weaker(itemFc);
-          log(g, `${card.name}: ทำลายการ์ดศัตรูที่ค่าน้อยกว่า ${label} (${victims.length + (hitItem ? 1 : 0)} ใบ)`);
+          const hitItem = scopeAll && !!itemFc && weaker(itemFc);
+          // การ์ด Set ไม่มีค่าสถานะในสนาม: เทียบกับค่าที่พิมพ์บนการ์ด (เวทมักเป็น 0)
+          const weakerSet = (id: string) => {
+            const c = getCard(id);
+            if (!c) return false;
+            const s = { power: c.power, critical: c.critical, defense: c.defense };
+            const tests = keys.map(k => s[k] < ref[k]);
+            return eff.cmpMode === "any" ? tests.some(Boolean) : tests.every(Boolean);
+          };
+          const setIdx = scopeAll ? g[opp].setZone.map((id, i) => (weakerSet(id) ? i : -1)).filter(i => i >= 0) : [];
+          log(g, `${card.name}: ทำลาย${scopeAll ? "การ์ดทั้งหมด (มอนสเตอร์/ไอเทม/การ์ด Set)" : "มอนสเตอร์"}ของศัตรูที่ค่าน้อยกว่า ${label} (${victims.length + (hitItem ? 1 : 0) + setIdx.length} ใบ)`);
           let destroyed = 0; // นับเฉพาะใบที่ถูกทำลายได้จริง (ใบที่รอดจาก Soulguard / ไม่สามารถถูกทำลายฯ ไม่นับ)
           victims.forEach(u => { if (mDestroyMonster(g, opp, u)) destroyed++; });
+          [...setIdx].sort((a, b) => b - a).forEach(i => { if (mDestroySet(g, opp, i)) destroyed++; }); // ทำลายจากท้ายไปหน้า index จะได้ไม่เลื่อน
           if (hitItem && itemFc) {
             const ic = cardOfFc(itemFc);
             if (isIndestructible(itemFc, ic)) log(g, `${ic?.name ?? "ไอเทม"} ไม่สามารถถูกทำลายจากความสามารถของการ์ดคู่แข่งได้ — รอด!`);
