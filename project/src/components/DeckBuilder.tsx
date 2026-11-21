@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Plus, Minus, Save, Trash2, Star, Search, Download, Upload, BookOpen } from "lucide-react";
 import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Deck, Card, Flag } from "@/types";
+import { deckBuddies, canShareBuddy, pruneBuddies, MAX_BUDDIES } from "@/types";
 import { getDecks, saveDecks, getCards, getFlags, uid, downloadJSON, parseImport, applyImport, exportDecks } from "@/storage";
 import type { ParsedImport } from "@/storage";
 import { TransferDialog } from "@/components/TransferDialog";
@@ -24,7 +25,7 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
   }
 
   function startNew() {
-    setEditing({ id: uid(), name: "เด็คใหม่", flagId: flags[0]?.id ?? "", cardIds: [], buddyId: null });
+    setEditing({ id: uid(), name: "เด็คใหม่", flagId: flags[0]?.id ?? "", cardIds: [], buddyId: null, buddyIds: [] });
   }
 
   function saveEdit() {
@@ -49,9 +50,22 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
     setEditing({ ...editing, cardIds: editing.cardIds.filter((_, i) => i !== index) });
   }
 
+  // ตั้งรายการ Buddy (ตัวแรก = ตัวหลัก) บันทึกทั้ง buddyId และ buddyIds ให้เข้ากับข้อมูลเก่า
+  function setBuddyList(ids: string[]) {
+    if (!editing) return;
+    const list = pruneBuddies(ids, cards).slice(0, MAX_BUDDIES);
+    setEditing({ ...editing, buddyId: list[0] ?? null, buddyIds: list });
+  }
+
+  // เลือก Buddy ตัวหลัก: เติม Buddy ร่วมที่ตัวนี้ระบุไว้ (buddyPartners) จากคลังการ์ดให้อัตโนมัติ สูงสุด 4 ตัว
   function setBuddy(cardId: string | null) {
     if (!editing) return;
-    setEditing({ ...editing, buddyId: cardId });
+    if (!cardId) return setBuddyList([]);
+    const main = cards.find(c => c.id === cardId);
+    const partners = main ? cards.filter(c => c.type === "Monster" && canShareBuddy(main, c)) : [];
+    const uniq: Card[] = [];
+    partners.forEach(c => { if (!uniq.some(u => u.name.trim().toLowerCase() === c.name.trim().toLowerCase())) uniq.push(c); });
+    setBuddyList([cardId, ...uniq.map(c => c.id)]);
   }
 
   function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -90,7 +104,10 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
   if (editing) {
     const flag = flagOf(editing.flagId);
     const col = flag?.color || "#22d3ee";
-    const buddyCard = editing.buddyId ? cardOf(editing.buddyId) : null;
+    const buddyIds = deckBuddies(editing);
+    const buddyCards = buddyIds.map(id => cardOf(id)).filter((c): c is Card => !!c);
+    // Buddy ร่วมที่เพิ่มได้: มอนสเตอร์ที่เชื่อมกับ Buddy ที่เลือกอยู่แล้ว (ใบใดใบหนึ่งระบุชื่ออีกใบไว้ในช่อง "Buddy ร่วม")
+    const buddyCandidates = buddyIds.length >= MAX_BUDDIES ? [] : cards.filter(c => c.type === "Monster" && !buddyIds.includes(c.id) && buddyCards.some(b => canShareBuddy(b, c)));
     const TYPE_COL: Record<string, string> = { Monster: "#f59e0b", Spell: "#38bdf8", Item: "#34d399", Impact: "#fb7185" };
 
     const filtered = cards.filter(c => {
@@ -145,7 +162,7 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
           </div>
           <div>
             <label className="text-xs text-slate-400 flex items-center gap-1"><Star size={11} className="text-amber-400" fill="currentColor" /> Buddy</label>
-            <select value={editing.buddyId ?? ""} onChange={e => setBuddy(e.target.value || null)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2">
+            <select value={buddyIds[0] ?? ""} onChange={e => setBuddy(e.target.value || null)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2">
               <option value="">ไม่เลือก</option>
               {(flag?.buddyIds ?? []).length > 0 && (
                 <optgroup label="Buddy ประจำโลกนี้">
@@ -156,7 +173,29 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
                 {cards.filter(c => c.type === "Monster").map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </optgroup>
             </select>
-            {buddyCard && <div className="text-xs text-amber-400 mt-1 truncate">★ {buddyCard.name} (Buddy Call: Life +1)</div>}
+            {buddyCards.length > 0 && (
+              <div className="mt-1.5 space-y-1">
+                <div className="text-xs text-amber-400">★ ช่องบัดดี้ {buddyCards.length}/{MAX_BUDDIES} ตัว (Buddy Call ได้ตัวละ 1 ครั้ง: Life +1)</div>
+                <div className="flex flex-wrap gap-1">
+                  {buddyCards.map((c, i) => (
+                    <span key={c.id} className="chip !text-amber-300 max-w-full">
+                      <Star size={10} fill="currentColor" /> <span className="truncate">{c.name}</span>
+                      {i > 0 && <button onClick={() => setBuddyList(buddyIds.filter(x => x !== c.id))} className="ml-1 text-slate-400 hover:text-red-400" title="เอาออก">×</button>}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {buddyCards.length > 0 && buddyIds.length < MAX_BUDDIES && (
+              buddyCandidates.length > 0 ? (
+                <select value="" onChange={e => e.target.value && setBuddyList([...buddyIds, e.target.value])} className="w-full mt-1.5 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm">
+                  <option value="">+ เพิ่ม Buddy ร่วม ({buddyCandidates.length} ตัวที่เพิ่มได้)</option>
+                  {buddyCandidates.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              ) : (
+                <div className="text-[11px] text-slate-500 mt-1">Buddy ร่วมเพิ่มได้เมื่อการ์ดระบุกันไว้ในช่อง “Buddy ร่วม” ตอนสร้างการ์ด (เช่น ตัว A ระบุชื่อ B และ C)</div>
+              )
+            )}
           </div>
         </div>
 
@@ -236,7 +275,7 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
                       <CardView card={c} flag={flagOf(c.flagId)} width="30px" hideText />
                       <span className="w-6 h-6 rounded-full bg-amber-400 text-slate-900 text-xs font-bold flex items-center justify-center shrink-0" title="Cost">{c.callCost}</span>
                       <span className="text-sm flex-1 truncate">{c.name}</span>
-                      {editing.buddyId === id && <Star size={12} className="text-amber-400 shrink-0" fill="currentColor" />}
+                      {buddyIds.includes(id) && <Star size={12} className="text-amber-400 shrink-0" fill="currentColor" />}
                       <div className="flex items-center gap-1 shrink-0">
                         <button onClick={() => removeCard(editing.cardIds.lastIndexOf(id))} className="w-6 h-6 rounded-md bg-slate-700 hover:bg-red-800 flex items-center justify-center"><Minus size={12} /></button>
                         <span className="w-6 text-center font-display font-bold text-cyan-300">{n}</span>
@@ -281,7 +320,7 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
           {decks.map(d => {
             const flag = flagOf(d.flagId);
             const col = flag?.color || "#475569";
-            const buddy = d.buddyId ? cardOf(d.buddyId) : null;
+            const buddies = deckBuddies(d).map(id => cardOf(id)).filter((c): c is Card => !!c);
             const counts: Record<string, number> = { Monster: 0, Spell: 0, Item: 0, Impact: 0 };
             d.cardIds.forEach(id => { const c = cardOf(id); if (c) counts[c.type] = (counts[c.type] ?? 0) + 1; });
             const total = Math.max(1, d.cardIds.length);
@@ -304,7 +343,7 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
                   </div>
                   <div className="flex flex-wrap gap-1.5 mb-3 text-xs">
                     {Object.entries(counts).map(([t, n]) => <span key={t} className="chip"><span className="w-2 h-2 rounded-full" style={{ background: TYPE_COL[t] }} />{t} {n}</span>)}
-                    {buddy && <span className="chip !text-amber-300"><Star size={10} fill="currentColor" /> {buddy.name}</span>}
+                    {buddies.map(b => <span key={b.id} className="chip !text-amber-300"><Star size={10} fill="currentColor" /> {b.name}</span>)}
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => setEditing(d)} className="btn !py-1.5 flex-1">แก้ไข</button>

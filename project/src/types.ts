@@ -230,6 +230,7 @@ export interface Card {
   flavorText?: string; // Flavor Text: คำพูด/เรื่องราวของการ์ด (แสดงเป็นตัวเอียงท้ายกล่องข้อความ ไม่มีผลต่อเกม)
   autoSkills: AutoSkill[];
   attribute?: string; // เช่น "Dragon / Warrior" แสดงใต้ชื่อการ์ด
+  buddyPartners?: string[]; // ชื่อการ์ดที่อยู่ในช่องบัดดี้ร่วมกับการ์ดนี้ได้ (เช่น บัดดี้ 2-4 ตัว) — ถ้าการ์ดนี้เป็น Buddy ของเด็ค ตัวเหล่านี้ใส่ช่องบัดดี้ร่วมกันได้
   callSoulFromDeck?: number; // Call Cost: นำการ์ดบนเด็ค N ใบเข้าโซลตอนลงสนาม
 }
 
@@ -327,7 +328,8 @@ export interface Deck {
   name: string;
   flagId: string;
   cardIds: string[];
-  buddyId: string | null;
+  buddyId: string | null;   // Buddy ตัวหลัก (= buddyIds[0])
+  buddyIds?: string[];      // Buddy ทั้งหมดในช่องบัดดี้ (1-4 ตัว) ตัวแรกคือตัวหลัก
 }
 
 export type CardState = "stand" | "rest";
@@ -373,7 +375,9 @@ export interface PlayerState {
   item: FieldCard | null;
   flagId: string;
   buddyId: string | null;
-  buddyCalledThisGame: boolean;
+  buddyIds?: string[];        // Buddy ทั้งหมดของผู้เล่น (1-4 ตัว)
+  buddiesCalled?: string[];   // Buddy ที่ Buddy Call ไปแล้ว (ตัวละครั้งเดียวต่อเกม)
+  buddyCalledThisGame: boolean; // true เมื่อ Buddy ทุกตัว Buddy Call ครบแล้ว
   soulguardOff?: boolean; // ปิดการใช้ Soulguard อัตโนมัติ (ผู้เล่นเลือกไม่ใช้ได้)
 }
 
@@ -459,4 +463,40 @@ export function transformCostAmounts(card: Pick<Card, "transformCost" | "transfo
 }
 export function transformCostLabel(card: Pick<Card, "transformCost" | "transformCostType" | "transformCostExtra">): string {
   return callCostLabel({ callCost: card.transformCost ?? 0, callCostType: card.transformCostType ?? "Gauge", callCostExtra: card.transformCostExtra });
+}
+
+
+// ---------------- Buddy หลายตัว (ช่องบัดดี้ 1-4 ตัว) ----------------
+export const MAX_BUDDIES = 4;
+
+// รายชื่อ Buddy ของเด็ค/ผู้เล่น (รองรับข้อมูลเก่าที่มีแค่ buddyId)
+export function deckBuddies(d: { buddyId?: string | null; buddyIds?: string[] }): string[] {
+  const ids = d.buddyIds && d.buddyIds.length > 0 ? d.buddyIds : d.buddyId ? [d.buddyId] : [];
+  return ids.filter((id, i) => ids.indexOf(id) === i).slice(0, MAX_BUDDIES);
+}
+
+const normName = (s: string) => s.trim().toLowerCase();
+
+// สองใบอยู่ช่องบัดดี้ร่วมกันได้ไหม: ใบใดใบหนึ่งระบุชื่ออีกใบไว้ใน buddyPartners
+export function canShareBuddy(a: Card, b: Card): boolean {
+  if (a.id === b.id) return false;
+  const lists = (x: Card, y: Card) => (x.buddyPartners ?? []).some(n => normName(n) === normName(y.name));
+  return lists(a, b) || lists(b, a);
+}
+
+// ตัด Buddy ที่ไม่เชื่อมกับตัวแรกออก (เช่น เอา A ออกแล้ว B/C ที่ A เป็นผู้อนุญาตต้องหายตาม)
+export function pruneBuddies(ids: string[], cards: Card[]): string[] {
+  if (ids.length <= 1) return ids;
+  const byId = (id: string) => cards.find(c => c.id === id);
+  const keep = [ids[0]];
+  let grew = true;
+  while (grew) {
+    grew = false;
+    ids.forEach(id => {
+      if (keep.includes(id)) return;
+      const c = byId(id);
+      if (c && keep.some(k => { const kc = byId(k); return !!kc && canShareBuddy(kc, c); })) { keep.push(id); grew = true; }
+    });
+  }
+  return ids.filter(id => keep.includes(id));
 }

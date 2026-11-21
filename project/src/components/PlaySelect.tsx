@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Cpu, Users, Swords, AlertTriangle, Settings2, ChevronDown, Check, RotateCcw, Star } from "lucide-react";
 import type { Deck, RuleSet } from "@/types";
-import { DEFAULT_RULES } from "@/types";
+import { DEFAULT_RULES, deckBuddies } from "@/types";
 import { getDecks, getFlags, getCards, getRules, saveRules } from "@/storage";
 import { ScreenShell, Switch } from "@/components/ui";
 import { CardView } from "@/components/CardView";
@@ -37,7 +37,7 @@ export function PlaySelect({ onExit, onPlay }: Props) {
 
   const deck = decks.find(d => d.id === selectedDeck) ?? decks[0];
   const flag = flags.find(f => f.id === deck.flagId);
-  const buddy = deck.buddyId ? cards.find(c => c.id === deck.buddyId) : null;
+  const buddies = deckBuddies(deck).map(id => cards.find(c => c.id === id)).filter((c): c is NonNullable<typeof c> => !!c);
 
   const modes = [
     { key: "bot" as const, title: "เล่นกับบอท", sub: "ทดสอบเด็คกับ AI อัตโนมัติ", icon: Cpu, color: "#22d3ee" },
@@ -81,9 +81,9 @@ export function PlaySelect({ onExit, onPlay }: Props) {
             );
           })}
         </div>
-        {buddy && (
-          <div className="flex items-center gap-3 mt-3 text-sm text-amber-300"><Star size={14} fill="currentColor" /> Buddy: {buddy.name}
-            <CardView card={buddy} flag={flag} width="42px" hideText />
+        {buddies.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3 mt-3 text-sm text-amber-300"><Star size={14} fill="currentColor" /> Buddy: {buddies.map(b => b.name).join(" · ")}
+            {buddies.map(b => <CardView key={b.id} card={b} flag={flag} width="42px" hideText />)}
           </div>
         )}
       </section>

@@ -1,5 +1,5 @@
 import type { Card, Flag, Deck, RuleSet, CustomKeyword } from "./types";
-import { DEFAULT_RULES } from "./types";
+import { DEFAULT_RULES, deckBuddies } from "./types";
 
 const KEYS = {
   flags: "cbf_flags",
@@ -115,7 +115,7 @@ export function exportCards(cards: Card[]): string {
   return JSON.stringify({ flags: getFlags().filter(f => flagIds.has(f.id)), cards }, null, 2);
 }
 export function exportDecks(decks: Deck[]): string {
-  const cardIds = new Set(decks.flatMap(d => [...d.cardIds, ...(d.buddyId ? [d.buddyId] : [])]));
+  const cardIds = new Set(decks.flatMap(d => [...d.cardIds, ...deckBuddies(d)]));
   const cards = getCards().filter(c => cardIds.has(c.id));
   const flagIds = new Set([...decks.map(d => d.flagId), ...cards.map(c => c.flagId)]);
   return JSON.stringify({ flags: getFlags().filter(f => flagIds.has(f.id)), cards, decks }, null, 2);
@@ -173,7 +173,7 @@ export function applyImport(p: ParsedImport, sel?: ImportSelection): ImportResul
     const deckSet = sel.decks ?? new Set<string>();
     decks = decks.filter(d => deckSet.has(d.id));
     const cardIds = new Set(sel.cards ?? []);
-    decks.forEach(d => { d.cardIds.forEach(id => cardIds.add(id)); if (d.buddyId) cardIds.add(d.buddyId); });
+    decks.forEach(d => { d.cardIds.forEach(id => cardIds.add(id)); deckBuddies(d).forEach(b => cardIds.add(b)); });
     cards = cards.filter(c => cardIds.has(c.id));
     const flagIds = new Set(sel.flags ?? []);
     [...cards.map(c => c.flagId), ...decks.map(d => d.flagId)].forEach(id => id && flagIds.add(id));

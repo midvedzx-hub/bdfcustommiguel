@@ -1,4 +1,4 @@
-import { condBuffAmounts } from "@/types";
+import { condBuffAmounts, deckBuddies } from "@/types";
 import type {
   GameState, PlayerState, Card, Flag, Deck, FieldCard, AutoEffectType, AutoTrigger, RuleSet, AttackTarget, FxEvent, FxInput, AutoSkill, CounterTiming, AutoEffect,
 } from "@/types";
@@ -635,7 +635,8 @@ function runSkills(
 /* ------------------------------------------------------------------ */
 export function createPlayerState(deck: Deck, flag: Flag, _cards: Card[]): PlayerState {
   const allCards = [...deck.cardIds];
-  if (deck.buddyId && !allCards.includes(deck.buddyId)) allCards.push(deck.buddyId);
+  const buddies = deckBuddies(deck);
+  buddies.forEach(id => { if (!allCards.includes(id)) allCards.push(id); });
   // ค่าเริ่มต้นมาจาก Flag (Life / จั่ว / เกจ) — ถ้า Flag เก่าไม่มีค่า ใช้ค่ามาตรฐาน Buddyfight
   const num = (v: unknown, d: number) => { const n = Math.floor(Number(v)); return Number.isFinite(n) && n >= 0 ? n : d; };
   const handN = num(flag.startHand, 6), gaugeN = num(flag.startGauge, 2);
@@ -653,7 +654,9 @@ export function createPlayerState(deck: Deck, flag: Flag, _cards: Card[]): Playe
     monsters: [],
     item: null,
     flagId: flag.id,
-    buddyId: deck.buddyId,
+    buddyId: buddies[0] ?? null,
+    buddyIds: buddies,
+    buddiesCalled: [],
     buddyCalledThisGame: false,
   };
 }
@@ -945,11 +948,15 @@ export function callMonster(state: GameState, side: Side, handIndex: number, pos
   p.monsters.push(fc);
   log(g, `${card.name} ลงสนาม (ช่อง${POSITION_NAMES[position]})`);
 
-  const isBuddyCall = p.buddyId === cardId && !p.buddyCalledThisGame;
+  // Buddy Call: Buddy แต่ละตัว (ช่องบัดดี้มีได้ 1-4 ตัว) ทำได้ตัวละ 1 ครั้งต่อเกม
+  const myBuddies = deckBuddies(p);
+  const calledBuddies = p.buddiesCalled ?? (p.buddyCalledThisGame && p.buddyId ? [p.buddyId] : []);
+  const isBuddyCall = myBuddies.includes(cardId) && !calledBuddies.includes(cardId);
   fx(g, { k: "call", side, uid: fc.uid, pos: position, buddy: isBuddyCall });
   if (soulN > 0) fx(g, { k: "soulIn", side, uid: fc.uid, pos: position, n: soulN });
   if (isBuddyCall) {
-    p.buddyCalledThisGame = true;
+    p.buddiesCalled = [...calledBuddies, cardId];
+    p.buddyCalledThisGame = myBuddies.every(b => p.buddiesCalled!.includes(b));
     log(g, `Buddy Call "${card.name}"! ได้รับ Buddy Gift`);
     if (g.rules.buddyCallLife > 0) mLife(g, side, g.rules.buddyCallLife);
   }

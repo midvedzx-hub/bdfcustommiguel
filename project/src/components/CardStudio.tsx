@@ -2,7 +2,7 @@ import { useState, useRef, useLayoutEffect, useEffect } from "react";
 import { Plus, Save, Trash2, Download, Upload, Edit3, Copy, Zap, Search, Layers, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, GripVertical } from "lucide-react";
 import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Card, Flag, CardType, AutoTrigger, AutoEffectType, AutoEffect, AutoSkill } from "@/types";
-import { TRIGGER_LABELS, EFFECT_LABELS, DROP_FILTERS, callCostLabel, transformCostLabel } from "@/types";
+import { TRIGGER_LABELS, EFFECT_LABELS, DROP_FILTERS, callCostLabel, transformCostLabel, deckBuddies } from "@/types";
 import type { CardFilter } from "@/types";
 import { getCards, saveCards, getFlags, saveFlags, getDecks, saveDecks, uid, downloadJSON, parseImport, applyImport, exportCards } from "@/storage";
 import type { ParsedImport } from "@/storage";
@@ -107,7 +107,7 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
       return;
     }
     const cleanTexts = getCustomTexts(editing).map(t => t.trim()).filter(Boolean);
-    const toSave: Card = { ...editing, customTexts: cleanTexts, customText: cleanTexts.join("\n"), flavorText: (editing.flavorText ?? "").trim() };
+    const toSave: Card = { ...editing, customTexts: cleanTexts, customText: cleanTexts.join("\n"), flavorText: (editing.flavorText ?? "").trim(), buddyPartners: (editing.buddyPartners ?? []).map(t => t.trim()).filter(Boolean) };
     const exists = cards.some(c => c.id === toSave.id);
     const next = exists ? cards.map(c => c.id === toSave.id ? toSave : c) : [...cards, toSave];
     if (!saveCards(next)) {
@@ -121,7 +121,10 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
   function del(id: string) {
     persist(cards.filter(c => c.id !== id));
     // ลบการ์ดออกจากทุกเด็ค/Buddy ของ Flag ด้วย ไม่งั้นจะค้างเป็นการ์ดคว่ำที่ใช้ไม่ได้ตอนเล่น
-    saveDecks(getDecks().map(d => ({ ...d, cardIds: d.cardIds.filter(x => x !== id), buddyId: d.buddyId === id ? null : d.buddyId })));
+    saveDecks(getDecks().map(d => {
+      const left = deckBuddies(d).filter(x => x !== id);
+      return { ...d, cardIds: d.cardIds.filter(x => x !== id), buddyId: left[0] ?? null, buddyIds: left };
+    }));
     saveFlags(getFlags().map(f => ({ ...f, buddyIds: (f.buddyIds ?? []).filter(x => x !== id) })));
   }
 
@@ -299,6 +302,22 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                 <label className="text-sm text-slate-400">คุณสมบัติ / สายพันธุ์ (เช่น Dragon / Warrior)</label>
                 <input value={editing.attribute ?? ""} onChange={e => setEditing({ ...editing, attribute: e.target.value })} placeholder="แสดงใต้ชื่อการ์ด" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 mt-1 focus:border-cyan-500 outline-none" />
               </div>
+
+              {editing.type === "Monster" && (
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm text-slate-400">Buddy ร่วม (ชื่อการ์ดที่อยู่ในช่องบัดดี้ร่วมกับใบนี้ได้ · ช่องบัดดี้มีได้ 2-4 ตัว)</label>
+                    <button onClick={() => setEditing({ ...editing, buddyPartners: [...(editing.buddyPartners ?? []), ""] })} className="btn !py-1 !px-2 text-xs"><Plus size={12} /> เพิ่ม</button>
+                  </div>
+                  {(editing.buddyPartners ?? []).map((n, i) => (
+                    <div key={i} className="flex items-center gap-2 mt-1">
+                      <input value={n} onChange={e => setEditing({ ...editing, buddyPartners: (editing.buddyPartners ?? []).map((x, j) => (j === i ? e.target.value : x)) })} placeholder="ชื่อการ์ดให้ตรงกับชื่อที่ตั้งไว้ เช่น เทพปีศาจแห่งการทำลาย, เดสทรอยย่า" className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:border-cyan-500 outline-none" />
+                      <button onClick={() => setEditing({ ...editing, buddyPartners: (editing.buddyPartners ?? []).filter((_, j) => j !== i) })} className="btn !p-2 text-red-400" title="ลบ"><Trash2 size={14} /></button>
+                    </div>
+                  ))}
+                  {(editing.buddyPartners ?? []).length > 0 && <p className="text-[11px] text-slate-500 mt-1">ใน Deck Builder ถ้าเลือกการ์ดนี้เป็น Buddy ระบบจะเติมการ์ดตามชื่อเหล่านี้ (ถ้ามีในคลัง) ให้อยู่ช่องบัดดี้ร่วมกัน รวมไม่เกิน 4 ตัว · ระบุจากฝั่งใดฝั่งหนึ่งก็พอ</p>}
+                </div>
+              )}
 
               {editing.type === "Monster" && (
                 <div>

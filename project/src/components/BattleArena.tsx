@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet, FieldCard } from "@/types";
 import { TRIGGER_LABELS, customTextList, callCostLabel, canTransform, transformCostLabel } from "@/types";
-import { DEFAULT_RULES } from "@/types";
+import { DEFAULT_RULES, deckBuddies } from "@/types";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
   callMonster, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
@@ -55,7 +55,7 @@ function shuffled<T>(arr: T[]): T[] {
 }
 
 // ตัดการ์ดที่ไม่มีข้อมูลแล้ว (เช่น ถูกลบจาก Card Studio แต่ยังค้างในเด็ค) ออก ไม่งั้นจะกลายเป็นการ์ดคว่ำที่ใช้ไม่ได้
-const cleanDeck = (d: Deck): Deck => ({ ...d, cardIds: d.cardIds.filter(id => !!getCard(id)), buddyId: d.buddyId && getCard(d.buddyId) ? d.buddyId : null });
+const cleanDeck = (d: Deck): Deck => ({ ...d, cardIds: d.cardIds.filter(id => !!getCard(id)), buddyId: deckBuddies(d).find(id => !!getCard(id)) ?? null, buddyIds: deckBuddies(d).filter(id => !!getCard(id)) });
 
 function makeGame(hDeck: Deck, gDeck: Deck, hFlag: Flag, gFlag: Flag, cards: Card[], rules: RuleSet): GameState {
   const h = cleanDeck(hDeck), gd = cleanDeck(gDeck);
@@ -69,7 +69,7 @@ function makeGame(hDeck: Deck, gDeck: Deck, hFlag: Flag, gFlag: Flag, cards: Car
 // ตัดรูปออกจากข้อความ (base64 ใหญ่เป็นเมกะไบต์ ทำให้ออนไลน์หลุด) แล้วทยอยส่งรูปทีละใบทีหลัง
 function collectCards(deck: Deck, cards: Card[]): { [id: string]: Card } {
   const map: { [id: string]: Card } = {};
-  const ids = [...deck.cardIds, ...(deck.buddyId ? [deck.buddyId] : [])];
+  const ids = [...deck.cardIds, ...deckBuddies(deck)];
   ids.forEach(id => {
     const c = cards.find(x => x.id === id);
     if (c) map[id] = { ...c, image: "" };
@@ -85,7 +85,7 @@ function sendImages(deck: Deck, cards: Card[], flag?: Flag) {
   const queue: SyncMessage[] = [];
   if (flag?.image) queue.push({ type: "image", imageFor: { id: "flag:" + flag.id, image: flag.image } });
   const seen = new Set<string>();
-  [...deck.cardIds, ...(deck.buddyId ? [deck.buddyId] : [])].forEach(id => {
+  [...deck.cardIds, ...deckBuddies(deck)].forEach(id => {
     if (seen.has(id)) return;
     seen.add(id);
     const c = cards.find(x => x.id === id);
@@ -725,7 +725,13 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     const mirror = !isMine;
     const legal = !isMine && atkSels.length > 0 ? legalTargets(game, mySide, atkSels[0], atkSels) : [];
     const fighterLegal = legal.some(t => t.kind === "fighter");
-    const buddy = p.buddyId ? cardOf(p.buddyId) : null;
+    const buddyList = deckBuddies(p).map(id => cardOf(id)).filter((c): c is Card => !!c);
+    const calledBuddies = p.buddiesCalled ?? (p.buddyCalledThisGame && p.buddyId ? [p.buddyId] : []);
+    const buddyMsg = (c: Card) => calledBuddies.includes(c.id)
+      ? "Buddy ตัวนี้ถูก Buddy Call ไปแล้ว (ทำได้ตัวละครั้งเดียวต่อเกม)"
+      : buddyList.length > 1
+        ? `Buddy ของคุณ (ช่องบัดดี้มี ${buddyList.length} ตัว): ลงสนามด้วยการ Buddy Call จะได้ Buddy Gift (Life +1) ตัวละครั้งเดียวต่อเกม`
+        : "Buddy ของคุณ: ลงสนามด้วยการ Buddy Call จะได้ Buddy Gift (Life +1) ครั้งเดียวต่อเกม";
     const draggingAttack = canAttackNow && !isMine; // ให้ลากผู้โจมตีมาวางบนเป้าหมาย
     const dragLegal = (t: AttackTarget): boolean => {
       const d = dragRef.current;
@@ -972,9 +978,18 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             </div>
             {/* Buddy */}
             <div className="flex items-center justify-center" style={{ width: "calc(var(--mh) * 0.23)", aspectRatio: "63 / 88", border: "2px dashed #f59e0b88", borderRadius: 8 }}>
-              {buddy ? (
-                <div className={p.buddyCalledThisGame ? "opacity-40" : ""} onMouseEnter={() => setHovered({ card: buddy, flagId: p.flagId })}>
-                  <CardView card={buddy} flag={flag} width="calc(var(--mh) * 0.22)" hideText onClick={() => openInspect(buddy, p.flagId, null, p.buddyCalledThisGame ? "Buddy ตัวนี้ถูก Buddy Call ไปแล้ว (ทำได้ครั้งเดียวต่อเกม)" : "Buddy ของคุณ: ลงสนามด้วยการ Buddy Call จะได้ Buddy Gift (Life +1) ครั้งเดียวต่อเกม")} onInspect={() => openInspect(buddy, p.flagId)} />
+              {buddyList.length === 1 ? (
+                <div className={calledBuddies.includes(buddyList[0].id) ? "opacity-40" : ""} onMouseEnter={() => setHovered({ card: buddyList[0], flagId: p.flagId })}>
+                  <CardView card={buddyList[0]} flag={flag} width="calc(var(--mh) * 0.22)" hideText onClick={() => openInspect(buddyList[0], p.flagId, null, buddyMsg(buddyList[0]))} onInspect={() => openInspect(buddyList[0], p.flagId)} />
+                </div>
+              ) : buddyList.length > 1 ? (
+                // Buddy 2-4 ตัว: วางเป็นตาราง 2 คอลัมน์ในช่องบัดดี้ (ตัวที่ Buddy Call แล้วจางลง)
+                <div className="grid w-full h-full content-center justify-items-center" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: 2, padding: 2 }}>
+                  {buddyList.map(b => (
+                    <div key={b.id} className={calledBuddies.includes(b.id) ? "opacity-40" : ""} onMouseEnter={() => setHovered({ card: b, flagId: p.flagId })}>
+                      <CardView card={b} flag={flag} width="calc(var(--mh) * 0.105)" hideText onClick={() => openInspect(b, p.flagId, null, buddyMsg(b))} onInspect={() => openInspect(b, p.flagId)} />
+                    </div>
+                  ))}
                 </div>
               ) : <span className="text-slate-400/50" style={{ fontSize: "calc(var(--mh) * 0.04)" }}>ไม่มี</span>}
             </div>
