@@ -28,7 +28,7 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
       <button onClick={onRemove} className="p-1 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={12} /></button>
       {eff.type === "condBuff" && (() => {
         const amt = condBuffAmounts(eff);
-        const setAmt = (k: "bPower" | "bCritical" | "bDefense", v: number) => onChange({ ...eff, bPower: amt.power, bCritical: amt.critical, bDefense: amt.defense, [k]: v });
+        const setAmt = (k: "bPower" | "bCritical" | "bDefense" | "bSize", v: number) => onChange({ ...eff, bPower: amt.power, bCritical: amt.critical, bDefense: amt.defense, bSize: amt.size, [k]: v });
         const amtIn = (label: string, k: "bPower" | "bCritical" | "bDefense", val: number, w: string) => (
           <label className="flex items-center gap-1">{label} +
             <input type="number" min={0} value={val} onChange={e => setAmt(k, Math.max(0, parseInt(e.target.value) || 0))} className={`${num} !py-0.5 text-xs ${w}`} />
@@ -40,6 +40,9 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
             {amtIn("Power (ดาเมจ)", "bPower", amt.power, "w-20")}
             {amtIn("Critical", "bCritical", amt.critical, "w-14")}
             {amtIn("Defense", "bDefense", amt.defense, "w-20")}
+            <label className="flex items-center gap-1" title="ติดลบ = ลด Size เช่น -1">Size (ลบ = ลด)
+              <input type="number" min={-9} max={9} value={amt.size} onChange={e => setAmt("bSize", Math.max(-9, Math.min(9, parseInt(e.target.value) || 0)))} className={`${num} !py-0.5 text-xs w-16`} />
+            </label>
             <span className="basis-full" />
             <span>เมื่อในสนาม</span>
             <select value={eff.condWhere ?? "own"} onChange={e => onChange({ ...eff, condWhere: e.target.value as "own" | "opponent" | "any" })} className={`${sel} !py-0.5 text-xs`}>

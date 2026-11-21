@@ -149,6 +149,7 @@ export interface AutoEffect {
   bPower?: number;                         // ค่าที่เพิ่มพร้อมกันได้หลายอย่าง (power = ดาเมจ/พลังโจมตี) ถ้ากำหนดตัวใดตัวหนึ่ง จะใช้แทน stat/value
   bCritical?: number;
   bDefense?: number;
+  bSize?: number;                         // Size ที่เพิ่ม/ลด (ติดลบ = ลด Size) ของผู้ได้รับบัฟ
   includeSelf?: boolean;                   // เมื่อระบุ targetName: ให้การ์ดใบนี้ได้รับบัฟด้วย
   condMatch?: "attr" | "name";             // ตรวจจาก "คุณสมบัติ" (attribute) หรือ "ชื่อ" ของการ์ดบนสนาม
   condText?: string;                       // ข้อความที่ต้องมี (ไม่สนตัวพิมพ์) ว่าง = ไม่มีเงื่อนไข ได้บัฟเสมอ
@@ -157,11 +158,12 @@ export interface AutoEffect {
 }
 
 // ค่าที่ condBuff เพิ่มให้ (รองรับข้อมูลแบบเก่าที่ใช้ stat + value)
-export function condBuffAmounts(e: AutoEffect): { power: number; critical: number; defense: number } {
-  if (e.bPower !== undefined || e.bCritical !== undefined || e.bDefense !== undefined) {
-    return { power: e.bPower ?? 0, critical: e.bCritical ?? 0, defense: e.bDefense ?? 0 };
+export function condBuffAmounts(e: AutoEffect): { power: number; critical: number; defense: number; size: number } {
+  if (e.bPower !== undefined || e.bCritical !== undefined || e.bDefense !== undefined || e.bSize !== undefined) {
+    return { power: e.bPower ?? 0, critical: e.bCritical ?? 0, defense: e.bDefense ?? 0, size: e.bSize ?? 0 };
   }
   return {
+    size: 0,
     power: !e.stat || e.stat === "power" ? e.value : 0,
     critical: e.stat === "critical" ? e.value : 0,
     defense: e.stat === "defense" ? e.value : 0,
@@ -330,6 +332,8 @@ export interface FieldCard {
   manualPower?: number;    // Sandbox: ค่าที่ปรับเองด้วยมือ (คงอยู่ตราบที่การ์ดอยู่บนสนาม)
   manualCritical?: number;
   manualDefense?: number;
+  auraSize?: number;       // Size ที่เปลี่ยนจากสกิลถาวรแบบมีเงื่อนไข (คำนวณใหม่ทุก action)
+  tempSize?: number;       // Size ที่เปลี่ยนชั่วคราวจนจบเทิร์น (จากสกิลแบบมีเงื่อนไขที่ทำงานตอนลงสนาม/โจมตี ฯลฯ)
   manualSize?: number;     // Sandbox: ปรับ Size ด้วยมือ (บวก/ลบจาก Size ของการ์ด) คงอยู่ตราบที่การ์ดอยู่บนสนาม
   nullified?: boolean; // ถูก Nullify: ความสามารถหลัก (Soulguard ฯลฯ) ไม่ทำงานจนจบเทิร์น
 }

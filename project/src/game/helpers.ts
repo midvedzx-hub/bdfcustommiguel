@@ -58,7 +58,7 @@ export function effectText(e: AutoEffect): string {
     case "criticalPerSoul": return `Critical +${v} ต่อการ์ด 1 ใบใน Soul`;
     case "condBuff": {
       const amt = condBuffAmounts(e);
-      const gain = [amt.power ? `Power +${amt.power}` : "", amt.critical ? `Critical +${amt.critical}` : "", amt.defense ? `Defense +${amt.defense}` : ""].filter(Boolean).join(" และ ") || "บัฟ";
+      const gain = [amt.power ? `Power +${amt.power}` : "", amt.critical ? `Critical +${amt.critical}` : "", amt.defense ? `Defense +${amt.defense}` : "", amt.size ? `Size ${amt.size > 0 ? "+" : ""}${amt.size}` : ""].filter(Boolean).join(" และ ") || "บัฟ";
       const where = e.condWhere === "opponent" ? "ฝั่งศัตรู" : e.condWhere === "any" ? "ทั้งสองฝั่ง" : "ของเรา";
       const kind = e.condMatch === "name" ? "ชื่อ" : "คุณสมบัติ";
       const need = (e.condText ?? "").trim();

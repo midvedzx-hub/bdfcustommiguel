@@ -445,8 +445,8 @@ function runSkills(
           const amt = condBuffAmounts(eff);
           const ts = condBuffTargets(g, side, eff, self);
           if (ts.length === 0) break;
-          ts.forEach(t => { t.tempPower += amt.power; t.tempCritical += amt.critical; t.tempDefense += amt.defense; });
-          const parts = [amt.power ? `Power +${amt.power}` : "", amt.critical ? `Critical +${amt.critical}` : "", amt.defense ? `Defense +${amt.defense}` : ""].filter(Boolean).join(" ");
+          ts.forEach(t => { t.tempPower += amt.power; t.tempCritical += amt.critical; t.tempDefense += amt.defense; t.tempSize = (t.tempSize ?? 0) + amt.size; });
+          const parts = [amt.power ? `Power +${amt.power}` : "", amt.critical ? `Critical +${amt.critical}` : "", amt.defense ? `Defense +${amt.defense}` : "", amt.size ? `Size ${amt.size > 0 ? "+" : ""}${amt.size}` : ""].filter(Boolean).join(" ");
           log(g, `${card.name}: เงื่อนไขครบ — ${ts.map(t => getCard(t.cardId)?.name ?? "การ์ด").join(", ")} ได้รับ ${parts} จนจบเทิร์น`);
           break;
         }
@@ -729,7 +729,7 @@ export function changeLife(state: GameState, side: Side, delta: number): GameSta
 
 // Size จริงของมอนสเตอร์บนสนาม = Size ของการ์ด + ค่าที่ปรับเองใน Sandbox (ต่ำสุด 0)
 export function sizeOfFc(fc: FieldCard): number {
-  return Math.max(0, (getCard(fc.cardId)?.size ?? 0) + (fc.manualSize ?? 0));
+  return Math.max(0, (getCard(fc.cardId)?.size ?? 0) + (fc.manualSize ?? 0) + (fc.auraSize ?? 0) + (fc.tempSize ?? 0));
 }
 
 export function totalMonsterSize(player: PlayerState): number {
@@ -824,7 +824,7 @@ export function endTurn(state: GameState): GameState {
   if (g.winner) return g;
   (["host", "guest"] as Side[]).forEach(s => {
     [...g[s].monsters, ...(g[s].item ? [g[s].item!] : [])].forEach(m => {
-      m.tempPower = 0; m.tempCritical = 0; m.tempDefense = 0; m.nullified = false;
+      m.tempPower = 0; m.tempCritical = 0; m.tempDefense = 0; m.tempSize = 0; m.nullified = false;
     });
   });
   g.currentTurn = other(g.currentTurn);
@@ -885,8 +885,9 @@ export function callMonster(state: GameState, side: Side, handIndex: number, pos
 
   // Size 0 วางได้เสมอ ไม่นับรวมขีดจำกัด Size
   const currentSize = totalMonsterSize(p);
-  if (!opts?.ignoreSize && card.size > 0 && currentSize + card.size > g.rules.maxSize)
-    return { state, ok: false, msg: `Size เกิน: ในสนามมี Size รวม ${currentSize} + ${card.name} (Size ${card.size}) = ${currentSize + card.size} เกินขีดจำกัด ${g.rules.maxSize}` };
+  const callSize = Math.max(0, card.size + sizeModWhenCalled(g, side, card)); // สกิลลด Size ของตัวเอง (ถ้าเงื่อนไขครบ) นับตอนลงสนามด้วย
+  if (!opts?.ignoreSize && callSize > 0 && currentSize + callSize > g.rules.maxSize)
+    return { state, ok: false, msg: `Size เกิน: ในสนามมี Size รวม ${currentSize} + ${card.name} (Size ${callSize}) = ${currentSize + callSize} เกินขีดจำกัด ${g.rules.maxSize}` };
 
   const soulN = Math.max(0, card.callSoulFromDeck ?? 0);
   if (soulN > 0 && p.deck.length < soulN)
@@ -943,7 +944,7 @@ export function recalcAuras(g: GameState) {
       pps += continuousSum(c, "powerPerSoul"); cps += continuousSum(c, "criticalPerSoul");
     });
     [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
-      fc.auraPower = pw + pps * fc.soul.length; fc.auraDefense = df; fc.auraCritical = cr + cps * fc.soul.length;
+      fc.auraPower = pw + pps * fc.soul.length; fc.auraDefense = df; fc.auraCritical = cr + cps * fc.soul.length; fc.auraSize = 0;
     });
 
     // บัฟถาวรแบบมีเงื่อนไข (condBuff ในสกิล "ถาวร"): มีผลตราบที่เงื่อนไขครบ
@@ -957,6 +958,7 @@ export function recalcAuras(g: GameState) {
             t.auraPower = (t.auraPower ?? 0) + amt.power;
             t.auraCritical = (t.auraCritical ?? 0) + amt.critical;
             t.auraDefense = (t.auraDefense ?? 0) + amt.defense;
+            t.auraSize = (t.auraSize ?? 0) + amt.size;
           });
         });
       });
@@ -984,6 +986,21 @@ function condBuffMet(g: GameState, side: Side, e: AutoEffect, self: FieldCard | 
     const c = getCard(f.cardId);
     return !!c && (e.condMatch === "name" ? textHas(c.name, need) : textHas(c.attribute, need));
   }));
+}
+
+// Size ที่เปลี่ยนให้การ์ดใบนี้ตอนจะลงสนาม (จากสกิลถาวรแบบมีเงื่อนไขที่ให้ตัวเอง และเงื่อนไขครบตอนนี้)
+function sizeModWhenCalled(g: GameState, side: Side, card: Card): number {
+  let mod = 0;
+  (card.autoSkills ?? []).forEach(sk => {
+    if (sk.trigger !== "continuous") return;
+    sk.effects.forEach(e => {
+      if (e.type !== "condBuff") return;
+      const amt = condBuffAmounts(e);
+      const forSelf = !(e.targetName ?? "").trim() || !!e.includeSelf;
+      if (amt.size && forSelf && condBuffMet(g, side, e, null)) mod += amt.size;
+    });
+  });
+  return mod;
 }
 
 // ผู้ได้รับบัฟ: การ์ดของเราที่ชื่อตรงกับ targetName (+ การ์ดใบนี้ถ้าไม่ระบุชื่อ หรือติ๊ก "รวมใบนี้")
