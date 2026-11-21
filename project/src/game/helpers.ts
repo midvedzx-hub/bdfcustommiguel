@@ -52,6 +52,8 @@ export function effectText(e: AutoEffect): string {
     case "restOpponent": return `Rest มอนสเตอร์ศัตรู ${v} ตัว`;
     case "opponentDiscard": return `ศัตรูทิ้งการ์ดในมือ ${v} ใบ`;
     case "recoverFromDrop": return `เก็บ${filterText(e.filter)}จากสุสานขึ้นมือ ${v} ใบ`;
+    case "dropToDeckBottom": return `นำ${filterText(e.filter)}จากสุสาน${e.allCards ? "ทั้งหมด" : ` ${v} ใบ`}ใส่ใต้กองเด็ค${e.shuffleAfter ? " แล้วสับเด็ค" : ""}`;
+    case "shuffleDeck": return "สับเด็ค";
     case "standSelf": return `Stand มอนสเตอร์ของเรา`;
     case "buffPower": return `Power +${v}`;
     case "buffCritical": return `Critical +${v}`;

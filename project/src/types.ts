@@ -26,6 +26,8 @@ export type AutoEffectType =
   | "restOpponent"            // Rest มอนสเตอร์ศัตรู N ตัว
   | "opponentDiscard"         // ศัตรูทิ้งการ์ดในมือ N ใบ
   | "recoverFromDrop"         // เอาการ์ดจากสุสานกลับมือ N ใบ
+  | "dropToDeckBottom"       // นำการ์ดจากสุสานของเรา (ทั้งหมด หรือ N ใบ) ใส่ใต้กองเด็ค และสับเด็คได้
+  | "shuffleDeck"             // สับเด็คของเรา
   | "standSelf"               // Stand การ์ดของเรา (ตัวที่เพิ่งออกแรง / ทั้งหมด N ตัว)
   | "buffPower"
   | "buffCritical"
@@ -94,6 +96,8 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "restOpponent", label: "Rest มอนสเตอร์ศัตรู", hint: "จำนวนตัว" },
   { value: "opponentDiscard", label: "ศัตรูทิ้งการ์ดในมือ", hint: "จำนวนใบ" },
   { value: "recoverFromDrop", label: "เก็บการ์ดจากสุสานขึ้นมือ", hint: "จำนวนใบ" },
+  { value: "dropToDeckBottom", label: "สุสาน→ใต้เด็ค (นำการ์ดจากสุสานกลับใต้กองเด็ค · สับเด็คได้)", hint: "จำนวนใบ (หรือเลือก “ทั้งหมด”)" },
+  { value: "shuffleDeck", label: "สับเด็ค", hint: "ไม่ใช้ค่า" },
   { value: "standSelf", label: "Stand มอนสเตอร์ของเรา", hint: "จำนวนตัว" },
   { value: "buffPower", label: "บวก Power (เทิร์นนี้)", hint: "เช่น 5000" },
   { value: "buffCritical", label: "บวก Critical (เทิร์นนี้)", hint: "จำนวน" },
@@ -175,6 +179,8 @@ export interface AutoEffect {
   includeItem?: boolean;                            // (เก่า) รวมไอเทมของศัตรูด้วย — ถ้าไม่มี destroyScope: true ถือเป็น "all"
   destroyScope?: "monster" | "all";                 // destroyWeaker: ทำลายเฉพาะมอนสเตอร์ หรือ "การ์ดทั้งหมด" (มอนสเตอร์ + ไอเทม + การ์ด Set)
   lifePerKill?: number;                             // ยิงดาเมจตรงใส่ผู้เล่นศัตรู N ต่อการ์ดที่ถูกทำลายได้จริง 1 ใบ (0/ไม่ใส่ = ไม่ยิง)
+  allCards?: boolean;                      // dropToDeckBottom: นำการ์ดในสุสานทั้งหมด (ตามตัวกรองชนิดการ์ด) ไม่สนจำนวน
+  shuffleAfter?: boolean;                  // dropToDeckBottom: สับเด็คหลังใส่การ์ดกลับ
   grantKw?: AutoEffectType[];              // soulCond / condBuff: คีย์เวิร์ดที่ได้รับเมื่อเงื่อนไขครบ (เช่น penetrate, doubleAttack)
 }
 

@@ -325,6 +325,12 @@ function mLeaveField(g: GameState, side: Side, monsterUid: string, dest: "hand" 
 }
 
 // เลือกการ์ดจากสุสานตามชนิด (นับจากใบที่ลงล่าสุด)
+function shuffleInPlace<T>(a: T[]) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+}
 function pickFromDrop(g: GameState, side: Side, n: number, filter?: string): string[] {
   const p = g[side];
   const out: string[] = [];
@@ -508,6 +514,26 @@ function runSkills(
           const got = pickFromDrop(g, side, n, eff.filter);
           g[side].hand.push(...got);
           log(g, `${card.name} เก็บการ์ดจากสุสานขึ้นมือ ${got.length} ใบ`);
+          break;
+        }
+        case "dropToDeckBottom": {
+          // เวทที่กำลังใช้อยู่ถูกวางในสุสานแล้ว แต่ยังไม่ควรถูกนับเป็น "การ์ดในสุสาน" ที่ใส่ใต้เด็คได้ (ตัวมันเองลงสุสานหลังจบเอฟเฟกต์)
+          const pz = g[side];
+          let held = false;
+          if ((card.type === "Spell" || card.type === "Impact") && !ctx?.fc && !pz.setZone.includes(card.id)) {
+            const at = pz.dropZone.lastIndexOf(card.id);
+            if (at >= 0) { pz.dropZone.splice(at, 1); held = true; }
+          }
+          const got = pickFromDrop(g, side, eff.allCards ? Infinity : n, eff.filter);
+          if (held) pz.dropZone.push(card.id);
+          g[side].deck.push(...got.reverse()); // ใส่ใต้กอง: คงลำดับเดิมของสุสาน (ใบเก่าอยู่ก่อน)
+          log(g, `${card.name} นำการ์ดจากสุสาน ${got.length} ใบใส่ใต้กองเด็ค${eff.shuffleAfter ? " และสับเด็ค" : ""}`);
+          if (eff.shuffleAfter) shuffleInPlace(g[side].deck);
+          break;
+        }
+        case "shuffleDeck": {
+          shuffleInPlace(g[side].deck);
+          log(g, `${card.name}: ${nameOf(side)} สับเด็ค`);
           break;
         }
         case "standSelf": {

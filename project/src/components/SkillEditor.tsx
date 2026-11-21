@@ -19,12 +19,18 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
           {KEYWORD_DEFS.filter(k => !k.engine).map(k => <option key={k.id} value={k.id}>{k.id}</option>)}
         </select>
       )}
-      {(eff.type === "dropToSoul" || eff.type === "recoverFromDrop") && (
+      {(eff.type === "dropToSoul" || eff.type === "recoverFromDrop" || eff.type === "dropToDeckBottom") && (
         <select value={eff.filter ?? "any"} onChange={e => onChange({ ...eff, filter: e.target.value as CardFilter })} className={sel} title="เลือกชนิดการ์ดที่จะดึงจากสุสาน (เอาใบที่ลงสุสานล่าสุดก่อน)">
           {DROP_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
       )}
-      {eff.type !== "condBuff" && eff.type !== "soulGrant" && eff.type !== "soulCond" && eff.type !== "destroyWeaker" && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
+      {eff.type === "dropToDeckBottom" && (
+        <>
+          <label className="flex items-center gap-1 text-xs text-slate-300"><input type="checkbox" checked={!!eff.allCards} onChange={e => onChange({ ...eff, allCards: e.target.checked || undefined })} /> ทั้งหมด</label>
+          <label className="flex items-center gap-1 text-xs text-slate-300"><input type="checkbox" checked={!!eff.shuffleAfter} onChange={e => onChange({ ...eff, shuffleAfter: e.target.checked || undefined })} /> สับเด็คหลังใส่</label>
+        </>
+      )}
+      {eff.type !== "condBuff" && eff.type !== "soulGrant" && eff.type !== "soulCond" && eff.type !== "destroyWeaker" && eff.type !== "shuffleDeck" && !(eff.type === "dropToDeckBottom" && eff.allCards) && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
       <button onClick={onRemove} className="p-1 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={12} /></button>
       {eff.type === "destroyWeaker" && (() => {
         const stats = eff.cmpStats && eff.cmpStats.length ? eff.cmpStats : (["power"] as const);
