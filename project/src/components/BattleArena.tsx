@@ -13,7 +13,7 @@ import { keywordValue,
   goToAttack, goToFinal, mulligan, transformCard, legalTargets, statsOf, counterOptions, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
-  sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, cardOfFc, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
+  sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, cardOfFc, matchCallRequires, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
   type AttackTarget, type CounterOption, type Result,
   setSoulguardAuto, closeMoveWindow, movableMonsters, recalcAuras, hasSetKeyword, activeSetCards, sandboxDestroySet, sandboxMoveSet, resolveLook, resolveSoulChoice, resolveTargetChoice, targetEffectLabel,
 } from "@/game/engine";
@@ -1049,7 +1049,10 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     if (handSel === null || !isMyTurn) return null;
     const card = cardOf(me.hand[handSel] ?? "");
     if (!card) return null;
-    const empty = [0, 1, 2].filter(p => !me.monsters.some(m => m.position === p));
+    // การ์ดที่ต้องมีการ์ดเงื่อนไขบนสนามก่อน (callRequires): ลงทับช่องของการ์ดเงื่อนไขได้ เพราะการ์ดเหล่านั้นจะเข้า Soul
+    const reqMatch = (card.callRequires ?? []).length > 0 ? matchCallRequires(me, card.callRequires ?? []) : null;
+    const absorbPos = new Set(me.monsters.filter(m => reqMatch?.uids.includes(m.uid)).map(m => m.position));
+    const empty = [0, 1, 2].filter(p => !me.monsters.some(m => m.position === p) || absorbPos.has(p));
     const hasCast = card.autoSkills.some(s => s.trigger === "onCast");
     const counterOnly = hasCounter(card) && !hasCast && card.type !== "Monster" && card.type !== "Item";
     const btn = "px-3 py-1.5 rounded-lg text-sm font-semibold";
@@ -1058,7 +1061,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         <CardView card={card} flag={flagOf(me.flagId)} size="md" onClick={() => openInspect(card, me.flagId)} />
         <div className="flex-1 min-w-0">
           <div className="font-display font-bold text-cyan-300">{card.name}</div>
-          <div className="text-xs text-slate-400 mb-2">Cost {callCostLabel(card)}{card.type === "Monster" ? ` · Size ${card.size}` : ""}{hasCounter(card) ? " · มี Counter Act" : ""} · ลากการ์ดไปวางบนสนามได้</div>
+          <div className="text-xs text-slate-400 mb-2">Cost {callCostLabel(card)}{card.type === "Monster" ? ` · Size ${card.size}` : ""}{hasCounter(card) ? " · มี Counter Act" : ""} · ลากการ์ดไปวางบนสนามได้{reqMatch && reqMatch.missing.length > 0 ? ` · ยังขาดบนสนาม: ${reqMatch.missing.join(", ")}` : reqMatch ? " · เงื่อนไขครบ (การ์ดเงื่อนไขจะเข้า Soul)" : ""}</div>
           <div className="flex flex-wrap gap-2 items-center">
             {card.type === "Monster" && empty.map(pos => (
               <button key={pos} onClick={() => tryCall(handSel, pos)} className={`${btn} bg-cyan-600 hover:bg-cyan-500`}>ลงช่อง{POSITION_NAMES[pos]}</button>

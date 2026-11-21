@@ -102,6 +102,8 @@ export function effectText(e: AutoEffect): string {
 // สร้างข้อความสกิลอัตโนมัติสำหรับแสดงบนการ์ด (คนสร้างการ์ดไม่ต้องพิมพ์เอง)
 export function skillLines(card: Card): string[] {
   const lines: string[] = [];
+  const req = (card.callRequires ?? []).map(n => n.trim()).filter(Boolean);
+  if (req.length > 0) lines.push(`【เงื่อนไขการลง】ต้องมี ${req.map(n => `“${n}”`).join(" และ ")} บนสนามก่อน เมื่อลงแล้วนำการ์ดเหล่านั้นเข้า Soul`);
   card.autoSkills?.forEach(sk => {
     const allKeywords = sk.effects.every(e => e.type in KEYWORDS || e.type === "kw");
     // การ์ดเก่าที่ใส่คีย์เวิร์ดไว้ก่อนมีช่องคำอธิบาย: ดึงคำอธิบายล่าสุดจากคีย์เวิร์ดที่บันทึกไว้ตามชื่อ

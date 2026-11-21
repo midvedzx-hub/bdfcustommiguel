@@ -107,7 +107,7 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
       return;
     }
     const cleanTexts = getCustomTexts(editing).map(t => t.trim()).filter(Boolean);
-    const toSave: Card = { ...editing, customTexts: cleanTexts, customText: cleanTexts.join("\n"), flavorText: (editing.flavorText ?? "").trim(), buddyPartners: (editing.buddyPartners ?? []).map(t => t.trim()).filter(Boolean) };
+    const toSave: Card = { ...editing, customTexts: cleanTexts, customText: cleanTexts.join("\n"), flavorText: (editing.flavorText ?? "").trim(), buddyPartners: (editing.buddyPartners ?? []).map(t => t.trim()).filter(Boolean), callRequires: (editing.callRequires ?? []).map(t => t.trim()).filter(Boolean) };
     const exists = cards.some(c => c.id === toSave.id);
     const next = exists ? cards.map(c => c.id === toSave.id ? toSave : c) : [...cards, toSave];
     if (!saveCards(next)) {
@@ -316,6 +316,22 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                     </div>
                   ))}
                   {(editing.buddyPartners ?? []).length > 0 && <p className="text-[11px] text-slate-500 mt-1">ใน Deck Builder ถ้าเลือกการ์ดนี้เป็น Buddy ระบบจะเติมการ์ดตามชื่อเหล่านี้ (ถ้ามีในคลัง) ให้อยู่ช่องบัดดี้ร่วมกัน รวมไม่เกิน 4 ตัว · ระบุจากฝั่งใดฝั่งหนึ่งก็พอ</p>}
+                </div>
+              )}
+
+              {(editing.type === "Monster" || editing.type === "Item") && (
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm text-slate-400">เงื่อนไขการลง: ต้องมีการ์ดเหล่านี้บนสนามก่อน (ลงแล้วนำเข้า Soul ของใบนี้)</label>
+                    <button onClick={() => setEditing({ ...editing, callRequires: [...(editing.callRequires ?? []), ""] })} className="btn !py-1 !px-2 text-xs"><Plus size={12} /> เพิ่ม</button>
+                  </div>
+                  {(editing.callRequires ?? []).map((n, i) => (
+                    <div key={i} className="flex items-center gap-2 mt-1">
+                      <input value={n} onChange={e => setEditing({ ...editing, callRequires: (editing.callRequires ?? []).map((x, j) => (j === i ? e.target.value : x)) })} placeholder="ชื่อการ์ดที่ต้องมีบนสนาม (ใส่ชื่อซ้ำ = ต้องมีหลายใบ)" className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:border-cyan-500 outline-none" />
+                      <button onClick={() => setEditing({ ...editing, callRequires: (editing.callRequires ?? []).filter((_, j) => j !== i) })} className="btn !p-2 text-red-400" title="ลบ"><Trash2 size={14} /></button>
+                    </div>
+                  ))}
+                  {(editing.callRequires ?? []).length > 0 && <p className="text-[11px] text-slate-500 mt-1">ตอนลง การ์ดเหล่านี้ต้องอยู่บนสนามของเราครบทุกใบ (ลงทับช่องของมันได้) เมื่อลงแล้วทุกใบเข้า Soul ของการ์ดนี้ Soul เดิมของมันลงสุสาน · ชื่อที่ตรงทั้งหมดมาก่อน ไม่ตรงจึงดูแบบมีข้อความนั้นอยู่ในชื่อ</p>}
                 </div>
               )}
 

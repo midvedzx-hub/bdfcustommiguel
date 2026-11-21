@@ -914,6 +914,32 @@ function payCost(g: GameState, side: Side, card: Card): string | null {
   return null;
 }
 
+// เงื่อนไขการลงแบบ "ต้องมีการ์ดชื่อ ... และ ... บนสนามก่อน" (callRequires): หาการ์ดบนสนามของเราที่ตรงกับแต่ละชื่อ (ใบละ 1 ครั้ง ชื่อตรงทั้งหมดมาก่อน แล้วค่อยชื่อที่มีข้อความนั้น)
+export function matchCallRequires(p: PlayerState, names: string[]): { uids: string[]; missing: string[] } {
+  const pool = [...p.monsters, ...(p.item ? [p.item] : [])];
+  const used = new Set<string>();
+  const missing: string[] = [];
+  names.map(n => n.trim()).filter(Boolean).forEach(n => {
+    const needle = n.toLowerCase();
+    const free = pool.filter(x => !used.has(x.uid));
+    const hit = free.find(x => (getCard(x.cardId)?.name ?? "").trim().toLowerCase() === needle) ?? free.find(x => textHas(getCard(x.cardId)?.name, needle));
+    if (hit) used.add(hit.uid); else missing.push(n);
+  });
+  return { uids: [...used], missing };
+}
+
+// เอาการ์ดเงื่อนไขออกจากสนามแล้วคืนรายการ (Soul ของแต่ละใบลงสุสาน) — ผู้เรียกนำ cardId ไปใส่ Soul ของการ์ดที่ลงใหม่
+function takeCallRequires(p: PlayerState, uids: string[]): string[] {
+  const taken: string[] = [];
+  [...p.monsters, ...(p.item ? [p.item] : [])].filter(f => uids.includes(f.uid)).forEach(f => {
+    taken.push(f.cardId);
+    if (f.soul.length > 0) p.dropZone.push(...f.soul);
+  });
+  p.monsters = p.monsters.filter(m => !uids.includes(m.uid));
+  if (p.item && uids.includes(p.item.uid)) p.item = null;
+  return taken;
+}
+
 export function callMonster(state: GameState, side: Side, handIndex: number, position: number, opts?: { ignoreSize?: boolean }): Result {
   const err = guardTurn(state, side, "main");
   if (err) return { state, ok: false, msg: err };
@@ -923,11 +949,20 @@ export function callMonster(state: GameState, side: Side, handIndex: number, pos
   const card = cardId ? getCard(cardId) : undefined;
   if (!card) return { state, ok: false, msg: "ไม่พบการ์ดใบนี้ในมือ" };
   if (card.type !== "Monster") return { state, ok: false, msg: `${card.name} ไม่ใช่มอนสเตอร์ จึงลงช่องมอนสเตอร์ไม่ได้` };
-  if (p.monsters.some(m => m.position === position))
+  // ต้องมีการ์ดที่กำหนด (callRequires) บนสนามก่อน ลงแล้วการ์ดเหล่านั้นเข้า Soul ของการ์ดนี้
+  const reqNames = (card.callRequires ?? []).map(n => n.trim()).filter(Boolean);
+  let absorbUids: string[] = [];
+  if (reqNames.length > 0) {
+    const m = matchCallRequires(p, reqNames);
+    if (m.missing.length > 0) return { state, ok: false, msg: `ลง ${card.name} ไม่ได้ — ต้องมีการ์ดเหล่านี้บนสนามก่อน: ${m.missing.map(n => `“${n}”`).join(", ")}` };
+    absorbUids = m.uids;
+  }
+  // ช่องที่การ์ดเงื่อนไขอยู่จะว่างหลังถูกนำเข้า Soul จึงลงทับช่องนั้นได้
+  if (p.monsters.some(m => m.position === position && !absorbUids.includes(m.uid)))
     return { state, ok: false, msg: `ช่อง${POSITION_NAMES[position]}มีมอนสเตอร์อยู่แล้ว` };
 
-  // Size 0 วางได้เสมอ ไม่นับรวมขีดจำกัด Size
-  const currentSize = totalMonsterSize(p);
+  // Size 0 วางได้เสมอ ไม่นับรวมขีดจำกัด Size (การ์ดเงื่อนไขที่ออกจากสนามไม่นับ Size)
+  const currentSize = totalMonsterSize(p) - p.monsters.filter(m => absorbUids.includes(m.uid)).reduce((sum, m) => sum + sizeOfFc(m), 0);
   const callSize = Math.max(0, card.size + sizeModWhenCalled(g, side, card)); // สกิลลด Size ของตัวเอง (ถ้าเงื่อนไขครบ) นับตอนลงสนามด้วย
   if (!opts?.ignoreSize && callSize > 0 && currentSize + callSize > g.rules.maxSize)
     return { state, ok: false, msg: `Size เกิน: ในสนามมี Size รวม ${currentSize} + ${card.name} (Size ${callSize}) = ${currentSize + callSize} เกินขีดจำกัด ${g.rules.maxSize}` };
@@ -945,6 +980,13 @@ export function callMonster(state: GameState, side: Side, handIndex: number, pos
     fc.soul = p.deck.splice(0, soulN);
     log(g, `${card.name} ได้ Soul ${soulN} ใบจากเด็ค (Call Cost)`);
   }
+  let absorbedN = 0;
+  if (absorbUids.length > 0) {
+    const names = takeCallRequires(p, absorbUids);
+    absorbedN = names.length;
+    fc.soul.push(...names);
+    log(g, `${card.name} นำ ${names.map(id => getCard(id)?.name ?? "การ์ด").join(", ")} จากสนามเข้า Soul`);
+  }
   p.monsters.push(fc);
   log(g, `${card.name} ลงสนาม (ช่อง${POSITION_NAMES[position]})`);
 
@@ -953,7 +995,7 @@ export function callMonster(state: GameState, side: Side, handIndex: number, pos
   const calledBuddies = p.buddiesCalled ?? (p.buddyCalledThisGame && p.buddyId ? [p.buddyId] : []);
   const isBuddyCall = myBuddies.includes(cardId) && !calledBuddies.includes(cardId);
   fx(g, { k: "call", side, uid: fc.uid, pos: position, buddy: isBuddyCall });
-  if (soulN > 0) fx(g, { k: "soulIn", side, uid: fc.uid, pos: position, n: soulN });
+  if (soulN + absorbedN > 0) fx(g, { k: "soulIn", side, uid: fc.uid, pos: position, n: soulN + absorbedN });
   if (isBuddyCall) {
     p.buddiesCalled = [...calledBuddies, cardId];
     p.buddyCalledThisGame = myBuddies.every(b => p.buddiesCalled!.includes(b));
@@ -1283,12 +1325,25 @@ export function equipItem(state: GameState, side: Side, handIndex: number): Resu
   if (!card) return { state, ok: false, msg: "ไม่พบการ์ดใบนี้ในมือ" };
   if (card.type !== "Item") return { state, ok: false, msg: `${card.name} ไม่ใช่ไอเทม` };
 
+  const reqNames = (card.callRequires ?? []).map(n => n.trim()).filter(Boolean);
+  let absorbUids: string[] = [];
+  if (reqNames.length > 0) {
+    const m = matchCallRequires(p, reqNames);
+    if (m.missing.length > 0) return { state, ok: false, msg: `ติดตั้ง ${card.name} ไม่ได้ — ต้องมีการ์ดเหล่านี้บนสนามก่อน: ${m.missing.map(n => `“${n}”`).join(", ")}` };
+    absorbUids = m.uids;
+  }
+
   const costErr = payCost(g, side, card);
   if (costErr) return { state, ok: false, msg: `ติดตั้ง ${card.name} ไม่ได้ — ${costErr}` };
 
+  const absorbedNames = absorbUids.length > 0 ? takeCallRequires(p, absorbUids) : [];
   if (p.item) p.dropZone.push(p.item.cardId, ...p.item.soul);
   p.hand.splice(handIndex, 1);
   p.item = newFieldCard(cardId, 0);
+  if (absorbedNames.length > 0) {
+    p.item.soul.push(...absorbedNames);
+    log(g, `${card.name} นำ ${absorbedNames.map(id => getCard(id)?.name ?? "การ์ด").join(", ")} จากสนามเข้า Soul`);
+  }
   log(g, `${card.name} ถูกติดตั้ง!`);
   // ไอเทมก็เป็น Buddy ได้: ติดตั้งไอเทมที่เป็น Buddy = Buddy Call (ได้ Buddy Gift ตัวละ 1 ครั้งต่อเกม)
   const myBuddies = deckBuddies(p);
