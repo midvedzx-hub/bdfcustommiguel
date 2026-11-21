@@ -22,6 +22,7 @@ export type AutoEffectType =
   | "addLife"
   | "reduceLife"              // ดาเมจตรงใส่ศัตรู
   | "destroyOpponentMonster"  // ทำลายมอนสเตอร์ศัตรู N ตัว (เริ่มจากช่องกลาง)
+  | "destroyWeaker"           // ทำลายการ์ด/มอนสเตอร์ทุกใบของศัตรูที่ Power/Critical/Defense น้อยกว่าการ์ดที่กำหนด (ใบนั้นต้องอยู่ในสนามเรา)
   | "restOpponent"            // Rest มอนสเตอร์ศัตรู N ตัว
   | "opponentDiscard"         // ศัตรูทิ้งการ์ดในมือ N ใบ
   | "recoverFromDrop"         // เอาการ์ดจากสุสานกลับมือ N ใบ
@@ -40,7 +41,7 @@ export type AutoEffectType =
   | "lifelink"                // เมื่อการ์ดนี้ตาย (ถูกทำลาย) เจ้าของโดนดาเมจเท่าค่านี้
   | "ignoreCenter"            // ตีผู้เล่นได้แม้ศัตรูมีมอนสเตอร์กลาง
   | "indestructibleBattle"    // ไม่ถูกทำลายจากการต่อสู้
-  | "indestructible"          // ไม่สามารถถูกทำลายได้ (ทุกทาง: ต่อสู้ / เอฟเฟกต์ / Counter) — ถูก Nullify แล้วจะไม่มีผล
+  | "indestructible"          // ไม่สามารถถูกทำลายจากความสามารถของการ์ดคู่แข่งได้ (เอฟเฟกต์ทำลาย / Counter / Counterattack — ไม่รวมการต่อสู้ ใช้ Battle Proof) — ถูก Nullify แล้วจะไม่มีผล
   | "unnullifiable"           // ไม่สามารถถูกยกเลิกความสามารถ (Nullify) ได้
   | "negateAttack"            // (Counter) ยกเลิกการโจมตีนั้น
   | "destroyAttacker"         // (Counter) ทำลายผู้โจมตี
@@ -88,6 +89,7 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "addGauge", label: "Charge (เด็ค→เกจ)", hint: "จำนวนใบ" },
   { value: "addLife", label: "ฟื้น Life", hint: "จำนวน" },
   { value: "reduceLife", label: "ดาเมจตรงใส่ศัตรู", hint: "ดาเมจ" },
+  { value: "destroyWeaker", label: "ทำลายการ์ดศัตรูทุกใบที่ค่าน้อยกว่าตัวที่กำหนด (ตัวนั้นต้องอยู่ในสนาม)", hint: "ไม่ต้องใส่ (ตั้งค่าด้านล่าง)" },
   { value: "destroyOpponentMonster", label: "ทำลายมอนสเตอร์ศัตรู", hint: "จำนวนตัว" },
   { value: "restOpponent", label: "Rest มอนสเตอร์ศัตรู", hint: "จำนวนตัว" },
   { value: "opponentDiscard", label: "ศัตรูทิ้งการ์ดในมือ", hint: "จำนวนใบ" },
@@ -107,7 +109,7 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "lifelink", label: "Lifelink (ตายแล้วเจ้าของโดนดาเมจ)", hint: "ดาเมจที่เจ้าของโดนตอนการ์ดนี้ตาย" },
   { value: "ignoreCenter", label: "ตีผู้เล่นได้แม้มีมอนกลาง", hint: "ใส่ 1" },
   { value: "indestructibleBattle", label: "ไม่ถูกทำลายจากการต่อสู้", hint: "ใส่ 1" },
-  { value: "indestructible", label: "ไม่สามารถถูกทำลายได้ (ทุกทาง)", hint: "ใส่ 1" },
+  { value: "indestructible", label: "ไม่สามารถถูกทำลายจากความสามารถของการ์ดคู่แข่งได้", hint: "ใส่ 1" },
   { value: "unnullifiable", label: "ไม่สามารถถูกยกเลิกความสามารถได้", hint: "ใส่ 1" },
   { value: "negateAttack", label: "[Counter] ยกเลิกการโจมตี", hint: "ใส่ 1" },
   { value: "destroyAttacker", label: "[Counter] ทำลายผู้โจมตี", hint: "ใส่ 1" },
@@ -166,6 +168,11 @@ export interface AutoEffect {
   perSoul?: boolean;                       // soulCond: คูณค่าบัฟตามจำนวนการ์ดใน Soul ที่ตรงเงื่อนไข (แทนที่จะได้ครั้งเดียว)
   targetMatch?: "attr" | "name";           // soulCond: ผู้ได้รับ = การ์ดอื่นของเราที่มีคุณสมบัติ/ชื่อ targetText (ว่าง = การ์ดใบนี้เอง)
   targetText?: string;                     // soulCond: ข้อความผู้ได้รับ คั่นหลายค่าด้วย , (ตรงอย่างใดอย่างหนึ่ง)
+  // destroyWeaker: เทียบค่าของการ์ดศัตรูกับ "ตัวที่กำหนด" (ต้องอยู่ในสนามเรา)
+  cmpStats?: ("power" | "critical" | "defense")[]; // ค่าที่ใช้เทียบ (ไม่เลือก = Power)
+  cmpMode?: "all" | "any";                          // all = น้อยกว่าทุกค่าที่เลือก (ค่าเริ่มต้น) · any = น้อยกว่าอย่างใดอย่างหนึ่ง
+  refName?: string;                                 // ชื่อการ์ดที่กำหนดว่าต้องอยู่ในสนามเรา (ว่าง = การ์ดใบที่ถือสกิลนี้เอง)
+  includeItem?: boolean;                            // รวมไอเทมของศัตรูด้วย
   grantKw?: AutoEffectType[];              // soulCond / condBuff: คีย์เวิร์ดที่ได้รับเมื่อเงื่อนไขครบ (เช่น penetrate, doubleAttack)
 }
 
@@ -179,7 +186,7 @@ export const SOUL_GRANT_KEYWORDS: { value: AutoEffectType; label: string }[] = [
   { value: "soulguard", label: "Soulguard" },
   { value: "ignoreCenter", label: "ตีผู้เล่นได้แม้มีมอนกลาง" },
   { value: "indestructibleBattle", label: "ไม่ถูกทำลายจากการต่อสู้" },
-  { value: "indestructible", label: "ไม่สามารถถูกทำลายได้ (ทุกทาง)" },
+  { value: "indestructible", label: "ไม่สามารถถูกทำลายจากความสามารถของการ์ดคู่แข่งได้" },
   { value: "unnullifiable", label: "ไม่สามารถถูกยกเลิกความสามารถได้" },
   { value: "move", label: "Move" },
   { value: "counterattack", label: "Counterattack" },

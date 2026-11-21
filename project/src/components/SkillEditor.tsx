@@ -24,8 +24,34 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
           {DROP_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
       )}
-      {eff.type !== "condBuff" && eff.type !== "soulGrant" && eff.type !== "soulCond" && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
+      {eff.type !== "condBuff" && eff.type !== "soulGrant" && eff.type !== "soulCond" && eff.type !== "destroyWeaker" && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
       <button onClick={onRemove} className="p-1 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={12} /></button>
+      {eff.type === "destroyWeaker" && (() => {
+        const stats = eff.cmpStats && eff.cmpStats.length ? eff.cmpStats : (["power"] as const);
+        const toggle = (k: "power" | "critical" | "defense") => {
+          const cur: ("power" | "critical" | "defense")[] = [...stats];
+          const next = cur.includes(k) ? cur.filter(x => x !== k) : [...cur, k];
+          onChange({ ...eff, cmpStats: next.length ? next : ["power"] });
+        };
+        return (
+          <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
+            <span>ทำลายการ์ดศัตรูที่</span>
+            {([["power", "Power (Attack)"], ["critical", "Critical"], ["defense", "Defense"]] as const).map(([k, label]) => (
+              <button key={k} type="button" onClick={() => toggle(k)} className={`px-2 py-0.5 rounded-full border text-xs ${stats.includes(k) ? "bg-cyan-700 border-cyan-400 text-white" : "bg-slate-800 border-slate-600 text-slate-300 hover:border-cyan-500"}`}>{label}</button>
+            ))}
+            <span>น้อยกว่า</span>
+            <select value={eff.cmpMode ?? "all"} onChange={e => onChange({ ...eff, cmpMode: e.target.value as "all" | "any" })} className={`${sel} !py-0.5 text-xs`}>
+              <option value="all">ทุกค่าที่เลือก</option>
+              <option value="any">ค่าใดค่าหนึ่งที่เลือก</option>
+            </select>
+            <span className="basis-full" />
+            <span>ของการ์ดชื่อ</span>
+            <input value={eff.refName ?? ""} onChange={e => onChange({ ...eff, refName: e.target.value })} placeholder="ว่าง = การ์ดใบนี้ / พิมพ์ชื่อการ์ดที่กำหนด" className={`${num} !py-0.5 text-xs w-64`} />
+            <label className="flex items-center gap-1"><input type="checkbox" checked={!!eff.includeItem} onChange={e => onChange({ ...eff, includeItem: e.target.checked })} /> รวมไอเทมของศัตรูด้วย</label>
+            <p className="basis-full text-slate-500">ตัวที่กำหนดต้องอยู่ในสนามของเราตอนใช้ ถ้าไม่อยู่ ความสามารถนี้ไม่ทำงาน · ชื่อพิมพ์บางส่วนได้ ไม่สนตัวพิมพ์เล็กใหญ่ · ถ้ามีหลายใบที่ชื่อตรง ใช้ค่าสูงสุดของแต่ละสถานะ · ใช้ค่าปัจจุบัน (รวมบัฟ) ของทั้งสองฝ่าย · ถ้าเลือกหลายค่า “ทุกค่า” = ต้องน้อยกว่าทุกค่าที่เลือก · การ์ดที่ไม่สามารถถูกทำลายจากความสามารถ / Soulguard จะรอดตามปกติ</p>
+          </div>
+        );
+      })()}
       {eff.type === "soulGrant" && (
         <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
           <span>เมื่อการ์ดใบนี้อยู่ใน Soul ของการ์ดชื่อ</span>

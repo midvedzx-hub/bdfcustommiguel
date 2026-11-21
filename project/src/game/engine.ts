@@ -198,7 +198,7 @@ function keywordValueActive(fc: FieldCard | null | undefined, card: Card, type: 
   });
   return v;
 }
-// ไม่สามารถถูกทำลายได้: ใช้ได้ตราบที่สกิลนี้ไม่ถูก Nullify
+// ไม่สามารถถูกทำลายจากความสามารถของการ์ดคู่แข่งได้ (ไม่รวมการต่อสู้): ใช้ได้ตราบที่สกิลนี้ไม่ถูก Nullify
 function isIndestructible(fc: FieldCard, card?: Card): boolean {
   return !!card && hasKeywordActive(fc, card, "indestructible");
 }
@@ -283,12 +283,13 @@ export function setSoulguardAuto(state: GameState, side: Side, on: boolean): Gam
   return g;
 }
 
-function mDestroyMonster(g: GameState, side: Side, monsterUid: string): boolean {
+// via = "battle" ทำลายจากการต่อสู้ (กันด้วย Battle Proof) · "effect" (ค่าเริ่มต้น) ทำลายจากความสามารถ/เอฟเฟกต์ของการ์ดคู่แข่ง (กันด้วย "ไม่สามารถถูกทำลายจากความสามารถของการ์ดคู่แข่งได้")
+function mDestroyMonster(g: GameState, side: Side, monsterUid: string, via: "effect" | "battle" = "effect"): boolean {
   const p = g[side];
   const m = p.monsters.find(x => x.uid === monsterUid);
   if (!m) return false;
   const card = cardOfFc(m);
-  if (isIndestructible(m, card)) { log(g, `${card!.name} ไม่สามารถถูกทำลายได้ — รอด!`); return false; }
+  if (via === "effect" && isIndestructible(m, card)) { log(g, `${card!.name} ไม่สามารถถูกทำลายจากความสามารถของการ์ดคู่แข่งได้ — รอด!`); return false; }
   if (trySoulguard(g, side, m, card, "การถูกทำลาย")) return false;
 
   fx(g, { k: "destroy", side, uid: m.uid, cardId: m.cardId, pos: m.position });
@@ -436,6 +437,36 @@ function runSkills(
             .sort((a, b) => order.indexOf(a.position) - order.indexOf(b.position))
             .slice(0, n);
           targets.forEach(m => mDestroyMonster(g, opp, m.uid));
+          break;
+        }
+        case "destroyWeaker": {
+          const keys: ("power" | "critical" | "defense")[] = eff.cmpStats && eff.cmpStats.length ? eff.cmpStats : ["power"];
+          const rn = (eff.refName ?? "").trim().toLowerCase();
+          const refs = rn ? fieldCardsOf(g[side]).filter(f => textHas(cardOfFc(f)?.name, rn)) : (ctx.fc ? [ctx.fc] : []);
+          if (refs.length === 0) { log(g, `${card.name}: ไม่มี “${eff.refName?.trim() || card.name}” อยู่ในสนามของเรา — ความสามารถไม่ทำงาน`); break; }
+          // ค่าอ้างอิง = ค่าสูงสุดของแต่ละสถานะในบรรดาการ์ดที่ชื่อตรง
+          const ref = { power: 0, critical: 0, defense: 0 };
+          refs.forEach(r => { const s = statsOf(r); ref.power = Math.max(ref.power, s.power); ref.critical = Math.max(ref.critical, s.critical); ref.defense = Math.max(ref.defense, s.defense); });
+          const weaker = (fc: FieldCard) => {
+            const s = statsOf(fc);
+            const tests = keys.map(k => s[k] < ref[k]);
+            return eff.cmpMode === "any" ? tests.some(Boolean) : tests.every(Boolean);
+          };
+          const label = keys.map(k => `${k === "power" ? "Power" : k === "critical" ? "Critical" : "Defense"} ${ref[k]}`).join(" / ");
+          const victims = g[opp].monsters.filter(weaker).map(m => m.uid);
+          const itemFc = g[opp].item;
+          const hitItem = !!eff.includeItem && !!itemFc && weaker(itemFc);
+          log(g, `${card.name}: ทำลายการ์ดศัตรูที่ค่าน้อยกว่า ${label} (${victims.length + (hitItem ? 1 : 0)} ใบ)`);
+          victims.forEach(u => mDestroyMonster(g, opp, u));
+          if (hitItem && itemFc) {
+            const ic = cardOfFc(itemFc);
+            if (isIndestructible(itemFc, ic)) log(g, `${ic?.name ?? "ไอเทม"} ไม่สามารถถูกทำลายจากความสามารถของการ์ดคู่แข่งได้ — รอด!`);
+            else {
+              g[opp].dropZone.push(itemFc.cardId, ...itemFc.soul);
+              g[opp].item = null;
+              log(g, `${ic?.name ?? "ไอเทม"} ถูกทำลาย`);
+            }
+          }
           break;
         }
         case "restOpponent": {
@@ -2120,11 +2151,11 @@ function resolveBattle(g: GameState) {
 
     // ผู้โจมตีทำดาเมจใส่เป้าหมาย: Power ≥ Defense ของเป้า -> เป้าถูกทำลาย
     let targetDestroyed = false;
-    if (tgtCard && (hasKeywordActive(tgt, tgtCard, "indestructibleBattle") || hasKeywordActive(tgt, tgtCard, "indestructible"))) {
-      log(g, `${tgtName} ${hasKeywordActive(tgt, tgtCard, "indestructible") ? "ไม่สามารถถูกทำลายได้" : "ไม่ถูกทำลายจากการต่อสู้"}`);
+    if (tgtCard && hasKeywordActive(tgt, tgtCard, "indestructibleBattle")) {
+      log(g, `${tgtName} ไม่ถูกทำลายจากการต่อสู้`);
     } else if (total.power >= tgtStats.defense) {
       log(g, `Power ${total.power} ≥ Def ${tgtStats.defense} → ทำลาย ${tgtName}${linkNote}`);
-      targetDestroyed = mDestroyMonster(g, oppSide, tgt.uid);
+      targetDestroyed = mDestroyMonster(g, oppSide, tgt.uid, "battle");
     } else {
       log(g, `Power ${total.power} < Def ${tgtStats.defense} → ${tgtName} รอด${linkNote}`);
     }

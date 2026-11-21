@@ -25,7 +25,7 @@ const KEYWORDS: Record<string, string> = {
   counterattack: "Counterattack",
   ignoreCenter: "Ignore Center",
   indestructibleBattle: "Battle Proof",
-  indestructible: "ไม่สามารถถูกทำลายได้",
+  indestructible: "ไม่สามารถถูกทำลายจากความสามารถของการ์ดคู่แข่งได้",
   unnullifiable: "ไม่สามารถถูกยกเลิกความสามารถได้",
 };
 
@@ -40,6 +40,13 @@ export function effectText(e: AutoEffect): string {
     case "addLife": return `ฟื้น Life ${v}`;
     case "reduceLife": return `ทำดาเมจ ${v} ใส่ผู้เล่นศัตรู`;
     case "destroyOpponentMonster": return `ทำลายมอนสเตอร์ศัตรู ${v} ตัว`;
+    case "destroyWeaker": {
+      const names: Record<string, string> = { power: "Power", critical: "Critical", defense: "Defense" };
+      const stats = (e.cmpStats && e.cmpStats.length ? e.cmpStats : ["power"]).map(k => names[k]);
+      const joiner = e.cmpMode === "any" ? " หรือ " : " และ ";
+      const ref = (e.refName ?? "").trim();
+      return `ทำลายมอนสเตอร์${e.includeItem ? "/ไอเทม" : ""}ของศัตรูทุกใบที่ ${stats.join(joiner)} น้อยกว่า${ref ? ` “${ref}” (ต้องอยู่ในสนามของเรา)` : "การ์ดใบนี้"}`;
+    }
     case "restOpponent": return `Rest มอนสเตอร์ศัตรู ${v} ตัว`;
     case "opponentDiscard": return `ศัตรูทิ้งการ์ดในมือ ${v} ใบ`;
     case "recoverFromDrop": return `เก็บ${filterText(e.filter)}จากสุสานขึ้นมือ ${v} ใบ`;
@@ -178,7 +185,7 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
   { label: "Triple Attack", skill: { trigger: "continuous", effects: [{ type: "tripleAttack", value: 1 }] } },
   { label: "Move", skill: { trigger: "continuous", effects: [{ type: "move", value: 1 }] } },
   { label: "Counterattack", skill: { trigger: "continuous", effects: [{ type: "counterattack", value: 1 }] } },
-  { label: "ไม่สามารถถูกทำลายได้", skill: { trigger: "continuous", effects: [{ type: "indestructible", value: 1 }] } },
+  { label: "ไม่สามารถถูกทำลายจากความสามารถของการ์ดคู่แข่งได้", skill: { trigger: "continuous", effects: [{ type: "indestructible", value: 1 }] } },
   { label: "ไม่สามารถถูกยกเลิกความสามารถได้", skill: { trigger: "continuous", effects: [{ type: "unnullifiable", value: 1 }] } },
   { label: "Soulguard", skill: { trigger: "continuous", effects: [{ type: "soulguard", value: 1 }] } },
   { label: "Lifelink 1 (ตายแล้วโดนดาเมจ)", skill: { trigger: "continuous", effects: [{ type: "lifelink", value: 1 }] } },
@@ -221,7 +228,7 @@ export const KEYWORD_HELP: Record<string, string> = {
   ...Object.fromEntries(KEYWORD_DEFS.map(k => [k.id, k.help])),
   "Ignore Center": "ตีผู้เล่นได้แม้ศัตรูมีมอนสเตอร์ช่องกลาง",
   "Battle Proof": "ไม่ถูกทำลายจากการต่อสู้",
-  "ไม่สามารถถูกทำลายได้": "การ์ดใบนี้ไม่สามารถถูกทำลายได้ ไม่ว่าจากการต่อสู้หรือเอฟเฟกต์ (ถ้าถูก Nullify จะไม่มีผล — ยังถูกส่งออกจากสนามด้วยวิธีอื่น เช่น ดึงกลับมือ ได้)",
+  "ไม่สามารถถูกทำลายจากความสามารถของการ์ดคู่แข่งได้": "การ์ดใบนี้ไม่ถูกทำลายจากความสามารถของการ์ดคู่แข่ง (เอฟเฟกต์ทำลาย / Counter / Counterattack) — ยังถูกทำลายจากการต่อสู้ได้ ถ้าต้องการกันการต่อสู้ด้วยให้ใส่ Battle Proof (ถ้าถูก Nullify จะไม่มีผล · การนำออกจากสนามแบบอื่น เช่น ดึงกลับมือ ไม่ถูกกัน)",
   "ไม่สามารถถูกยกเลิกความสามารถได้": "ความสามารถของการ์ดใบนี้ไม่สามารถถูกยกเลิก (Nullify) ได้",
 };
 
