@@ -54,16 +54,27 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
               <input type="number" min={1} max={20} value={eff.value} onChange={e => onChange({ ...eff, value: Math.max(1, parseInt(e.target.value) || 1) })} className={`${num} !py-0.5 text-xs w-14`} /> ใบ
             </label>
             <span className="basis-full" />
-            <span>การ์ดนี้ได้รับ:</span>
+            <span>ผู้ได้รับ ได้รับ:</span>
             {amtIn("Power", "bPower", "w-20")}
             {amtIn("Critical", "bCritical", "w-14")}
             {amtIn("Defense", "bDefense", "w-20")}
+            <label className="flex items-center gap-1" title="เช่น Power +5000 × จำนวนการ์ดใน Soul ที่ตรงเงื่อนไข"><input type="checkbox" checked={!!eff.perSoul} onChange={e => onChange({ ...eff, perSoul: e.target.checked })} /> คูณตามจำนวนการ์ดใน Soul (ต่อใบ)</label>
+            <span className="basis-full" />
+            <span>ผู้ได้รับ:</span>
+            <select value={eff.targetMatch ?? "attr"} onChange={e => onChange({ ...eff, targetMatch: e.target.value as "attr" | "name" })} className={`${sel} !py-0.5 text-xs`}>
+              <option value="attr">การ์ดของเราที่มีคุณสมบัติ</option>
+              <option value="name">การ์ดของเราที่ชื่อ</option>
+            </select>
+            <input value={eff.targetText ?? ""} onChange={e => onChange({ ...eff, targetText: e.target.value })} placeholder="เช่น Magia Vendar, Lyzance (ว่าง = การ์ดใบนี้)" className={`${num} !py-0.5 text-xs w-64`} />
+            {(eff.targetText ?? "").trim() !== "" && (
+              <label className="flex items-center gap-1"><input type="checkbox" checked={!!eff.includeSelf} onChange={e => onChange({ ...eff, includeSelf: e.target.checked })} /> รวมการ์ดใบนี้ด้วย</label>
+            )}
             <span className="basis-full" />
             <span>และคีย์เวิร์ด:</span>
             {SOUL_GRANT_KEYWORDS.map(k => (
               <button key={k.value} type="button" onClick={() => toggleKw(k.value)} className={`px-2 py-0.5 rounded-full border text-xs ${kws.includes(k.value) ? "bg-cyan-700 border-cyan-400 text-white" : "bg-slate-800 border-slate-600 text-slate-300 hover:border-cyan-500"}`}>{kws.includes(k.value) ? "✔ " : ""}{k.label}</button>
             ))}
-            <p className="basis-full text-slate-500">ใช้กับสกิลแบบ “ถาวร” · มีผลตราบที่จำนวนการ์ดใน Soul ยังครบ (หายเมื่อ Soul ลดลง) · คุณสมบัติ = ช่อง attribute ของการ์ด · ใส่หลายค่าคั่นด้วย , ได้ (ตรงอย่างใดอย่างหนึ่ง) · พิมพ์บางส่วนได้ ไม่สนตัวพิมพ์เล็กใหญ่</p>
+            <p className="basis-full text-slate-500">ใช้กับสกิลแบบ “ถาวร” · ผู้ได้รับว่าง = การ์ดใบนี้เอง · ถ้ามีหลายระดับ (เช่น โซล 3 ใบ / 5 ใบ) ให้เพิ่มเอฟเฟกต์นี้หลายอัน · มีผลตราบที่จำนวนการ์ดใน Soul ยังครบ (หายเมื่อ Soul ลดลง) · คุณสมบัติ = ช่อง attribute ของการ์ด · ใส่หลายค่าคั่นด้วย , ได้ (ตรงอย่างใดอย่างหนึ่ง) · พิมพ์บางส่วนได้ ไม่สนตัวพิมพ์เล็กใหญ่</p>
           </div>
         );
       })()}

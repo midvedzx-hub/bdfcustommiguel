@@ -159,6 +159,9 @@ export interface AutoEffect {
   condText?: string;                       // ข้อความที่ต้องมี (ไม่สนตัวพิมพ์) ว่าง = ไม่มีเงื่อนไข ได้บัฟเสมอ
   condWhere?: "own" | "opponent" | "any";  // ตรวจสนามฝั่งไหน (ค่าเริ่มต้น own = ของเรา)
   targetName?: string;                     // ผู้ได้รับบัฟ: ชื่อการ์ดของเรา ว่าง = การ์ดใบนี้
+  perSoul?: boolean;                       // soulCond: คูณค่าบัฟตามจำนวนการ์ดใน Soul ที่ตรงเงื่อนไข (แทนที่จะได้ครั้งเดียว)
+  targetMatch?: "attr" | "name";           // soulCond: ผู้ได้รับ = การ์ดอื่นของเราที่มีคุณสมบัติ/ชื่อ targetText (ว่าง = การ์ดใบนี้เอง)
+  targetText?: string;                     // soulCond: ข้อความผู้ได้รับ คั่นหลายค่าด้วย , (ตรงอย่างใดอย่างหนึ่ง)
   grantKw?: AutoEffectType[];              // soulCond: คีย์เวิร์ดที่ได้รับเมื่อเงื่อนไขโซลครบ (เช่น penetrate, doubleAttack)
 }
 

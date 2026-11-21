@@ -65,8 +65,13 @@ export function effectText(e: AutoEffect): string {
       const txt = (e.condText ?? "").trim();
       const kind = e.condMatch === "name" ? "ชื่อ" : "คุณสมบัติ";
       const kws = (e.grantKw ?? []).map(t => SOUL_GRANT_KEYWORDS.find(k => k.value === t)?.label ?? String(t));
-      const gain = [e.bPower ? `Power +${e.bPower}` : "", e.bCritical ? `Critical +${e.bCritical}` : "", e.bDefense ? `Defense +${e.bDefense}` : "", ...kws].filter(Boolean).join(" และ ") || "บัฟ";
-      return `ถ้าใน Soul ของการ์ดนี้มีการ์ด${txt ? `ที่มี${kind} “${txt}” ` : ""}${x} ใบขึ้นไป การ์ดนี้ได้รับ ${gain}`;
+      const gain = [e.bPower ? `Power +${e.bPower}` : "", e.bCritical ? `Critical +${e.bCritical}` : "", e.bDefense ? `Defense +${e.bDefense}` : ""].filter(Boolean).join(" และ ");
+      const per = e.perSoul ? " ต่อการ์ด 1 ใบใน Soul" : "";
+      const gainAll = [gain ? gain + per : "", ...kws].filter(Boolean).join(" และ ") || "บัฟ";
+      const tt = (e.targetText ?? "").trim();
+      const who = tt ? `การ์ดของเราที่มี${e.targetMatch === "name" ? "ชื่อ" : "คุณสมบัติ"} “${tt}”${e.includeSelf ? " (รวมใบนี้)" : ""}` : "การ์ดนี้";
+      const cond = e.perSoul && x === 1 ? "" : `ถ้าใน Soul ของการ์ดนี้มีการ์ด ${txt ? `ที่มี${kind} “${txt}” ` : ""}${x} ใบขึ้นไป `;
+      return `${cond}${who} ได้รับ ${gainAll}`;
     }
     case "condBuff": {
       const amt = condBuffAmounts(e);

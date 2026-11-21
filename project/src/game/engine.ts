@@ -997,38 +997,53 @@ export function recalcAuras(g: GameState) {
     });
     activeSetCards(p).forEach(c => runCond(c, null));
 
-    // soulCond: ถ้าโซลของการ์ดมีการ์ดที่กำหนดครบ X ใบ → ได้บัฟสถานะ และ/หรือได้คีย์เวิร์ด (เป็นสกิลถาวรชั่วคราวที่คำนวณใหม่ทุกครั้ง)
+    // soulCond: ถ้าโซลของการ์ดมีการ์ดที่กำหนดครบ X ใบ → ผู้ได้รับ (การ์ดนี้ หรือการ์ดอื่นของเราที่คุณสมบัติ/ชื่อตรง) ได้บัฟสถานะ (คูณตามจำนวนโซลได้) และ/หรือคีย์เวิร์ด
+    // (คำนวณใหม่ทุกครั้ง จึงหายเมื่อโซลไม่ครบ)
     fieldCardsOf(p).forEach(fc => {
       if (fc.nullified) return;
       const c = cardOfFc(fc);
       if (!c) return;
-      const kws: AutoEffect[] = [];
       (c.autoSkills ?? []).forEach(sk => {
         if (sk.trigger !== "continuous") return;
         sk.effects.forEach(e => {
-          if (e.type !== "soulCond" || !soulCondMet(fc, e)) return;
-          fc.auraPower = (fc.auraPower ?? 0) + (e.bPower ?? 0);
-          fc.auraCritical = (fc.auraCritical ?? 0) + (e.bCritical ?? 0);
-          fc.auraDefense = (fc.auraDefense ?? 0) + (e.bDefense ?? 0);
-          (e.grantKw ?? []).forEach(t => kws.push({ type: t, value: 1 }));
+          if (e.type !== "soulCond") return;
+          const n = soulCondCount(fc, e);
+          if (n < Math.max(1, Math.floor(e.value) || 1)) return;
+          const mult = e.perSoul ? n : 1;
+          soulCondTargets(p, fc, e).forEach(t => {
+            t.auraPower = (t.auraPower ?? 0) + (e.bPower ?? 0) * mult;
+            t.auraCritical = (t.auraCritical ?? 0) + (e.bCritical ?? 0) * mult;
+            t.auraDefense = (t.auraDefense ?? 0) + (e.bDefense ?? 0) * mult;
+            const kws: AutoEffect[] = (e.grantKw ?? []).map(k => ({ type: k, value: 1 }));
+            if (kws.length > 0) t.grantedSkills = [...(t.grantedSkills ?? []), { trigger: "continuous", effects: kws }];
+          });
         });
       });
-      if (kws.length > 0) fc.grantedSkills = [...(fc.grantedSkills ?? []), { trigger: "continuous", effects: kws }];
     });
   });
 }
 
 // ---- soulCond: นับการ์ดในโซลของการ์ดใบนี้ที่ตรงเงื่อนไข (คุณสมบัติ/ชื่อ; คั่นหลายค่าด้วย , = ตรงอย่างใดอย่างหนึ่ง; ว่าง = การ์ดใดก็ได้) ----
-function soulCondMet(fc: FieldCard, e: AutoEffect): boolean {
-  const need = Math.max(1, Math.floor(e.value) || 1);
-  const alts = (e.condText ?? "").split(",").map(x => x.trim().toLowerCase()).filter(Boolean);
-  const n = fc.soul.filter(id => {
+const splitAlts = (t: string | undefined) => (t ?? "").split(",").map(x => x.trim().toLowerCase()).filter(Boolean);
+// จำนวนการ์ดในโซลของ fc ที่ตรงเงื่อนไข (ว่าง = นับทุกใบ)
+function soulCondCount(fc: FieldCard, e: AutoEffect): number {
+  const alts = splitAlts(e.condText);
+  return fc.soul.filter(id => {
     const sc = getCard(id);
     if (!sc) return false;
     if (alts.length === 0) return true;
     return alts.some(a => (e.condMatch === "name" ? textHas(sc.name, a) : textHas(sc.attribute, a)));
   }).length;
-  return n >= need;
+}
+// ผู้ได้รับผล: ไม่ระบุ targetText = การ์ดใบนี้เอง; ระบุ = การ์ดอื่นของเราบนสนามที่คุณสมบัติ/ชื่อตรง (รวมใบนี้ถ้าติ๊ก includeSelf)
+function soulCondTargets(p: PlayerState, self: FieldCard, e: AutoEffect): FieldCard[] {
+  const alts = splitAlts(e.targetText);
+  if (alts.length === 0) return [self];
+  return fieldCardsOf(p).filter(f => {
+    if (f.uid === self.uid && !e.includeSelf) return false;
+    const c = getCard(f.cardId);
+    return !!c && alts.some(a => (e.targetMatch === "name" ? textHas(c.name, a) : textHas(c.attribute, a)));
+  });
 }
 
 // ---- condBuff: เงื่อนไข "ถ้าบนสนามมีการ์ดใบอื่นที่มีคุณสมบัติ/ชื่อ ..." และผู้ได้รับบัฟ ----
