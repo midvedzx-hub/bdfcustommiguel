@@ -1,6 +1,6 @@
 import type { Flag, Card, AutoSkill, AutoEffect } from "@/types";
 import { getCustomKeywords } from "@/storage";
-import { TRIGGER_LABELS, callCostLabel } from "@/types";
+import { TRIGGER_LABELS, callCostLabel, canTransform, transformCostLabel } from "@/types";
 import { KEYWORD_DEFS } from "@/game/keywords";
 
 export function getFlagColor(flag?: Flag | null): string {
@@ -125,6 +125,7 @@ export function keywordBadges(card: Card): string[] {
 export function costText(card: Card): string {
   const parts: string[] = [];
   if (card.callCost > 0 || (card.callCostExtra ?? 0) > 0 || card.type === "Monster") parts.push(`จ่าย ${callCostLabel(card)}`);
+  if (canTransform(card)) parts.push(`[Transform] จ่าย ${transformCostLabel(card)} เพื่อแปลงเป็นไอเทม (ใช้ได้จากมือหรือบนสนาม)`);
   if ((card.callSoulFromDeck ?? 0) > 0) parts.push(`นำการ์ดบนเด็ค ${card.callSoulFromDeck} ใบเข้า Soul ของการ์ดนี้`);
   return parts.join(" และ ");
 }
@@ -150,6 +151,8 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
   { label: "ลงสนาม: จั่ว 1", skill: { trigger: "onCall", effects: [{ type: "draw", value: 1 }] } },
   { label: "ลงสนาม: Charge 1", skill: { trigger: "onCall", effects: [{ type: "addGauge", value: 1 }] } },
   { label: "ลงสนาม: ดาเมจ 1", skill: { trigger: "onCall", effects: [{ type: "reduceLife", value: 1 }] } },
+  { label: "Transform เสร็จ: จั่ว 1", skill: { trigger: "onTransform", effects: [{ type: "draw", value: 1 }] } },
+  { label: "Transform เสร็จ: Charge 1", skill: { trigger: "onTransform", effects: [{ type: "addGauge", value: 1 }] } },
   { label: "ถูกทำลาย: จั่ว 1", skill: { trigger: "onDestroyed", effects: [{ type: "draw", value: 1 }] } },
   { label: "โจมตี: Power +5000", skill: { trigger: "onAttack", effects: [{ type: "buffPower", value: 5000 }] } },
   { label: "Counter 【Act】: ถอด Soul 1 → Stand ตัวเอง", skill: { trigger: "onCounterAct", effects: [{ type: "removeSoul", value: 1 }, { type: "standSelf", value: 1 }] } },
@@ -182,6 +185,7 @@ export const KEYWORD_HELP: Record<string, string> = {
 
 export const TRIGGER_HELP: Record<string, string> = {
   onCall: "ทำงานเมื่อการ์ดนี้ลงสนาม/ติดตั้ง",
+  onTransform: "ทำงานเมื่อการ์ดนี้ Transform เสร็จและกลายเป็นไอเทมแล้ว (ใช้กับมอนสเตอร์ที่เปิด Transform)",
   onCast: "ทำงานเมื่อร่ายการ์ดนี้",
   onAttack: "ทำงานตอนการ์ดนี้ประกาศโจมตี",
   onDestroyed: "ทำงานเมื่อการ์ดนี้ถูกทำลาย",

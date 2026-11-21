@@ -2,6 +2,7 @@ export type CardType = "Monster" | "Spell" | "Item" | "Impact";
 
 export type AutoTrigger =
   | "onCall"        // เมื่อลงสนาม / ติดตั้ง
+  | "onTransform"   // เมื่อ Transform เสร็จ (กลายเป็นไอเทมแล้ว)
   | "onCast"        // เมื่อร่าย
   | "onAttack"      // เมื่อโจมตี
   | "onDestroyed"   // เมื่อถูกทำลาย
@@ -62,6 +63,7 @@ export type AutoEffectType =
 
 export const TRIGGER_LABELS: { value: AutoTrigger; label: string }[] = [
   { value: "onCall", label: "เมื่อลงสนาม / ติดตั้ง" },
+  { value: "onTransform", label: "เมื่อ Transform เสร็จ" },
   { value: "onCast", label: "เมื่อร่าย" },
   { value: "onAttack", label: "เมื่อโจมตี" },
   { value: "onDestroyEnemy", label: "เมื่อทำลายมอนสเตอร์ศัตรู" },
@@ -173,6 +175,9 @@ export interface Card {
   critical: number;
   callCost: number;
   callCostType: "Gauge" | "Life";
+  transformCost?: number;          // มีค่า = มอนสเตอร์ใบนี้ Transform ได้ (จ่ายแล้วกลายเป็นไอเทมของเรา) ไม่ใส่ = Transform ไม่ได้
+  transformCostType?: "Gauge" | "Life";
+  transformCostExtra?: number;     // จ่ายอีกอย่างเพิ่ม (เหมือน callCostExtra)
   callCostExtra?: number; // จ่ายอีกอย่างเพิ่ม: จำนวนของทรัพยากรอีกชนิดที่ไม่ใช่ callCostType (เช่น จ่ายเกจ 2 + Life 1) 0/ไม่ใส่ = จ่ายอย่างเดียว
   customText: string; // รวมทุกข้อความ (คั่นด้วยบรรทัดใหม่) เก็บไว้เพื่อความเข้ากันได้กับการ์ดเก่า
   customTexts?: string[]; // สกิลอิสระหลายข้อ
@@ -394,4 +399,15 @@ export function callCostLabel(card: Pick<Card, "callCost" | "callCostType" | "ca
   if (a.gauge > 0) parts.push(`เกจ ${a.gauge}`);
   if (a.life > 0) parts.push(`Life ${a.life}`);
   return parts.length ? parts.join(" + ") : `${card.callCostType === "Life" ? "Life" : "เกจ"} 0`;
+}
+
+// Transform: มอนสเตอร์ที่กำหนดค่า Transform ไว้ ใช้จากมือหรือจากสนามเพื่อจ่ายแล้วกลายเป็นไอเทม
+export function canTransform(card: Pick<Card, "type" | "transformCost">): boolean {
+  return card.type === "Monster" && typeof card.transformCost === "number";
+}
+export function transformCostAmounts(card: Pick<Card, "transformCost" | "transformCostType" | "transformCostExtra">): { gauge: number; life: number } {
+  return callCostAmounts({ callCost: card.transformCost ?? 0, callCostType: card.transformCostType ?? "Gauge", callCostExtra: card.transformCostExtra });
+}
+export function transformCostLabel(card: Pick<Card, "transformCost" | "transformCostType" | "transformCostExtra">): string {
+  return callCostLabel({ callCost: card.transformCost ?? 0, callCostType: card.transformCostType ?? "Gauge", callCostExtra: card.transformCostExtra });
 }

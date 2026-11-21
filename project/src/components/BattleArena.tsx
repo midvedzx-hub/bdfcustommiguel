@@ -5,12 +5,12 @@ import {
   Copy, LogIn, Users, RefreshCw, Wrench, X, Shield, Star, AlertTriangle, Link2, Eye,
 } from "lucide-react";
 import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet, FieldCard } from "@/types";
-import { TRIGGER_LABELS, customTextList, callCostLabel } from "@/types";
+import { TRIGGER_LABELS, customTextList, callCostLabel, canTransform, transformCostLabel } from "@/types";
 import { DEFAULT_RULES } from "@/types";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
   callMonster, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
-  goToAttack, goToFinal, mulligan, legalTargets, statsOf, counterOptions, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
+  goToAttack, goToFinal, mulligan, transformCard, legalTargets, statsOf, counterOptions, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
@@ -582,6 +582,11 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   /* ---------------- Actions ---------------- */
   const tryCall = (i: number, pos: number) => { act("ลงมอนสเตอร์ไม่ได้", s => callMonster(s, mySide, i, pos, { ignoreSize: sandbox })); setHandSel(null); };
   const tryCast = (i: number) => { act("ร่ายไม่ได้", s => castSpell(s, mySide, i)); setHandSel(null); };
+  const tryTransform = (src: { zone: "hand"; index: number } | { zone: "field"; uid: string }) => {
+    act("Transform ไม่ได้", s => transformCard(s, mySide, src));
+    setHandSel(null);
+    setInspect(null);
+  };
   const tryEquip = (i: number) => { act("ติดตั้งไอเทมไม่ได้", s => equipItem(s, mySide, i)); setHandSel(null); };
   const trySet = (i: number) => { act("Set การ์ดไม่ได้", s => setCard(s, mySide, i)); setHandSel(null); };
   const tryMove = (uid: string, pos: number) => { act("Move ไม่ได้", s => moveMonster(s, mySide, uid, pos)); setMoveSel(null); };
@@ -1045,6 +1050,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             ))}
             {card.type === "Monster" && empty.length === 0 && <button onClick={() => tryCall(handSel, 1)} className={`${btn} bg-slate-700`}>ลงมอนสเตอร์</button>}
             {card.type === "Spell" && <button onClick={() => tryCast(handSel)} className={`${btn} ${counterOnly ? "bg-slate-700" : "bg-sky-600 hover:bg-sky-500"}`}>{hasSetKeyword(card) ? "ร่าย → วางลงช่อง Set" : "ร่ายเวท"}</button>}
+            {canTransform(card) && <button onClick={() => tryTransform({ zone: "hand", index: handSel })} className={`${btn} bg-fuchsia-600 hover:bg-fuchsia-500`}>🔄 Transform (จ่าย {transformCostLabel(card)})</button>}
             {card.type === "Item" && <button onClick={() => tryEquip(handSel)} className={`${btn} bg-emerald-600 hover:bg-emerald-500`}>ติดตั้งไอเทม</button>}
             {card.type === "Impact" && <button onClick={() => tryCast(handSel)} className={`${btn} bg-rose-600 hover:bg-rose-500`}>ใช้ Impact (Final Phase)</button>}
             {freeOpts.some(o => o.zone === "hand" && o.index === handSel) && <button onClick={() => { const o = freeOpts.find(x => x.zone === "hand" && x.index === handSel); if (o) { doFreeCounter(o); setHandSel(null); } }} className={`${btn} bg-sky-600 hover:bg-sky-500`}>⚡ ใช้ Counter ทันที</button>}
@@ -1132,6 +1138,12 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         {canMoveNow && isMyTurn && movableMonsters(game, mySide).length > 0 && (
           <button onClick={() => { setMoveMode(v => !v); setMoveSel(null); setAtkSels([]); }} title="Move: ย้ายมอนสเตอร์ที่มีคีย์เวิร์ด Move ไปช่องว่าง (ตอนเริ่ม Attack Phase ก่อนโจมตี)" className={`${b} flex items-center gap-1 ${moveMode ? "bg-cyan-500 text-slate-900" : "bg-cyan-800 hover:bg-cyan-700"}`}>Move {moveMode ? "ON" : "OFF"}</button>
         )}
+        {isMyTurn && !game.battle && game.phase === "main" && me.monsters.filter(m => { const c = cardOf(m.cardId); return !!c && canTransform(c); }).map(m => {
+          const c = cardOf(m.cardId)!;
+          return (
+            <button key={m.uid} onClick={() => tryTransform({ zone: "field", uid: m.uid })} title={`Transform ${c.name} → กลายเป็นไอเทม`} className={`${b} bg-fuchsia-700 hover:bg-fuchsia-600 flex items-center gap-1`}>🔄 Transform {c.name} ({transformCostLabel(c)})</button>
+          );
+        })}
         {canAttackNow && standCount >= 2 && (
           <button onClick={() => setLinkMode(v => !v)} className={`${b} flex items-center gap-1 ${linkMode ? "bg-violet-500 text-white" : "bg-violet-800 hover:bg-violet-700"}`}><Link2 size={14} /> Link Attack {linkMode ? "ON" : "OFF"}</button>
         )}
@@ -1443,6 +1455,9 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             <h3 className="font-display text-xl font-bold text-cyan-300">{card.name}</h3>
             <button onClick={() => setInspect(null)} className="p-1 hover:bg-slate-800 rounded"><X size={18} /></button>
           </div>
+          {fc && canTransform(card) && isMyTurn && me.monsters.some(m => m.uid === fc.uid) && (
+            <button onClick={() => tryTransform({ zone: "field", uid: fc.uid })} className="mb-3 w-full py-2.5 bg-fuchsia-600 hover:bg-fuchsia-500 rounded-xl font-bold">🔄 Transform → กลายเป็นไอเทม (จ่าย {transformCostLabel(card)})</button>
+          )}
           {note && (
             <div className="mb-3 flex gap-2 items-start bg-amber-900/30 border border-amber-600 text-amber-200 text-sm rounded-lg px-3 py-2">
               <AlertTriangle size={16} className="shrink-0 mt-0.5" /> <span>{note}</span>

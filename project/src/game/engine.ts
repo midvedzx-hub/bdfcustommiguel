@@ -1,7 +1,7 @@
 import type {
   GameState, PlayerState, Card, Flag, Deck, FieldCard, AutoEffectType, AutoTrigger, RuleSet, AttackTarget, FxEvent, FxInput, AutoSkill, CounterTiming,
 } from "@/types";
-import { DEFAULT_RULES, callCostAmounts } from "@/types";
+import { DEFAULT_RULES, callCostAmounts, canTransform, transformCostAmounts } from "@/types";
 import { uid } from "@/storage";
 import { skillLines } from "@/game/helpers";
 
@@ -1079,6 +1079,58 @@ export function equipItem(state: GameState, side: Side, handIndex: number): Resu
   applyEffects(g, side, card, "onCall", { fc: p.item });
   recalcAuras(g);
   return { state: g, ok: true, msg: `ติดตั้ง ${card.name}` };
+}
+
+// Transform: มอนสเตอร์ (จากมือหรือบนสนาม) จ่าย Transform Cost แล้วกลายเป็นไอเทมของเรา
+// ไอเทมเดิม (ถ้ามี) ถูกส่งลงสุสาน · ถ้าแปลงจากสนาม Soul และสถานะ (Rest / จำนวนครั้งที่โจมตีแล้ว) ติดไปด้วย
+export type TransformSource = { zone: "hand"; index: number } | { zone: "field"; uid: string };
+export function transformCard(state: GameState, side: Side, src: TransformSource): Result {
+  const err = guardTurn(state, side, "main");
+  if (err) return { state, ok: false, msg: err };
+  const g = structuredClone(state);
+  const p = g[side];
+
+  let cardId: string | undefined;
+  let old: FieldCard | undefined;
+  if (src.zone === "hand") {
+    cardId = p.hand[src.index];
+  } else {
+    old = p.monsters.find(m => m.uid === src.uid);
+    cardId = old?.cardId;
+  }
+  const card = cardId ? getCard(cardId) : undefined;
+  if (!card || !cardId) return { state, ok: false, msg: src.zone === "hand" ? "ไม่พบการ์ดใบนี้ในมือ" : "ไม่พบมอนสเตอร์ใบนี้บนสนาม" };
+  if (!canTransform(card)) return { state, ok: false, msg: `${card.name} ไม่มีความสามารถ Transform` };
+  if (old?.nullified) return { state, ok: false, msg: `${card.name} ถูก Nullify อยู่ Transform ไม่ได้` };
+
+  const c = transformCostAmounts(card);
+  if (p.gaugePile.length < c.gauge) return { state, ok: false, msg: `Transform ไม่ได้ — เกจไม่พอ: ต้องจ่ายเกจ ${c.gauge} แต่มีเกจ ${p.gaugePile.length}` };
+  if (c.life > 0 && p.life <= c.life) return { state, ok: false, msg: `Transform ไม่ได้ — Life ไม่พอ: ต้องจ่าย Life ${c.life} แต่มี Life ${p.life} (หลังจ่ายต้องเหลืออย่างน้อย 1)` };
+  if (c.gauge > 0) mPayGauge(g, side, c.gauge);
+  if (c.life > 0) p.life -= c.life;
+
+  if (p.item) {
+    p.dropZone.push(p.item.cardId, ...p.item.soul);
+    log(g, `${getCard(p.item.cardId)?.name ?? "ไอเทมเดิม"} ถูกแทนที่และลงสุสาน`);
+  }
+  const item = newFieldCard(cardId, 0);
+  if (src.zone === "hand") {
+    p.hand.splice(src.index, 1);
+  } else if (old) {
+    p.monsters = p.monsters.filter(m => m.uid !== old!.uid);
+    item.soul = old.soul;
+    item.state = old.state;
+    item.attacks = old.attacks;
+  }
+  p.item = item;
+  log(g, `🔄 ${nameOf(side)} Transform ${card.name} → กลายเป็นไอเทม! (จ่าย ${[c.gauge > 0 ? `เกจ ${c.gauge}` : "", c.life > 0 ? `Life ${c.life}` : ""].filter(Boolean).join(" + ") || "0"})`);
+  fx(g, { k: "cast", side, cardId, label: "TRANSFORM!" });
+  recalcAuras(g);
+  // เอฟเฟกต์ "เมื่อ Transform เสร็จ" ทำงานหลังกลายเป็นไอเทมแล้ว (เอฟเฟกต์ที่กระทำกับตัวเองจะกระทำกับไอเทมนี้)
+  applyEffects(g, side, card, "onTransform", { fc: item });
+  fireSet(g, side, "onTransform", { fc: item });
+  recalcAuras(g);
+  return { state: g, ok: true, msg: `Transform ${card.name}` };
 }
 
 // Move: ตอนเริ่ม Attack Phase ของผู้เล่นแต่ละฝ่าย (ก่อนมีการโจมตี) ย้ายมอนสเตอร์ที่มี [Move] ไป "ช่องที่ว่าง" ได้ 1 ครั้งต่อเทิร์น

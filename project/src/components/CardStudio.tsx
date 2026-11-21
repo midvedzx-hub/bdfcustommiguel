@@ -2,7 +2,7 @@ import { useState, useRef, useLayoutEffect, useEffect } from "react";
 import { Plus, Save, Trash2, Download, Upload, Edit3, Copy, Zap, Search, Layers, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, GripVertical } from "lucide-react";
 import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Card, Flag, CardType, AutoTrigger, AutoEffectType, AutoEffect, AutoSkill } from "@/types";
-import { TRIGGER_LABELS, EFFECT_LABELS, DROP_FILTERS, callCostLabel } from "@/types";
+import { TRIGGER_LABELS, EFFECT_LABELS, DROP_FILTERS, callCostLabel, transformCostLabel } from "@/types";
 import type { CardFilter } from "@/types";
 import { getCards, saveCards, getFlags, saveFlags, getDecks, saveDecks, uid, downloadJSON, parseImport, applyImport, exportCards } from "@/storage";
 import type { ParsedImport } from "@/storage";
@@ -359,6 +359,38 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                     <label className="text-sm text-slate-400">Critical</label>
                     <input type="number" value={editing.critical} onChange={e => setEditing({ ...editing, critical: parseInt(e.target.value) || 0 })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 mt-1 focus:border-cyan-500 outline-none" />
                   </div>
+                </div>
+              )}
+
+              {editing.type === "Monster" && (
+                <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-3">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-100 cursor-pointer">
+                    <input type="checkbox" checked={typeof editing.transformCost === "number"}
+                      onChange={e => setEditing(e.target.checked
+                        ? { ...editing, transformCost: 1, transformCostType: editing.transformCostType ?? "Gauge" }
+                        : { ...editing, transformCost: undefined, transformCostType: undefined, transformCostExtra: undefined })} />
+                    Transform ได้ (จ่ายแล้วกลายเป็นไอเทม · ใช้ได้จากมือหรือบนสนาม)
+                  </label>
+                  {typeof editing.transformCost === "number" && (
+                    <div className="grid grid-cols-3 gap-3 mt-3">
+                      <div>
+                        <label className="text-xs text-slate-400">Transform Cost</label>
+                        <input type="number" min={0} max={9} value={editing.transformCost} onChange={e => setEditing({ ...editing, transformCost: Math.max(0, Math.min(9, parseInt(e.target.value) || 0)) })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 mt-1 focus:border-cyan-500 outline-none" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400">จ่ายด้วย</label>
+                        <select value={editing.transformCostType ?? "Gauge"} onChange={e => setEditing({ ...editing, transformCostType: e.target.value as "Gauge" | "Life" })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 mt-1 focus:border-cyan-500 outline-none">
+                          <option value="Gauge">Gauge</option>
+                          <option value="Life">Life</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400">จ่ายเพิ่มด้วย {(editing.transformCostType ?? "Gauge") === "Life" ? "Gauge" : "Life"}</label>
+                        <input type="number" min={0} max={9} value={editing.transformCostExtra ?? 0} onChange={e => setEditing({ ...editing, transformCostExtra: Math.max(0, Math.min(9, parseInt(e.target.value) || 0)) })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 mt-1 focus:border-cyan-500 outline-none" />
+                      </div>
+                      <div className="col-span-3 text-[11px] text-sky-300">ตอนนี้ Transform จ่าย: {transformCostLabel(editing)}</div>
+                    </div>
+                  )}
                 </div>
               )}
 
