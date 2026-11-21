@@ -183,6 +183,22 @@ export function hasKeyword(card: Card, type: AutoEffectType): boolean {
   );
 }
 
+// ไม่สามารถถูกทำลายได้: ใช้ได้ตราบที่ความสามารถไม่ถูก Nullify
+function isIndestructible(fc: FieldCard, card?: Card): boolean {
+  return !!card && !fc.nullified && hasKeyword(card, "indestructible");
+}
+// ไม่สามารถถูกยกเลิกความสามารถได้: Nullify ไม่มีผล
+function isNullifyProof(card?: Card): boolean {
+  return !!card && hasKeyword(card, "unnullifiable");
+}
+function nullifyMonster(g: GameState, m: FieldCard, srcName: string) {
+  const c = cardOfFc(m);
+  const nm = c?.name ?? "มอนสเตอร์";
+  if (isNullifyProof(c)) { log(g, `${srcName} Nullify ${nm} ไม่ได้ — ความสามารถของ ${nm} ไม่สามารถถูกยกเลิกได้`); return; }
+  m.nullified = true;
+  log(g, `${srcName} Nullify! ความสามารถของ ${nm} ถูกยกเลิกจนจบเทิร์น`);
+}
+
 export function maxAttacks(card: Card): number {
   let n = 1;
   card.autoSkills?.forEach(s => {
@@ -257,6 +273,7 @@ function mDestroyMonster(g: GameState, side: Side, monsterUid: string): boolean 
   const m = p.monsters.find(x => x.uid === monsterUid);
   if (!m) return false;
   const card = cardOfFc(m);
+  if (isIndestructible(m, card)) { log(g, `${card!.name} ไม่สามารถถูกทำลายได้ — รอด!`); return false; }
   if (trySoulguard(g, side, m, card, "การถูกทำลาย")) return false;
 
   fx(g, { k: "destroy", side, uid: m.uid, cardId: m.cardId, pos: m.position });
@@ -320,7 +337,7 @@ function applyTargetEffect(g: GameState, side: Side, card: Card, type: AutoEffec
     switch (type) {
       case "destroyOpponentMonster": mDestroyMonster(g, opp, uid); break;
       case "restOpponent": m.state = "rest"; log(g, `${card.name} Rest ${nm}`); break;
-      case "nullifyOpponentMonster": m.nullified = true; log(g, `${card.name} Nullify! ความสามารถของ ${nm} ถูกยกเลิกจนจบเทิร์น`); break;
+      case "nullifyOpponentMonster": nullifyMonster(g, m, card.name); break;
       case "bounceOpponentMonster": mLeaveField(g, opp, uid, "hand"); break;
       case "opponentMonsterToDrop": mLeaveField(g, opp, uid, "drop"); break;
       case "opponentMonsterToDeck": mLeaveField(g, opp, uid, "deck"); break;
@@ -538,7 +555,7 @@ function runSkills(
           [...g[opp].monsters]
             .sort((a, b) => order.indexOf(a.position) - order.indexOf(b.position))
             .slice(0, n)
-            .forEach(m => { m.nullified = true; log(g, `${card.name} Nullify! ความสามารถของ ${cardOfFc(m)?.name ?? "มอนสเตอร์"} ถูกยกเลิกจนจบเทิร์น`); });
+            .forEach(m => nullifyMonster(g, m, card.name));
           break;
         }
         case "removeSoul": {
@@ -2084,8 +2101,8 @@ function resolveBattle(g: GameState) {
 
     // ผู้โจมตีทำดาเมจใส่เป้าหมาย: Power ≥ Defense ของเป้า -> เป้าถูกทำลาย
     let targetDestroyed = false;
-    if (tgtCard && !tgt.nullified && hasKeyword(tgtCard, "indestructibleBattle")) {
-      log(g, `${tgtName} ไม่ถูกทำลายจากการต่อสู้`);
+    if (tgtCard && !tgt.nullified && (hasKeyword(tgtCard, "indestructibleBattle") || hasKeyword(tgtCard, "indestructible"))) {
+      log(g, `${tgtName} ${hasKeyword(tgtCard, "indestructible") ? "ไม่สามารถถูกทำลายได้" : "ไม่ถูกทำลายจากการต่อสู้"}`);
     } else if (total.power >= tgtStats.defense) {
       log(g, `Power ${total.power} ≥ Def ${tgtStats.defense} → ทำลาย ${tgtName}${linkNote}`);
       targetDestroyed = mDestroyMonster(g, oppSide, tgt.uid);
@@ -2096,7 +2113,7 @@ function resolveBattle(g: GameState) {
     // Counterattack: ถ้าเป้าหมายที่ถูกโจมตียังอยู่บนสนามหลังการโจมตี เลือกผู้โจมตี 1 ตัวที่ Defense ≤ Power ของเป้า แล้วทำลาย
     if (tgtCard && !tgt.nullified && hasKeyword(tgtCard, "counterattack") && !g.winner && foe.monsters.some(m => m.uid === tgt.uid)) {
       const victims = parts
-        .filter(({ fc, card, isItem }) => !isItem && me.monsters.some(m => m.uid === fc.uid) && !(!fc.nullified && hasKeyword(card, "indestructibleBattle")) && statsOf(fc).defense <= tgtStats.power)
+        .filter(({ fc, card, isItem }) => !isItem && me.monsters.some(m => m.uid === fc.uid) && !(!fc.nullified && (hasKeyword(card, "indestructibleBattle") || hasKeyword(card, "indestructible"))) && statsOf(fc).defense <= tgtStats.power)
         .sort((x, y) => statsOf(y.fc).critical - statsOf(x.fc).critical);
       if (victims.length > 0) {
         const v = victims[0];

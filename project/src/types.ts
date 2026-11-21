@@ -40,6 +40,8 @@ export type AutoEffectType =
   | "lifelink"                // เมื่อการ์ดนี้ตาย (ถูกทำลาย) เจ้าของโดนดาเมจเท่าค่านี้
   | "ignoreCenter"            // ตีผู้เล่นได้แม้ศัตรูมีมอนสเตอร์กลาง
   | "indestructibleBattle"    // ไม่ถูกทำลายจากการต่อสู้
+  | "indestructible"          // ไม่สามารถถูกทำลายได้ (ทุกทาง: ต่อสู้ / เอฟเฟกต์ / Counter) — ถูก Nullify แล้วจะไม่มีผล
+  | "unnullifiable"           // ไม่สามารถถูกยกเลิกความสามารถ (Nullify) ได้
   | "negateAttack"            // (Counter) ยกเลิกการโจมตีนั้น
   | "destroyAttacker"         // (Counter) ทำลายผู้โจมตี
   | "restAttacker"            // (Counter) Rest ผู้โจมตี
@@ -105,6 +107,8 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "lifelink", label: "Lifelink (ตายแล้วเจ้าของโดนดาเมจ)", hint: "ดาเมจที่เจ้าของโดนตอนการ์ดนี้ตาย" },
   { value: "ignoreCenter", label: "ตีผู้เล่นได้แม้มีมอนกลาง", hint: "ใส่ 1" },
   { value: "indestructibleBattle", label: "ไม่ถูกทำลายจากการต่อสู้", hint: "ใส่ 1" },
+  { value: "indestructible", label: "ไม่สามารถถูกทำลายได้ (ทุกทาง)", hint: "ใส่ 1" },
+  { value: "unnullifiable", label: "ไม่สามารถถูกยกเลิกความสามารถได้", hint: "ใส่ 1" },
   { value: "negateAttack", label: "[Counter] ยกเลิกการโจมตี", hint: "ใส่ 1" },
   { value: "destroyAttacker", label: "[Counter] ทำลายผู้โจมตี", hint: "ใส่ 1" },
   { value: "restAttacker", label: "[Counter] Rest ผู้โจมตี", hint: "ใส่ 1" },
@@ -175,6 +179,8 @@ export const SOUL_GRANT_KEYWORDS: { value: AutoEffectType; label: string }[] = [
   { value: "soulguard", label: "Soulguard" },
   { value: "ignoreCenter", label: "ตีผู้เล่นได้แม้มีมอนกลาง" },
   { value: "indestructibleBattle", label: "ไม่ถูกทำลายจากการต่อสู้" },
+  { value: "indestructible", label: "ไม่สามารถถูกทำลายได้ (ทุกทาง)" },
+  { value: "unnullifiable", label: "ไม่สามารถถูกยกเลิกความสามารถได้" },
 ];
 
 // ค่าที่ condBuff เพิ่มให้ (รองรับข้อมูลแบบเก่าที่ใช้ stat + value)

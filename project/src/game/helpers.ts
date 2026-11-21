@@ -25,6 +25,8 @@ const KEYWORDS: Record<string, string> = {
   counterattack: "Counterattack",
   ignoreCenter: "Ignore Center",
   indestructibleBattle: "Battle Proof",
+  indestructible: "ไม่สามารถถูกทำลายได้",
+  unnullifiable: "ไม่สามารถถูกยกเลิกความสามารถได้",
 };
 
 const FILTER_TH: Record<string, string> = { Monster: "มอนสเตอร์", Spell: "เวท", Item: "ไอเทม", Impact: "Impact" };
@@ -171,6 +173,8 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
   { label: "Triple Attack", skill: { trigger: "continuous", effects: [{ type: "tripleAttack", value: 1 }] } },
   { label: "Move", skill: { trigger: "continuous", effects: [{ type: "move", value: 1 }] } },
   { label: "Counterattack", skill: { trigger: "continuous", effects: [{ type: "counterattack", value: 1 }] } },
+  { label: "ไม่สามารถถูกทำลายได้", skill: { trigger: "continuous", effects: [{ type: "indestructible", value: 1 }] } },
+  { label: "ไม่สามารถถูกยกเลิกความสามารถได้", skill: { trigger: "continuous", effects: [{ type: "unnullifiable", value: 1 }] } },
   { label: "Soulguard", skill: { trigger: "continuous", effects: [{ type: "soulguard", value: 1 }] } },
   { label: "Lifelink 1 (ตายแล้วโดนดาเมจ)", skill: { trigger: "continuous", effects: [{ type: "lifelink", value: 1 }] } },
   { label: "ต้นเทิร์น: สุสาน→Soul 1", skill: { trigger: "onTurnStart", effects: [{ type: "dropToSoul", value: 1 }] } },
@@ -212,6 +216,8 @@ export const KEYWORD_HELP: Record<string, string> = {
   ...Object.fromEntries(KEYWORD_DEFS.map(k => [k.id, k.help])),
   "Ignore Center": "ตีผู้เล่นได้แม้ศัตรูมีมอนสเตอร์ช่องกลาง",
   "Battle Proof": "ไม่ถูกทำลายจากการต่อสู้",
+  "ไม่สามารถถูกทำลายได้": "การ์ดใบนี้ไม่สามารถถูกทำลายได้ ไม่ว่าจากการต่อสู้หรือเอฟเฟกต์ (ถ้าถูก Nullify จะไม่มีผล — ยังถูกส่งออกจากสนามด้วยวิธีอื่น เช่น ดึงกลับมือ ได้)",
+  "ไม่สามารถถูกยกเลิกความสามารถได้": "ความสามารถของการ์ดใบนี้ไม่สามารถถูกยกเลิก (Nullify) ได้",
 };
 
 export const TRIGGER_HELP: Record<string, string> = {
