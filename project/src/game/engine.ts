@@ -1158,10 +1158,13 @@ export function recalcAuras(g: GameState) {
         const sc = getCard(id);
         if (!sc || seen.has(id)) return;
         const isGrant = (sk: AutoSkill) => sk.effects.some(e => e.type === "soulGrant");
-        const ok = (sc.autoSkills ?? []).some(sk => sk.trigger === "continuous" && sk.effects.some(e => {
+        // ใช้ได้กับสกิล soulGrant ทุกทริกเกอร์ (ถาวร / เมื่อลงสนาม ฯลฯ) · ชื่อ/คุณสมบัติของเจ้าของโซลตรงกับข้อความใดข้อความหนึ่ง (คั่นหลายค่าด้วย ,) หรือว่าง = ทุกใบ
+        const hostAttr = getCard(fc.cardId)?.attribute;
+        const ok = (sc.autoSkills ?? []).some(sk => sk.effects.some(e => {
           if (e.type !== "soulGrant") return false;
-          const tn = (e.targetName ?? "").trim().toLowerCase();
-          return !tn || textHas(hostName, tn);
+          const alts = splitAlts(e.targetName);
+          if (alts.length === 0) return true;
+          return alts.some(a => (e.targetMatch === "name" ? altHas(hostName, a) : e.targetMatch === "attr" ? altHas(hostAttr, a) : altHas(hostName, a) || altHas(hostAttr, a)));
         }));
         if (!ok) return;
         seen.add(id); // การ์ดชื่อ/ใบเดียวกันหลายใบใน Soul นับครั้งเดียว กันสกิลทำงานซ้ำ
@@ -1727,7 +1730,7 @@ function noteCardUse(g: GameState, side: Side, c: Card) {
 const maxUses = (sk: AutoSkill | undefined) => { const m = sk?.maxPerTurn; return m === undefined ? 1 : m <= 0 ? Infinity : Math.floor(m); };
 const actUses = (fc: FieldCard, turn: number, idx: number) => (fc.counterUsedTurn === turn ? (fc.counterUsedSkills ?? []).filter(i => i === idx).length : 0);
 // true = ใช้ครบจำนวนครั้งของเทิร์นนี้แล้ว (ใช้ไม่ได้อีก)
-const actUsed = (fc: FieldCard, turn: number, idx: number) => actUses(fc, turn, idx) >= maxUses(getCard(fc.cardId)?.autoSkills?.[idx]);
+const actUsed = (fc: FieldCard, turn: number, idx: number) => actUses(fc, turn, idx) >= maxUses(cardOfFc(fc)?.autoSkills?.[idx]);
 
 function skillNeedsSoul(card: Card, timing: CounterTiming | null, only?: number): number {
   let need = 0;

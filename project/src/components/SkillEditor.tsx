@@ -77,10 +77,10 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
       })()}
       {eff.type === "soulGrant" && (
         <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
-          <span>เมื่อการ์ดใบนี้อยู่ใน Soul ของการ์ดชื่อ</span>
-          <input value={eff.targetName ?? ""} onChange={e => onChange({ ...eff, targetName: e.target.value })} placeholder="เช่น Aelfa (ว่าง = ใบใดก็ได้)" className={`${num} !py-0.5 text-xs w-56`} />
+          <span>เมื่อการ์ดใบนี้อยู่ใน Soul ของการ์ดที่ชื่อหรือคุณสมบัติตรงกับ</span>
+          <input value={eff.targetName ?? ""} onChange={e => onChange({ ...eff, targetName: e.target.value })} placeholder="เช่น Magia Vendar, Aelfa (ว่าง = ใบใดก็ได้)" className={`${num} !py-0.5 text-xs w-64`} />
           <span>→ การ์ดนั้นได้รับความสามารถทั้งหมดของการ์ดใบนี้</span>
-          <p className="basis-full text-slate-500">ใช้กับสกิลแบบ “ถาวร” · ได้รับสกิลอัตโนมัติทุกอย่างของการ์ดใบนี้ (ยกเว้นสกิลให้ความสามารถนี้เอง) ตราบที่การ์ดใบนี้ยังอยู่ใน Soul · ชื่อพิมพ์บางส่วนได้ ไม่สนตัวพิมพ์เล็กใหญ่ · ค่าสถานะพื้นฐาน (Power/Defense/Critical/Size) ของการ์ดไม่ถูกส่งต่อ</p>
+          <p className="basis-full text-slate-500">ใช้ได้กับสกิลทุกทริกเกอร์ (ถาวร / เมื่อลงสนาม ฯลฯ) · ได้รับสกิลอัตโนมัติทุกอย่างของการ์ดใบนี้ (รวมคีย์เวิร์ด Counter Act ต้นเทิร์น ฯลฯ) (ยกเว้นสกิลให้ความสามารถนี้เอง) ตราบที่การ์ดใบนี้ยังอยู่ใน Soul · ใส่หลายค่าคั่นด้วย , ได้ (ตรงอย่างใดอย่างหนึ่ง · เทียบทั้งชื่อและคุณสมบัติของการ์ดเจ้าของโซล) พิมพ์บางส่วนได้ ไม่สนตัวพิมพ์เล็กใหญ่ · ค่าสถานะพื้นฐาน (Power/Defense/Critical/Size) ของการ์ดไม่ถูกส่งต่อ</p>
         </div>
       )}
       {eff.type === "soulCond" && (() => {

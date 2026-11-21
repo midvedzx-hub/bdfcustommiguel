@@ -71,7 +71,7 @@ export function effectText(e: AutoEffect): string {
     case "criticalPerSoul": return `Critical +${v} ต่อการ์ด 1 ใบใน Soul`;
     case "soulGrant": {
       const tn = (e.targetName ?? "").trim();
-      return `ถ้าการ์ดใบนี้อยู่ใน Soul ของการ์ด${tn ? `ชื่อ “${tn}”` : "ใบใดก็ได้"} การ์ดนั้นจะได้รับความสามารถทั้งหมดของการ์ดใบนี้`;
+      return `ถ้าการ์ดใบนี้อยู่ใน Soul ของการ์ด${tn ? `ที่ชื่อหรือคุณสมบัติ “${tn}”` : "ใบใดก็ได้"} การ์ดนั้นจะได้รับความสามารถทั้งหมดของการ์ดใบนี้`;
     }
     case "soulCond": {
       const x = Math.max(1, Math.floor(e.value) || 1);
