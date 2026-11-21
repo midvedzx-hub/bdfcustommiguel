@@ -1,6 +1,6 @@
 import type { Flag, Card, AutoSkill, AutoEffect } from "@/types";
 import { getCustomKeywords } from "@/storage";
-import { TRIGGER_LABELS, callCostLabel, canTransform, transformCostLabel, condBuffAmounts } from "@/types";
+import { TRIGGER_LABELS, callCostLabel, canTransform, transformCostLabel, condBuffAmounts, SOUL_GRANT_KEYWORDS } from "@/types";
 import { KEYWORD_DEFS } from "@/game/keywords";
 
 export function getFlagColor(flag?: Flag | null): string {
@@ -59,6 +59,14 @@ export function effectText(e: AutoEffect): string {
     case "soulGrant": {
       const tn = (e.targetName ?? "").trim();
       return `ถ้าการ์ดใบนี้อยู่ใน Soul ของการ์ด${tn ? `ชื่อ “${tn}”` : "ใบใดก็ได้"} การ์ดนั้นจะได้รับความสามารถทั้งหมดของการ์ดใบนี้`;
+    }
+    case "soulCond": {
+      const x = Math.max(1, Math.floor(e.value) || 1);
+      const txt = (e.condText ?? "").trim();
+      const kind = e.condMatch === "name" ? "ชื่อ" : "คุณสมบัติ";
+      const kws = (e.grantKw ?? []).map(t => SOUL_GRANT_KEYWORDS.find(k => k.value === t)?.label ?? String(t));
+      const gain = [e.bPower ? `Power +${e.bPower}` : "", e.bCritical ? `Critical +${e.bCritical}` : "", e.bDefense ? `Defense +${e.bDefense}` : "", ...kws].filter(Boolean).join(" และ ") || "บัฟ";
+      return `ถ้าใน Soul ของการ์ดนี้มีการ์ด${txt ? `ที่มี${kind} “${txt}” ` : ""}${x} ใบขึ้นไป การ์ดนี้ได้รับ ${gain}`;
     }
     case "condBuff": {
       const amt = condBuffAmounts(e);
@@ -162,6 +170,7 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
   { label: "ลงสนาม: สุสาน→Soul 2", skill: { trigger: "onCall", effects: [{ type: "dropToSoul", value: 2 }] } },
   { label: "ร่าย: สุสาน→Soul ของ Soulguard 2", skill: { trigger: "onCast", effects: [{ type: "dropToSoul", value: 2 }] } },
   { label: "ร่าย: ดึงมอนสเตอร์ศัตรูกลับมือ", skill: { trigger: "onCast", effects: [{ type: "bounceOpponentMonster", value: 1 }] } },
+  { label: "Soul 2 ใบขึ้นไป → Critical +1 และ Penetrate", skill: { trigger: "continuous", effects: [{ type: "soulCond", value: 2, bCritical: 1, grantKw: ["penetrate"] }] } },
   { label: "Power +1000 ต่อ Soul", skill: { trigger: "continuous", effects: [{ type: "powerPerSoul", value: 1000 }] } },
   { label: "ลงสนาม: จั่ว 1", skill: { trigger: "onCall", effects: [{ type: "draw", value: 1 }] } },
   { label: "ลงสนาม: Charge 1", skill: { trigger: "onCall", effects: [{ type: "addGauge", value: 1 }] } },

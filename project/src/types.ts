@@ -61,6 +61,7 @@ export type AutoEffectType =
   | "powerPerSoul"            // Power +N ต่อการ์ด 1 ใบในโซล (ถาวร)
   | "criticalPerSoul"         // Critical +N ต่อการ์ด 1 ใบในโซล (ถาวร)
   | "soulGrant"               // ถาวร: ถ้าการ์ดนี้อยู่ใน Soul ของการ์ด (ชื่อ ...) การ์ดนั้นจะได้รับความสามารถทั้งหมดของการ์ดนี้
+  | "soulCond"                // ถาวร: ถ้าโซลของการ์ดนี้มีการ์ด (คุณสมบัติ/ชื่อที่กำหนด) อย่างน้อย X ใบ → การ์ดนี้ได้ Power/Critical/Defense เพิ่ม และ/หรือได้คีย์เวิร์ด (Penetrate / Double Attack ...)
   | "condBuff";                // ถาวร: ถ้าในสนามมีการ์ดที่มีคุณสมบัติ/ชื่อที่กำหนด → การ์ดนี้ (หรือการ์ดที่ชื่อ ...) ได้ Power/Critical/Defense เพิ่ม
 
 export const TRIGGER_LABELS: { value: AutoTrigger; label: string }[] = [
@@ -125,6 +126,7 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "powerPerSoul", label: "Power เพิ่มต่อ Soul 1 ใบ (ถาวร)", hint: "เช่น 1000" },
   { value: "criticalPerSoul", label: "Critical เพิ่มต่อ Soul 1 ใบ (ถาวร)", hint: "เช่น 1" },
   { value: "soulGrant", label: "อยู่ใน Soul → ให้ความสามารถทั้งหมดแก่เจ้าของโซล", hint: "ไม่ต้องใส่ค่า" },
+  { value: "soulCond", label: "บัฟ/คีย์เวิร์ดตามโซล (ถ้าโซลมีการ์ด X ใบ…)", hint: "จำนวนการ์ดในโซลขั้นต่ำ (X)" },
   { value: "condBuff", label: "บัฟถาวรแบบมีเงื่อนไข (ถ้าบนสนามมีการ์ด…)", hint: "ค่าที่เพิ่ม เช่น 1 หรือ 5000" },
 ];
 
@@ -157,7 +159,20 @@ export interface AutoEffect {
   condText?: string;                       // ข้อความที่ต้องมี (ไม่สนตัวพิมพ์) ว่าง = ไม่มีเงื่อนไข ได้บัฟเสมอ
   condWhere?: "own" | "opponent" | "any";  // ตรวจสนามฝั่งไหน (ค่าเริ่มต้น own = ของเรา)
   targetName?: string;                     // ผู้ได้รับบัฟ: ชื่อการ์ดของเรา ว่าง = การ์ดใบนี้
+  grantKw?: AutoEffectType[];              // soulCond: คีย์เวิร์ดที่ได้รับเมื่อเงื่อนไขโซลครบ (เช่น penetrate, doubleAttack)
 }
+
+// คีย์เวิร์ดที่ soulCond ให้ได้ (ค่า 1 ทั้งหมด)
+export const SOUL_GRANT_KEYWORDS: { value: AutoEffectType; label: string }[] = [
+  { value: "penetrate", label: "Penetrate" },
+  { value: "doubleAttack", label: "Double Attack" },
+  { value: "tripleAttack", label: "Triple Attack" },
+  { value: "quadrupleAttack", label: "Quadruple Attack" },
+  { value: "hextupleAttack", label: "Hextuple Attack" },
+  { value: "soulguard", label: "Soulguard" },
+  { value: "ignoreCenter", label: "ตีผู้เล่นได้แม้มีมอนกลาง" },
+  { value: "indestructibleBattle", label: "ไม่ถูกทำลายจากการต่อสู้" },
+];
 
 // ค่าที่ condBuff เพิ่มให้ (รองรับข้อมูลแบบเก่าที่ใช้ stat + value)
 export function condBuffAmounts(e: AutoEffect): { power: number; critical: number; defense: number; size: number } {

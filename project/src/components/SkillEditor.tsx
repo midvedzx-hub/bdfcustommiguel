@@ -1,6 +1,6 @@
 import { Trash2 } from "lucide-react";
 import type { AutoEffect, AutoEffectType, AutoSkill, CardFilter, CounterCost, CounterTiming } from "@/types";
-import { EFFECT_LABELS, DROP_FILTERS, condBuffAmounts } from "@/types";
+import { EFFECT_LABELS, DROP_FILTERS, SOUL_GRANT_KEYWORDS, condBuffAmounts } from "@/types";
 import { KEYWORD_DEFS } from "@/game/keywords";
 
 const sel = "bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm";
@@ -24,7 +24,7 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
           {DROP_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
       )}
-      {eff.type !== "condBuff" && eff.type !== "soulGrant" && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
+      {eff.type !== "condBuff" && eff.type !== "soulGrant" && eff.type !== "soulCond" && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
       <button onClick={onRemove} className="p-1 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={12} /></button>
       {eff.type === "soulGrant" && (
         <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
@@ -34,6 +34,39 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
           <p className="basis-full text-slate-500">ใช้กับสกิลแบบ “ถาวร” · ได้รับสกิลอัตโนมัติทุกอย่างของการ์ดใบนี้ (ยกเว้นสกิลให้ความสามารถนี้เอง) ตราบที่การ์ดใบนี้ยังอยู่ใน Soul · ชื่อพิมพ์บางส่วนได้ ไม่สนตัวพิมพ์เล็กใหญ่ · ค่าสถานะพื้นฐาน (Power/Defense/Critical/Size) ของการ์ดไม่ถูกส่งต่อ</p>
         </div>
       )}
+      {eff.type === "soulCond" && (() => {
+        const kws = eff.grantKw ?? [];
+        const toggleKw = (t: AutoEffectType) => onChange({ ...eff, grantKw: kws.includes(t) ? kws.filter(x => x !== t) : [...kws, t] });
+        const amtIn = (label: string, k: "bPower" | "bCritical" | "bDefense", w: string) => (
+          <label className="flex items-center gap-1">{label} +
+            <input type="number" min={0} value={eff[k] ?? 0} onChange={e => onChange({ ...eff, [k]: Math.max(0, parseInt(e.target.value) || 0) })} className={`${num} !py-0.5 text-xs ${w}`} />
+          </label>
+        );
+        return (
+          <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
+            <span>ถ้าใน Soul ของการ์ดนี้มีการ์ด</span>
+            <select value={eff.condMatch ?? "attr"} onChange={e => onChange({ ...eff, condMatch: e.target.value as "attr" | "name" })} className={`${sel} !py-0.5 text-xs`}>
+              <option value="attr">ที่มีคุณสมบัติ</option>
+              <option value="name">ที่ชื่อ</option>
+            </select>
+            <input value={eff.condText ?? ""} onChange={e => onChange({ ...eff, condText: e.target.value })} placeholder="เช่น เจ้าสาว, Aelfa (ว่าง = ใบใดก็ได้)" className={`${num} !py-0.5 text-xs w-56`} />
+            <label className="flex items-center gap-1">อย่างน้อย
+              <input type="number" min={1} max={20} value={eff.value} onChange={e => onChange({ ...eff, value: Math.max(1, parseInt(e.target.value) || 1) })} className={`${num} !py-0.5 text-xs w-14`} /> ใบ
+            </label>
+            <span className="basis-full" />
+            <span>การ์ดนี้ได้รับ:</span>
+            {amtIn("Power", "bPower", "w-20")}
+            {amtIn("Critical", "bCritical", "w-14")}
+            {amtIn("Defense", "bDefense", "w-20")}
+            <span className="basis-full" />
+            <span>และคีย์เวิร์ด:</span>
+            {SOUL_GRANT_KEYWORDS.map(k => (
+              <button key={k.value} type="button" onClick={() => toggleKw(k.value)} className={`px-2 py-0.5 rounded-full border text-xs ${kws.includes(k.value) ? "bg-cyan-700 border-cyan-400 text-white" : "bg-slate-800 border-slate-600 text-slate-300 hover:border-cyan-500"}`}>{kws.includes(k.value) ? "✔ " : ""}{k.label}</button>
+            ))}
+            <p className="basis-full text-slate-500">ใช้กับสกิลแบบ “ถาวร” · มีผลตราบที่จำนวนการ์ดใน Soul ยังครบ (หายเมื่อ Soul ลดลง) · คุณสมบัติ = ช่อง attribute ของการ์ด · ใส่หลายค่าคั่นด้วย , ได้ (ตรงอย่างใดอย่างหนึ่ง) · พิมพ์บางส่วนได้ ไม่สนตัวพิมพ์เล็กใหญ่</p>
+          </div>
+        );
+      })()}
       {eff.type === "condBuff" && (() => {
         const amt = condBuffAmounts(eff);
         const setAmt = (k: "bPower" | "bCritical" | "bDefense" | "bSize", v: number) => onChange({ ...eff, bPower: amt.power, bCritical: amt.critical, bDefense: amt.defense, bSize: amt.size, [k]: v });
