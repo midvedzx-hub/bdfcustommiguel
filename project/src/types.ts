@@ -224,6 +224,7 @@ export interface AutoSkill {
   help?: string;          // คำอธิบายเพิ่มเติมของคีย์เวิร์ดกำหนดเอง (แสดงบนการ์ด)
   timing?: CounterTiming; // ใช้กับ Counter / Counter Act (ค่าเริ่มต้น = ตอนศัตรูโจมตี)
   cost?: CounterCost;     // ใช้กับ Counter / Counter Act: ต้องจ่ายเกจ / Life เพิ่มเพื่อใช้
+  maxPerTurn?: number;    // Counter 【Act】: ใช้ได้กี่ครั้งต่อเทิร์น (ไม่ระบุ = 1, 0 = ไม่จำกัด)
   nullifyProof?: boolean; // สกิลนี้ไม่สามารถถูกยกเลิก (Nullify) ได้ — แม้การ์ดถูก Nullify สกิลนี้ยังทำงาน
 }
 
@@ -248,6 +249,7 @@ export interface Card {
   flavorText?: string; // Flavor Text: คำพูด/เรื่องราวของการ์ด (แสดงเป็นตัวเอียงท้ายกล่องข้อความ ไม่มีผลต่อเกม)
   autoSkills: AutoSkill[];
   attribute?: string; // เช่น "Dragon / Warrior" แสดงใต้ชื่อการ์ด
+  limitPerTurn?: number; // ใช้การ์ดชื่อนี้ได้กี่ครั้งต่อเทิร์น (ร่ายเวท / ใช้ Counter; นับรวมทุกใบชื่อเดียวกัน; ไม่ระบุหรือ 0 = ไม่จำกัด)
   callRequires?: string[]; // ต้องมีการ์ดชื่อเหล่านี้บนสนามของเราก่อนจึงลงการ์ดนี้ได้ และเมื่อลงแล้วการ์ดเหล่านั้นทั้งหมดจะเข้า Soul ของการ์ดนี้
   buddyPartners?: string[]; // ชื่อการ์ดที่อยู่ในช่องบัดดี้ร่วมกับการ์ดนี้ได้ (เช่น บัดดี้ 2-4 ตัว) — ถ้าการ์ดนี้เป็น Buddy ของเด็ค ตัวเหล่านี้ใส่ช่องบัดดี้ร่วมกันได้
   callSoulFromDeck?: number; // Call Cost: นำการ์ดบนเด็ค N ใบเข้าโซลตอนลงสนาม
@@ -390,6 +392,9 @@ export interface PlayerState {
   dropZone: string[];
   setZone: string[];
   setSoul?: string[][]; // Soul ใต้การ์ด Set แต่ละใบ (index ตรงกับ setZone) — ลงสุสานเมื่อการ์ด Set ออกจากช่อง
+  cardUses?: Record<string, number>; // จำนวนครั้งที่ใช้การ์ดแต่ละชื่อ (ตาม limitPerTurn) ในเทิร์น cardUsesTurn
+  cardUsesTurn?: number;
+  setActUses?: Record<string, number>; // จำนวนครั้งที่ใช้ Counter 【Act】 ของการ์ด Set ในเทิร์นที่ระบุใน setActUsed
   setActUsed?: Record<string, number>; // ใช้ Counter 【Act】 ของการ์ด Set ไปแล้วในเทิร์นไหน (key = ชื่อไอดี#ลำดับ) // การ์ดที่ Set ไว้ (คว่ำ) ใช้เป็น Counter Act ได้
   monsters: FieldCard[];
   item: FieldCard | null;

@@ -204,6 +204,15 @@ export function CounterOptions({ skill, onChange }: { skill: AutoSkill; onChange
           {(Object.keys(TIMING_LABEL) as CounterTiming[]).map(t => <option key={t} value={t}>{TIMING_LABEL[t]}</option>)}
         </select>
       </div>
+      {act && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span>ใช้ได้กี่ครั้งต่อเทิร์น:</span>
+          <input type="number" min={0} max={9} value={skill.maxPerTurn ?? 1}
+            onChange={e => { const v = Math.max(0, Math.min(9, parseInt(e.target.value) || 0)); onChange({ ...skill, maxPerTurn: v === 1 ? undefined : v }); }}
+            className={`${num} w-14 !py-0.5 text-xs`} />
+          <span className="text-slate-500">(1 = ค่าเริ่มต้น · 0 = ไม่จำกัด · จ่ายค่าใช้จ่ายใหม่ทุกครั้งที่ใช้)</span>
+        </div>
+      )}
       <div className="flex items-center gap-2 flex-wrap">
         <span>ค่าใช้จ่ายเพื่อใช้:</span>
         {([["gauge", "จ่ายเกจ"], ["life", "เสียพลังชีวิต"], ["deckToDrop", "ทิ้งการ์ดบนเด็คลงสุสาน"], ["handToDrop", "ทิ้งการ์ดบนมือ"]] as const).map(([k, label]) => (
@@ -221,7 +230,7 @@ export function CounterOptions({ skill, onChange }: { skill: AutoSkill; onChange
         <span className="text-slate-500">(0 = ไม่มี · ถ้าจ่ายไม่ไหวจะใช้ไม่ได้ · Life ต้องเหลืออย่างน้อย 1 · ทิ้งการ์ดบนมือ: ผู้เล่นเลือกใบที่ทิ้งตอนกดใช้)</span>
       </div>
       <p>{act
-        ? "Counter 【Act】: ความสามารถของการ์ด \"บนสนาม\" กดใช้ได้ 1 ครั้งต่อเทิร์น (การ์ดยังอยู่บนสนาม) จ่ายตามที่เขียน เช่น เอฟเฟกต์แรกเป็น \"ถอด Soul\" ถ้าจ่ายไม่ได้ก็ใช้ไม่ได้"
+        ? "Counter 【Act】: ความสามารถของการ์ด \"บนสนาม\" กดใช้ได้ตามจำนวนครั้งต่อเทิร์นที่ตั้งไว้ (ค่าเริ่มต้น 1 ครั้ง, การ์ดยังอยู่บนสนาม) จ่ายตามที่เขียน เช่น เอฟเฟกต์แรกเป็น \"ถอด Soul\" ถ้าจ่ายไม่ได้ก็ใช้ไม่ได้"
         : "【Counter】: ใช้จาก \"มือ\" หรือช่อง Set (ใช้แล้วการ์ดลงสุสาน) จ่าย Cost ตามปกติ ใช้ได้ในเทิร์นของศัตรูตอนเขาโจมตีหรือร่ายเวท ตามจังหวะที่เลือก ใช้ได้กับทุกประเภทการ์ด"}
         {" "}ตอนศัตรูโจมตีใช้เอฟเฟกต์อย่าง "ยกเลิกการโจมตี" ได้ ตอนร่ายเวทใช้ "ยกเลิกเวท" ได้</p>
     </div>

@@ -1365,6 +1365,7 @@ export function castSpell(state: GameState, side: Side, handIndex: number): Resu
   // เวท Counter ล้วน: ห้ามแค่ทิ้งลงสุสานเฉย ๆ — ใช้ผลทันทีถ้าทำได้ ไม่งั้นแจ้งและไม่เสียการ์ด
   if (card0 && isCounterOnly(card0)) {
     const opt: CounterOption = { zone: "hand", index: handIndex };
+    if (cardLimitReached(state, side, card0)) return { state, ok: false, msg: cardLimitMsg(card0) };
     if (freeCounterOptions(state, side).some(o => sameOption(o, opt))) return useCounterAnytime(state, side, opt);
     return {
       state, ok: false,
@@ -1386,8 +1387,10 @@ export function castSpell(state: GameState, side: Side, handIndex: number): Resu
     return { state: g, ok: true, msg: `Set ${card.name}` };
   }
 
+  if (cardLimitReached(g, side, card)) return { state, ok: false, msg: cardLimitMsg(card) };
   const costErr = payCost(g, side, card);
   if (costErr) return { state, ok: false, msg: `ร่าย ${card.name} ไม่ได้ — ${costErr}` };
+  noteCardUse(g, side, card);
 
   p.hand.splice(handIndex, 1);
   p.dropZone.push(cardId);
@@ -1682,7 +1685,23 @@ function actSkillIdxs(card: Card, timing: CounterTiming | null, anytime: boolean
   });
   return out;
 }
-const actUsed = (fc: FieldCard, turn: number, idx: number) => fc.counterUsedTurn === turn && (fc.counterUsedSkills ?? []).includes(idx);
+// ---- จำกัดการใช้การ์ดต่อเทิร์น (ตามชื่อการ์ด นับรวมทุกใบชื่อเดียวกัน): ร่ายเวท / ใช้ Counter จากมือหรือการ์ด Set ----
+const cardLimit = (c: Card) => (c.limitPerTurn && c.limitPerTurn > 0 ? Math.floor(c.limitPerTurn) : Infinity);
+const cardUsesNow = (g: GameState, side: Side, name: string) => (g[side].cardUsesTurn === g.turn ? (g[side].cardUses?.[name] ?? 0) : 0);
+const cardLimitReached = (g: GameState, side: Side, c: Card) => cardUsesNow(g, side, c.name) >= cardLimit(c);
+const cardLimitMsg = (c: Card) => `${c.name} ใช้ได้ ${cardLimit(c)} ครั้งต่อเทิร์น (ใช้ครบแล้วในเทิร์นนี้)`;
+function noteCardUse(g: GameState, side: Side, c: Card) {
+  if (!Number.isFinite(cardLimit(c))) return;
+  const p = g[side];
+  if (p.cardUsesTurn !== g.turn) { p.cardUses = {}; p.cardUsesTurn = g.turn; }
+  p.cardUses![c.name] = (p.cardUses![c.name] ?? 0) + 1;
+}
+
+// จำนวนครั้งต่อเทิร์นที่ใช้ Counter Act ได้ (ค่าเริ่มต้น 1, 0 = ไม่จำกัด)
+const maxUses = (sk: AutoSkill | undefined) => { const m = sk?.maxPerTurn; return m === undefined ? 1 : m <= 0 ? Infinity : Math.floor(m); };
+const actUses = (fc: FieldCard, turn: number, idx: number) => (fc.counterUsedTurn === turn ? (fc.counterUsedSkills ?? []).filter(i => i === idx).length : 0);
+// true = ใช้ครบจำนวนครั้งของเทิร์นนี้แล้ว (ใช้ไม่ได้อีก)
+const actUsed = (fc: FieldCard, turn: number, idx: number) => actUses(fc, turn, idx) >= maxUses(getCard(fc.cardId)?.autoSkills?.[idx]);
 
 function skillNeedsSoul(card: Card, timing: CounterTiming | null, only?: number): number {
   let need = 0;
@@ -1770,7 +1789,10 @@ export function counterExtraCostLabel(card: Card, opt: CounterOption, timing: Co
 
 // ---- Counter 【Act】 ของการ์ด Set ในช่อง Set ----
 const setKey = (p: PlayerState, i: number) => `${p.setZone[i]}#${p.setZone.slice(0, i).filter(x => x === p.setZone[i]).length}`;
-const setActUsedThisTurn = (state: GameState, side: Side, i: number) => state[side].setActUsed?.[setKey(state[side], i)] === state.turn;
+const setActUsesOf = (state: GameState, side: Side, i: number) => { const p = state[side]; const k = setKey(p, i); return p.setActUsed?.[k] === state.turn ? (p.setActUses?.[k] ?? 1) : 0; };
+// การ์ด Set ที่มี Act หลายอัน: ใช้จำนวนครั้งสูงสุดที่ตั้งไว้ในสกิล Act ใบนั้น
+const setActMax = (c: Card) => Math.max(...(c.autoSkills ?? []).filter(sk => sk.trigger === "onCounterAct").map(maxUses), 1);
+const setActUsedThisTurn = (state: GameState, side: Side, i: number) => { const c = getCard(state[side].setZone[i]); return setActUsesOf(state, side, i) >= (c ? setActMax(c) : 1); };
 // ค่าใช้จ่ายแบบ Soul ของสกิล (ถอด Soul ฯลฯ) ต้องมีการ์ดของเราที่มี Soul พอ จึงใช้ได้
 function setActAffordable(p: PlayerState, c: Card, timing: CounterTiming | null): boolean {
   let need = 0;
@@ -1807,12 +1829,12 @@ export function counterOptions(state: GameState, side: Side): CounterOption[] {
   const out: CounterOption[] = [];
   p.hand.forEach((id, i) => {
     const c = getCard(id);
-    if (!c || counterSkills(c, "onCounter", timing).length === 0) return;
+    if (!c || counterSkills(c, "onCounter", timing).length === 0 || cardLimitReached(state, side, c)) return;
     if (canAffordExtra(p, c, "onCounter", timing, true)) out.push({ zone: "hand", index: i });
   });
   p.setZone.forEach((id, i) => {
     const c = getCard(id);
-    if (c && counterSkills(c, "onCounter", timing).length > 0 && canAffordExtra(p, c, "onCounter", timing, false)) out.push({ zone: "set", index: i });
+    if (c && counterSkills(c, "onCounter", timing).length > 0 && !cardLimitReached(state, side, c) && canAffordExtra(p, c, "onCounter", timing, false)) out.push({ zone: "set", index: i });
   });
   out.push(...setActOptions(state, side, timing, false));
   [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
@@ -1889,6 +1911,7 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
   if (opt.zone === "hand") {
     const cardId = p.hand[opt.index];
     const card = getCard(cardId)!;
+    if (cardLimitReached(g, side, card)) return cardLimitMsg(card);
     if (!canAffordExtra(p, card, "onCounter", timing, true)) return "ค่าใช้จ่ายของ Counter นี้ไม่พอ (เกจ / Life / การ์ดบนเด็ค / การ์ดบนมือ)";
     const dis = pickDiscard(p, extraCostOf(card, "onCounter", timing).hand, opt);
     if ("err" in dis) return dis.err;
@@ -1898,12 +1921,14 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
     p.hand.splice(opt.index, 1);
     p.dropZone.push(cardId);
     discardFromHand(g, side, dis.ids, card.name);
+    noteCardUse(g, side, card);
     log(g, `🛡 ${nameOf(side)} ใช้ Counter จากมือ: ${card.name}!`);
     fx(g, { k: "cast", side, cardId, label: "COUNTER!" });
     runSkills(g, side, card, counterSkills(card, "onCounter", timing), { fc: tgt });
   } else if (opt.zone === "set") {
     const cardId = p.setZone[opt.index];
     const card = getCard(cardId)!;
+    if (cardLimitReached(g, side, card)) return cardLimitMsg(card);
     if (!canAffordExtra(p, card, "onCounter", timing, false)) return "ค่าใช้จ่ายของ Counter นี้ไม่พอ (เกจ / Life / การ์ดบนเด็ค / การ์ดบนมือ)";
     const dis = pickDiscard(p, extraCostOf(card, "onCounter", timing).hand, opt);
     if ("err" in dis) return dis.err;
@@ -1911,6 +1936,7 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
     discardFromHand(g, side, dis.ids, card.name);
     popSet(p, opt.index);
     p.dropZone.push(cardId);
+    noteCardUse(g, side, card);
     log(g, `🛡 ${nameOf(side)} เปิดการ์ด Set: ${card.name}!`);
     fx(g, { k: "cast", side, cardId, label: "COUNTER!" });
     runSkills(g, side, card, counterSkills(card, "onCounter", timing), { fc: tgt });
@@ -1922,8 +1948,12 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
     if ("err" in dis) return dis.err;
     payExtra(g, side, card, "onCounterAct", timing);
     discardFromHand(g, side, dis.ids, card.name);
-    p.setActUsed = { ...(p.setActUsed ?? {}), [setKey(p, opt.index)]: g.turn };
-    log(g, `🛡 ${nameOf(side)} ใช้ Counter 【Act】 ของการ์ด Set: ${card.name} (การ์ดยังอยู่ในช่อง Set)`);
+    const sk0 = setKey(p, opt.index);
+    const usedNow = setActUsesOf(g, side, opt.index) + 1;
+    p.setActUsed = { ...(p.setActUsed ?? {}), [sk0]: g.turn };
+    p.setActUses = { ...(p.setActUses ?? {}), [sk0]: usedNow };
+    const maxN = setActMax(card);
+    log(g, `🛡 ${nameOf(side)} ใช้ Counter 【Act】 ของการ์ด Set: ${card.name} (การ์ดยังอยู่ในช่อง Set${maxN !== 1 ? ` · ครั้งที่ ${usedNow}/${Number.isFinite(maxN) ? maxN : "∞"} ของเทิร์นนี้` : ""})`);
     fx(g, { k: "cast", side, cardId, label: "COUNTER ACT!" });
     runSkills(g, side, card, counterSkills(card, "onCounterAct", timing), {});
   } else {
@@ -1932,7 +1962,7 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
     // เลือกสกิล Act ที่ระบุ (ถ้าไม่ระบุและมีหลายอัน ใช้อันแรกที่ใช้ได้)
     const only = opt.skill ?? actSkillIdxs(card, timing, timing === null).find(i => !actUsed(fc, g.turn, i));
     if (only === undefined || !counterSkills(card, "onCounterAct", timing, only).length) return "ไม่พบ Counter 【Act】 ที่เลือก";
-    if (actUsed(fc, g.turn, only)) return "Counter 【Act】 นี้ใช้ไปแล้วในเทิร์นนี้";
+    if (actUsed(fc, g.turn, only)) return "Counter 【Act】 นี้ใช้ครบจำนวนครั้งของเทิร์นนี้แล้ว";
     if (fc.soul.length < skillNeedsSoul(card, timing, only)) return "Soul ไม่พอสำหรับ Counter 【Act】 นี้";
     if (!canAffordExtra(p, card, "onCounterAct", timing, false, only)) return "ค่าใช้จ่ายของ Counter 【Act】 นี้ไม่พอ (เกจ / Life / การ์ดบนเด็ค / การ์ดบนมือ)";
     const dis = pickDiscard(p, extraCostOf(card, "onCounterAct", timing, only).hand, opt);
@@ -1944,7 +1974,9 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
     fc.counterUsedSkills = [...(fc.counterUsedSkills ?? []), only];
     const multi = (card.autoSkills ?? []).filter(sk => sk.trigger === "onCounterAct").length > 1;
     const sk = card.autoSkills?.[only];
-    log(g, `🛡 ${nameOf(side)} ใช้ Counter 【Act】${multi && sk?.name ? ` 「${sk.name}」` : ""} ของ ${card.name} บนสนาม!`);
+    const maxN = maxUses(sk);
+    const nth = actUses(fc, g.turn, only);
+    log(g, `🛡 ${nameOf(side)} ใช้ Counter 【Act】${multi && sk?.name ? ` 「${sk.name}」` : ""} ของ ${card.name} บนสนาม!${maxN !== 1 ? ` (ครั้งที่ ${nth}/${Number.isFinite(maxN) ? maxN : "∞"} ของเทิร์นนี้)` : ""}`);
     runSkills(g, side, card, counterSkills(card, "onCounterAct", timing, only), { fc });
   }
   recalcAuras(g);
@@ -1981,12 +2013,12 @@ export function freeCounterOptions(state: GameState, side: Side): CounterOption[
   const out: CounterOption[] = [];
   p.hand.forEach((id, i) => {
     const c = getCard(id);
-    if (!c || !usableAnytime(c, "onCounter")) return;
+    if (!c || !usableAnytime(c, "onCounter") || cardLimitReached(state, side, c)) return;
     if (canAffordExtra(p, c, "onCounter", null, true)) out.push({ zone: "hand", index: i });
   });
   p.setZone.forEach((id, i) => {
     const c = getCard(id);
-    if (c && usableAnytime(c, "onCounter") && canAffordExtra(p, c, "onCounter", null, false)) out.push({ zone: "set", index: i });
+    if (c && usableAnytime(c, "onCounter") && !cardLimitReached(state, side, c) && canAffordExtra(p, c, "onCounter", null, false)) out.push({ zone: "set", index: i });
   });
   out.push(...setActOptions(state, side, null, true));
   [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {

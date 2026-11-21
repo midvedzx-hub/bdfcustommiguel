@@ -374,6 +374,15 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                     className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 mt-1 focus:border-cyan-500 outline-none" />
                   <div className="text-[11px] text-sky-300 mt-1">ตอนนี้จ่าย: {callCostLabel(editing)}</div>
                 </div>
+                {(editing.type === "Spell" || editing.type === "Impact" || (editing.autoSkills ?? []).some(sk => sk.trigger === "onCounter")) && (
+                  <div className="col-span-2 sm:col-span-3">
+                    <label className="text-sm text-slate-400">ใช้การ์ดนี้ได้กี่ครั้งต่อเทิร์น (ร่ายเวท / ใช้ Counter · นับรวมทุกใบที่ชื่อเดียวกัน · 0 = ไม่จำกัด)</label>
+                    <input type="number" min={0} max={9} value={editing.limitPerTurn ?? 0}
+                      onChange={e => setEditing({ ...editing, limitPerTurn: Math.max(0, Math.min(9, parseInt(e.target.value) || 0)) || undefined })}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 mt-1 focus:border-cyan-500 outline-none" />
+                    <div className="text-[11px] text-slate-500 mt-1">เช่น ใส่ 1 = ในเทิร์นหนึ่งใช้การ์ดชื่อนี้ได้แค่ครั้งเดียว ต่อให้มีการ์ดชื่อเดียวกันหลายใบในมือ</div>
+                  </div>
+                )}
               </div>
 
               {editing.type === "Monster" && (

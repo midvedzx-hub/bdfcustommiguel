@@ -116,6 +116,7 @@ export function effectText(e: AutoEffect): string {
 // สร้างข้อความสกิลอัตโนมัติสำหรับแสดงบนการ์ด (คนสร้างการ์ดไม่ต้องพิมพ์เอง)
 export function skillLines(card: Card): string[] {
   const lines: string[] = [];
+  if (card.limitPerTurn && card.limitPerTurn > 0) lines.push(`ใช้ได้ ${Math.floor(card.limitPerTurn)} ครั้งต่อเทิร์น (นับรวมการ์ดชื่อเดียวกัน)`);
   const req = (card.callRequires ?? []).map(n => n.trim()).filter(Boolean);
   if (req.length > 0) lines.push(`【เงื่อนไขการลง】ต้องมี ${req.map(n => `“${n}”`).join(" และ ")} บนสนามก่อน เมื่อลงแล้วนำการ์ดเหล่านั้นเข้า Soul`);
   card.autoSkills?.forEach(sk => {
@@ -140,8 +141,10 @@ export function skillLines(card: Card): string[] {
       if ((sk.cost.handToDrop ?? 0) > 0) costParts.push(`ทิ้งการ์ดบนมือ ${sk.cost.handToDrop} ใบ`);
     }
     const costStr = costParts.length ? `[จ่าย ${costParts.join(" + ")}] ` : "";
+    const usesStr = sk.trigger === "onCounterAct" && sk.maxPerTurn !== undefined && sk.maxPerTurn !== 1
+      ? (sk.maxPerTurn <= 0 ? "[ใช้ได้ไม่จำกัดครั้งต่อเทิร์น] " : `[ใช้ได้ ${Math.floor(sk.maxPerTurn)} ครั้งต่อเทิร์น] `) : "";
     const proofStr = sk.nullifyProof ? " (ความสามารถนี้ไม่สามารถถูกยกเลิกได้)" : "";
-    const body = costStr + sk.effects.map(e => effectText(e) + (e.type === "condBuff" && sk.trigger !== "continuous" ? " จนจบเทิร์น" : "")).join("、");
+    const body = usesStr + costStr + sk.effects.map(e => effectText(e) + (e.type === "condBuff" && sk.trigger !== "continuous" ? " จนจบเทิร์น" : "")).join("、");
     const helpStr = (help ? ` — ${help}` : "") + proofStr;
     if (sk.name) lines.push(`【${sk.name}】${sk.trigger === "continuous" ? "" : `${trig}${timing}: `}${body}${helpStr}`);
     else lines.push(`【${trig}】${timing ? timing.trim() + " " : ""}${body}${helpStr}`);
@@ -243,7 +246,7 @@ export const TRIGGER_HELP: Record<string, string> = {
   onDestroyEnemy: "ทำงานเมื่อทำลายมอนสเตอร์ศัตรูได้",
   onDamage: "ทำงานเมื่อทำดาเมจใส่ผู้เล่นศัตรู",
   onCounter: "【Counter】: ใช้จากมือ (จ่ายค่าใช้จ่ายตามปกติ) หรือจากช่อง Set ในเทิร์นของศัตรู ตอนศัตรูโจมตีหรือร่ายเวท (ตามที่เลือกจังหวะ)",
-  onCounterAct: "Counter 【Act】: ความสามารถของการ์ดบนสนาม กดใช้ได้ 1 ครั้งต่อเทิร์น จ่ายตามที่เขียนในสกิล เช่น ถอด Soul",
+  onCounterAct: "Counter 【Act】: ความสามารถของการ์ดบนสนาม กดใช้ได้ตามจำนวนครั้งต่อเทิร์นที่ตั้งไว้ (ค่าเริ่มต้น 1 ครั้ง) จ่ายตามที่เขียนในสกิล เช่น ถอด Soul",
   onSoulRemoved: "ทำงานเมื่อ Soul ของการ์ดนี้ถูกถอด",
   onBuddyCall: "ทำงานเมื่อลงสนามด้วย Buddy Call",
   onTurnStart: "ทำงานต้นเทิร์นของเรา",
