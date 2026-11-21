@@ -507,6 +507,7 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
           <TransferDialog
             mode={transfer.mode}
             title={transfer.mode === "export" ? "Export การ์ด (เลือกได้)" : "Import การ์ด (เลือกได้)"}
+            note={transfer.mode === "export" ? "ไฟล์จะแนบ Flag ที่การ์ดเหล่านี้ใช้ไปด้วย" : "id ซ้ำจะทับของเดิมเฉพาะใบนั้น ใบอื่นที่มีอยู่ไม่ถูกลบ"}
             groups={[{ key: "cards", label: "การ์ด", items: (transfer.mode === "export" ? cards : transfer.parsed.cards).map(c => ({ id: c.id, name: c.name, sub: c.type })) }]}
             onConfirm={confirmTransfer}
             onClose={() => setTransfer(null)}

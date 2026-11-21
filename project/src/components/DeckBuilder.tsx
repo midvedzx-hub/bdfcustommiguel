@@ -266,6 +266,7 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
           <TransferDialog
             mode={transfer.mode}
             title={transfer.mode === "export" ? "Export เด็ค (เลือกได้)" : "Import เด็ค (เลือกได้)"}
+            note={transfer.mode === "export" ? "เด็คที่เลือกจะแนบการ์ดและ Flag ที่เด็คนั้นใช้ไปในไฟล์ด้วย" : "เด็คที่เลือกจะนำเข้าการ์ดและ Flag ของเด็คนั้นมาด้วย · id ซ้ำจะทับของเดิมเฉพาะใบนั้น"}
             groups={[{ key: "decks", label: "เด็ค", items: (transfer.mode === "export" ? decks : transfer.parsed.decks).map(d => ({ id: d.id, name: d.name, sub: `${d.cardIds.length} ใบ` })) }]}
             onConfirm={confirmTransfer}
             onClose={() => setTransfer(null)}

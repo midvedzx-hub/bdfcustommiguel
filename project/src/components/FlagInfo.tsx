@@ -15,7 +15,7 @@ export function FlagInfoDialog({ flag, buddies = [], onEdit, onClose }: {
   const effect = (flag.effect ?? "").trim();
   return createPortal(
     <div className="fixed inset-0 bg-black/75 z-[70] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-slate-900 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto border-2" style={{ borderColor: col, boxShadow: `0 0 36px ${col}55` }} onClick={e => e.stopPropagation()}>
+      <div className="bg-slate-900 text-slate-100 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto border-2" style={{ borderColor: col, boxShadow: `0 0 36px ${col}55` }} onClick={e => e.stopPropagation()}>
         <div className="relative h-44 overflow-hidden rounded-t-2xl">
           {flag.image
             ? <img src={flag.image} alt={flag.name} className="w-full h-full object-cover" />
@@ -26,19 +26,19 @@ export function FlagInfoDialog({ flag, buddies = [], onEdit, onClose }: {
         </div>
         <div className="p-4 space-y-4">
           <div className="flex flex-wrap gap-2 text-sm">
-            <span className="px-3 py-1 rounded-full bg-rose-600/20 border border-rose-500/40 text-rose-300 flex items-center gap-1"><Heart size={13} /> Life {flag.life}</span>
-            <span className="px-3 py-1 rounded-full bg-sky-600/20 border border-sky-500/40 text-sky-300 flex items-center gap-1"><HandIcon size={13} /> จั่วเริ่มต้น {flag.startHand}</span>
-            <span className="px-3 py-1 rounded-full bg-amber-600/20 border border-amber-500/40 text-amber-300 flex items-center gap-1"><Zap size={13} /> เกจเริ่มต้น {flag.startGauge}</span>
+            <span className="px-3 py-1 rounded-full bg-rose-600/20 border border-rose-500/40 text-rose-200 flex items-center gap-1"><Heart size={13} /> Life {flag.life}</span>
+            <span className="px-3 py-1 rounded-full bg-sky-600/20 border border-sky-500/40 text-sky-200 flex items-center gap-1"><HandIcon size={13} /> จั่วเริ่มต้น {flag.startHand}</span>
+            <span className="px-3 py-1 rounded-full bg-amber-600/20 border border-amber-500/40 text-amber-200 flex items-center gap-1"><Zap size={13} /> เกจเริ่มต้น {flag.startGauge}</span>
           </div>
           <div>
-            <div className="text-sm font-bold mb-1" style={{ color: col }}>ความสามารถ / กฎพิเศษ (Flag Effect)</div>
-            <div className="rounded-xl bg-slate-800/80 border border-slate-700 p-3 text-sm whitespace-pre-wrap leading-relaxed min-h-[3.5rem]">
-              {effect || <span className="text-slate-500">Flag นี้ไม่มีความสามารถหรือกฎพิเศษ</span>}
+            <div className="text-base font-bold mb-1.5 text-white flex items-center gap-2"><span className="inline-block w-1.5 h-5 rounded-full" style={{ background: col }} />ความสามารถ / กฎพิเศษ (Flag Effect)</div>
+            <div className="rounded-xl bg-slate-800 border border-slate-600 p-3.5 text-[15px] text-slate-50 whitespace-pre-wrap leading-relaxed min-h-[3.5rem]" style={{ borderLeft: `4px solid ${col}` }}>
+              {effect || <span className="text-slate-400">Flag นี้ไม่มีความสามารถหรือกฎพิเศษ</span>}
             </div>
           </div>
           {buddies.length > 0 && (
             <div>
-              <div className="text-sm font-bold mb-2 text-amber-300 flex items-center gap-1"><Star size={14} /> Buddy ประจำโลก ({buddies.length})</div>
+              <div className="text-base font-bold mb-2 text-amber-200 flex items-center gap-1.5"><Star size={14} /> Buddy ประจำโลก ({buddies.length})</div>
               <div className="flex flex-wrap gap-2">
                 {buddies.map(c => <CardView key={c.id} card={c} flag={flag} size="sm" />)}
               </div>
