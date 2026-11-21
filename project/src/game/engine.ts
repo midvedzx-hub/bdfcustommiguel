@@ -1290,7 +1290,18 @@ export function equipItem(state: GameState, side: Side, handIndex: number): Resu
   p.hand.splice(handIndex, 1);
   p.item = newFieldCard(cardId, 0);
   log(g, `${card.name} ถูกติดตั้ง!`);
+  // ไอเทมก็เป็น Buddy ได้: ติดตั้งไอเทมที่เป็น Buddy = Buddy Call (ได้ Buddy Gift ตัวละ 1 ครั้งต่อเกม)
+  const myBuddies = deckBuddies(p);
+  const calledBuddies = p.buddiesCalled ?? (p.buddyCalledThisGame && p.buddyId ? [p.buddyId] : []);
+  const isBuddyCall = myBuddies.includes(cardId) && !calledBuddies.includes(cardId);
+  if (isBuddyCall) {
+    p.buddiesCalled = [...calledBuddies, cardId];
+    p.buddyCalledThisGame = myBuddies.every(b => p.buddiesCalled!.includes(b));
+    log(g, `Buddy Call "${card.name}"! ได้รับ Buddy Gift`);
+    if (g.rules.buddyCallLife > 0) mLife(g, side, g.rules.buddyCallLife);
+  }
   applyEffects(g, side, card, "onCall", { fc: p.item });
+  if (isBuddyCall) applyEffects(g, side, card, "onBuddyCall", { fc: p.item });
   recalcAuras(g);
   return { state: g, ok: true, msg: `ติดตั้ง ${card.name}` };
 }

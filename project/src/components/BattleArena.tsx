@@ -727,7 +727,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     const fighterLegal = legal.some(t => t.kind === "fighter");
     const buddyList = deckBuddies(p).map(id => cardOf(id)).filter((c): c is Card => !!c);
     const calledBuddies = p.buddiesCalled ?? (p.buddyCalledThisGame && p.buddyId ? [p.buddyId] : []);
-    const buddyMsg = (c: Card) => calledBuddies.includes(c.id)
+    const buddyMsg = (c: Card) => c.type === "Item" ? (calledBuddies.includes(c.id) ? "Buddy (ไอเทม) ตัวนี้ถูก Buddy Call ไปแล้ว" : "Buddy ของคุณเป็นไอเทม: ติดตั้งลงช่องไอเทมคือ Buddy Call จะได้ Buddy Gift (Life +1) ครั้งเดียวต่อเกม") : calledBuddies.includes(c.id)
       ? "Buddy ตัวนี้ถูก Buddy Call ไปแล้ว (ทำได้ตัวละครั้งเดียวต่อเกม)"
       : buddyList.length > 1
         ? `Buddy ของคุณ (ช่องบัดดี้มี ${buddyList.length} ตัว): ลงสนามด้วยการ Buddy Call จะได้ Buddy Gift (Life +1) ตัวละครั้งเดียวต่อเกม`

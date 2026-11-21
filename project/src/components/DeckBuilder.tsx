@@ -62,7 +62,7 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
     if (!editing) return;
     if (!cardId) return setBuddyList([]);
     const main = cards.find(c => c.id === cardId);
-    const partners = main ? cards.filter(c => c.type === "Monster" && canShareBuddy(main, c)) : [];
+    const partners = main ? cards.filter(c => (c.type === "Monster" || c.type === "Item") && canShareBuddy(main, c)) : [];
     const uniq: Card[] = [];
     partners.forEach(c => { if (!uniq.some(u => u.name.trim().toLowerCase() === c.name.trim().toLowerCase())) uniq.push(c); });
     setBuddyList([cardId, ...uniq.map(c => c.id)]);
@@ -107,7 +107,7 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
     const buddyIds = deckBuddies(editing);
     const buddyCards = buddyIds.map(id => cardOf(id)).filter((c): c is Card => !!c);
     // Buddy ร่วมที่เพิ่มได้: มอนสเตอร์ที่เชื่อมกับ Buddy ที่เลือกอยู่แล้ว (ใบใดใบหนึ่งระบุชื่ออีกใบไว้ในช่อง "Buddy ร่วม")
-    const buddyCandidates = buddyIds.length >= MAX_BUDDIES ? [] : cards.filter(c => c.type === "Monster" && !buddyIds.includes(c.id) && buddyCards.some(b => canShareBuddy(b, c)));
+    const buddyCandidates = buddyIds.length >= MAX_BUDDIES ? [] : cards.filter(c => (c.type === "Monster" || c.type === "Item") && !buddyIds.includes(c.id) && buddyCards.some(b => canShareBuddy(b, c)));
     const TYPE_COL: Record<string, string> = { Monster: "#f59e0b", Spell: "#38bdf8", Item: "#34d399", Impact: "#fb7185" };
 
     const filtered = cards.filter(c => {
@@ -172,6 +172,11 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
               <optgroup label="มอนสเตอร์ทั้งหมด">
                 {cards.filter(c => c.type === "Monster").map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </optgroup>
+              {cards.some(c => c.type === "Item") && (
+                <optgroup label="ไอเทมทั้งหมด (ไอเทมเป็น Buddy ได้ ติดตั้ง = Buddy Call)">
+                  {cards.filter(c => c.type === "Item").map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </optgroup>
+              )}
             </select>
             {buddyCards.length > 0 && (
               <div className="mt-1.5 space-y-1">

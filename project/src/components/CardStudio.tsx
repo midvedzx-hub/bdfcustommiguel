@@ -303,7 +303,7 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                 <input value={editing.attribute ?? ""} onChange={e => setEditing({ ...editing, attribute: e.target.value })} placeholder="แสดงใต้ชื่อการ์ด" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 mt-1 focus:border-cyan-500 outline-none" />
               </div>
 
-              {editing.type === "Monster" && (
+              {(editing.type === "Monster" || editing.type === "Item") && (
                 <div>
                   <div className="flex items-center justify-between">
                     <label className="text-sm text-slate-400">Buddy ร่วม (ชื่อการ์ดที่อยู่ในช่องบัดดี้ร่วมกับใบนี้ได้ · ช่องบัดดี้มีได้ 2-4 ตัว)</label>
