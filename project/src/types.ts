@@ -145,11 +145,27 @@ export interface AutoEffect {
   toDrop?: number;     // lookTop: เลือกลงดรอปได้สูงสุดกี่ใบ
   toBottom?: number;   // lookTop: เลือกใส่ใต้สุดของกองได้สูงสุดกี่ใบ
   // condBuff (ใช้กับสกิลแบบ "ถาวร"): เงื่อนไข + เป้าหมาย + ค่าสถานะที่เพิ่ม
-  stat?: "power" | "critical" | "defense"; // ค่าที่เพิ่ม (power = ดาเมจ/พลังโจมตี) ค่าเริ่มต้น power
+  stat?: "power" | "critical" | "defense"; // (แบบเก่า) ค่าที่เพิ่มอย่างเดียว ใช้คู่กับ value
+  bPower?: number;                         // ค่าที่เพิ่มพร้อมกันได้หลายอย่าง (power = ดาเมจ/พลังโจมตี) ถ้ากำหนดตัวใดตัวหนึ่ง จะใช้แทน stat/value
+  bCritical?: number;
+  bDefense?: number;
+  includeSelf?: boolean;                   // เมื่อระบุ targetName: ให้การ์ดใบนี้ได้รับบัฟด้วย
   condMatch?: "attr" | "name";             // ตรวจจาก "คุณสมบัติ" (attribute) หรือ "ชื่อ" ของการ์ดบนสนาม
   condText?: string;                       // ข้อความที่ต้องมี (ไม่สนตัวพิมพ์) ว่าง = ไม่มีเงื่อนไข ได้บัฟเสมอ
   condWhere?: "own" | "opponent" | "any";  // ตรวจสนามฝั่งไหน (ค่าเริ่มต้น own = ของเรา)
   targetName?: string;                     // ผู้ได้รับบัฟ: ชื่อการ์ดของเรา ว่าง = การ์ดใบนี้
+}
+
+// ค่าที่ condBuff เพิ่มให้ (รองรับข้อมูลแบบเก่าที่ใช้ stat + value)
+export function condBuffAmounts(e: AutoEffect): { power: number; critical: number; defense: number } {
+  if (e.bPower !== undefined || e.bCritical !== undefined || e.bDefense !== undefined) {
+    return { power: e.bPower ?? 0, critical: e.bCritical ?? 0, defense: e.bDefense ?? 0 };
+  }
+  return {
+    power: !e.stat || e.stat === "power" ? e.value : 0,
+    critical: e.stat === "critical" ? e.value : 0,
+    defense: e.stat === "defense" ? e.value : 0,
+  };
 }
 
 export type CounterTiming = "attack" | "cast" | "any"; // จังหวะที่ Counter ใช้ได้: ตอนศัตรูโจมตี / ตอนศัตรูร่ายเวท / ทั้งสอง

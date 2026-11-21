@@ -1,6 +1,6 @@
 import { Trash2 } from "lucide-react";
 import type { AutoEffect, AutoEffectType, AutoSkill, CardFilter, CounterCost, CounterTiming } from "@/types";
-import { EFFECT_LABELS, DROP_FILTERS } from "@/types";
+import { EFFECT_LABELS, DROP_FILTERS, condBuffAmounts } from "@/types";
 import { KEYWORD_DEFS } from "@/game/keywords";
 
 const sel = "bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm";
@@ -24,33 +24,48 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
           {DROP_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
       )}
-      <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />
+      {eff.type !== "condBuff" && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
       <button onClick={onRemove} className="p-1 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={12} /></button>
-      {eff.type === "condBuff" && (
-        <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
-          <span>เพิ่ม</span>
-          <select value={eff.stat ?? "power"} onChange={e => onChange({ ...eff, stat: e.target.value as "power" | "critical" | "defense" })} className={`${sel} !py-0.5 text-xs`}>
-            <option value="power">Power (ดาเมจ)</option>
-            <option value="critical">Critical</option>
-            <option value="defense">Defense</option>
-          </select>
-          <span>เมื่อในสนาม</span>
-          <select value={eff.condWhere ?? "own"} onChange={e => onChange({ ...eff, condWhere: e.target.value as "own" | "opponent" | "any" })} className={`${sel} !py-0.5 text-xs`}>
-            <option value="own">ของเรา</option>
-            <option value="opponent">ฝั่งศัตรู</option>
-            <option value="any">ทั้งสองฝั่ง</option>
-          </select>
-          <span>มีการ์ดใบอื่นที่</span>
-          <select value={eff.condMatch ?? "attr"} onChange={e => onChange({ ...eff, condMatch: e.target.value as "attr" | "name" })} className={`${sel} !py-0.5 text-xs`}>
-            <option value="attr">มีคุณสมบัติ</option>
-            <option value="name">ชื่อ</option>
-          </select>
-          <input value={eff.condText ?? ""} onChange={e => onChange({ ...eff, condText: e.target.value })} placeholder="เช่น Aerufaria Magika" className={`${num} !py-0.5 text-xs w-44`} />
-          <span>ผู้ได้รับบัฟ:</span>
-          <input value={eff.targetName ?? ""} onChange={e => onChange({ ...eff, targetName: e.target.value })} placeholder="ว่าง = การ์ดใบนี้ / พิมพ์ชื่อการ์ด" className={`${num} !py-0.5 text-xs w-52`} />
-          <p className="basis-full text-slate-500">ใช้กับสกิลแบบ “ถาวร” · คุณสมบัติ = ข้อความช่อง attribute ของการ์ด (พิมพ์บางส่วนได้ ไม่สนตัวพิมพ์เล็กใหญ่) · ไม่นับการ์ดใบที่ถือสกิลนี้เอง · เว้นเงื่อนไขว่าง = ได้บัฟตลอด · บัฟหายทันทีเมื่อเงื่อนไขไม่ครบ</p>
-        </div>
-      )}
+      {eff.type === "condBuff" && (() => {
+        const amt = condBuffAmounts(eff);
+        const setAmt = (k: "bPower" | "bCritical" | "bDefense", v: number) => onChange({ ...eff, bPower: amt.power, bCritical: amt.critical, bDefense: amt.defense, [k]: v });
+        const amtIn = (label: string, k: "bPower" | "bCritical" | "bDefense", val: number, w: string) => (
+          <label className="flex items-center gap-1">{label} +
+            <input type="number" min={0} value={val} onChange={e => setAmt(k, Math.max(0, parseInt(e.target.value) || 0))} className={`${num} !py-0.5 text-xs ${w}`} />
+          </label>
+        );
+        return (
+          <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
+            <span>ได้รับ:</span>
+            {amtIn("Power (ดาเมจ)", "bPower", amt.power, "w-20")}
+            {amtIn("Critical", "bCritical", amt.critical, "w-14")}
+            {amtIn("Defense", "bDefense", amt.defense, "w-20")}
+            <span className="basis-full" />
+            <span>เมื่อในสนาม</span>
+            <select value={eff.condWhere ?? "own"} onChange={e => onChange({ ...eff, condWhere: e.target.value as "own" | "opponent" | "any" })} className={`${sel} !py-0.5 text-xs`}>
+              <option value="own">ของเรา</option>
+              <option value="opponent">ฝั่งศัตรู</option>
+              <option value="any">ทั้งสองฝั่ง</option>
+            </select>
+            <span>มีการ์ดใบอื่นที่</span>
+            <select value={eff.condMatch ?? "attr"} onChange={e => onChange({ ...eff, condMatch: e.target.value as "attr" | "name" })} className={`${sel} !py-0.5 text-xs`}>
+              <option value="attr">มีคุณสมบัติ</option>
+              <option value="name">ชื่อ</option>
+            </select>
+            <input value={eff.condText ?? ""} onChange={e => onChange({ ...eff, condText: e.target.value })} placeholder='เช่น Magia Vendar, Aelfa' className={`${num} !py-0.5 text-xs w-52`} />
+            <span className="basis-full" />
+            <span>ผู้ได้รับบัฟ:</span>
+            <input value={eff.targetName ?? ""} onChange={e => onChange({ ...eff, targetName: e.target.value })} placeholder="ว่าง = การ์ดใบนี้ / พิมพ์ชื่อการ์ด" className={`${num} !py-0.5 text-xs w-56`} />
+            {(eff.targetName ?? "").trim() !== "" && (
+              <label className="flex items-center gap-1"><input type="checkbox" checked={!!eff.includeSelf} onChange={e => onChange({ ...eff, includeSelf: e.target.checked })} /> รวมการ์ดใบนี้ด้วย</label>
+            )}
+            <p className="basis-full text-slate-500">
+              เลือกตัวกระตุ้นของสกิลเป็น “ถาวร” = มีผลตลอดตราบที่เงื่อนไขครบ (หายเมื่อเงื่อนไขไม่ครบ) · เลือกตัวกระตุ้นอื่น เช่น “เมื่อลงสนาม” “เมื่อโจมตี” = ตรวจเงื่อนไขตอนสกิลทำงาน แล้วบัฟจนจบเทิร์น ·
+              คุณสมบัติ = ข้อความช่อง attribute ของการ์ด · พิมพ์บางส่วนได้ ไม่สนตัวพิมพ์เล็กใหญ่ · ไม่นับการ์ดใบที่ถือสกิลนี้เอง · เว้นเงื่อนไขว่าง = ได้บัฟเสมอ
+            </p>
+          </div>
+        );
+      })()}
       {eff.type === "lookTop" && (
         <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-400 pl-1">
           <span>หลังดูแล้วเลือกได้สูงสุด:</span>

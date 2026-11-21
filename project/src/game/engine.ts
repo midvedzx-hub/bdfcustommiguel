@@ -1,3 +1,4 @@
+import { condBuffAmounts } from "@/types";
 import type {
   GameState, PlayerState, Card, Flag, Deck, FieldCard, AutoEffectType, AutoTrigger, RuleSet, AttackTarget, FxEvent, FxInput, AutoSkill, CounterTiming, AutoEffect,
 } from "@/types";
@@ -435,6 +436,18 @@ function runSkills(
             if (eff.type === "buffDefense") target.tempDefense += eff.value;
           });
           log(g, `${card.name} ${eff.type === "buffPower" ? "Power" : eff.type === "buffCritical" ? "Critical" : "Defense"} +${eff.value}`);
+          break;
+        }
+        case "condBuff": {
+          // ใช้กับตัวกระตุ้นอื่นที่ไม่ใช่ "ถาวร" (เช่น เมื่อลงสนาม/โจมตี): ตรวจเงื่อนไขตอนสกิลทำงาน แล้วบัฟชั่วคราวจนจบเทิร์น
+          const self = ctx.fc ?? null;
+          if (!condBuffMet(g, side, eff, self)) { log(g, `${card.name}: เงื่อนไขไม่ครบ ไม่ได้รับบัฟ`); break; }
+          const amt = condBuffAmounts(eff);
+          const ts = condBuffTargets(g, side, eff, self);
+          if (ts.length === 0) break;
+          ts.forEach(t => { t.tempPower += amt.power; t.tempCritical += amt.critical; t.tempDefense += amt.defense; });
+          const parts = [amt.power ? `Power +${amt.power}` : "", amt.critical ? `Critical +${amt.critical}` : "", amt.defense ? `Defense +${amt.defense}` : ""].filter(Boolean).join(" ");
+          log(g, `${card.name}: เงื่อนไขครบ — ${ts.map(t => getCard(t.cardId)?.name ?? "การ์ด").join(", ")} ได้รับ ${parts} จนจบเทิร์น`);
           break;
         }
         case "addSoul": {
@@ -933,43 +946,53 @@ export function recalcAuras(g: GameState) {
       fc.auraPower = pw + pps * fc.soul.length; fc.auraDefense = df; fc.auraCritical = cr + cps * fc.soul.length;
     });
 
-    // บัฟถาวรแบบมีเงื่อนไข (condBuff): ถ้าบนสนามมีการ์ดที่มีคุณสมบัติ/ชื่อที่กำหนด → บัฟการ์ดใบนี้ หรือการ์ดที่ชื่อ ...
-    const fields = (q: PlayerState): FieldCard[] => [...q.monsters, ...(q.item ? [q.item] : [])];
-    const has = (hay: string | undefined, needle: string) => !!hay && hay.toLowerCase().includes(needle);
-    const bump = (t: FieldCard, e: AutoEffect) => {
-      if (e.stat === "critical") t.auraCritical = (t.auraCritical ?? 0) + e.value;
-      else if (e.stat === "defense") t.auraDefense = (t.auraDefense ?? 0) + e.value;
-      else t.auraPower = (t.auraPower ?? 0) + e.value;
-    };
-    const condMet = (e: AutoEffect, self: FieldCard | null): boolean => {
-      const need = (e.condText ?? "").trim().toLowerCase();
-      if (!need) return true;
-      const opp: Side = side === "host" ? "guest" : "host";
-      const sides: Side[] = e.condWhere === "opponent" ? [opp] : e.condWhere === "any" ? [side, opp] : [side];
-      return sides.some(sd => fields(g[sd]).some(f => {
-        if (self && f.uid === self.uid) return false; // ไม่นับการ์ดใบที่ถือสกิลนี้เอง
-        const c = getCard(f.cardId);
-        return !!c && (e.condMatch === "name" ? has(c.name, need) : has(c.attribute, need));
-      }));
-    };
+    // บัฟถาวรแบบมีเงื่อนไข (condBuff ในสกิล "ถาวร"): มีผลตราบที่เงื่อนไขครบ
     const runCond = (card: Card, self: FieldCard | null) => {
       (card.autoSkills ?? []).forEach(sk => {
         if (sk.trigger !== "continuous") return;
         sk.effects.forEach(e => {
-          if (e.type !== "condBuff" || !condMet(e, self)) return;
-          const tn = (e.targetName ?? "").trim().toLowerCase();
-          if (tn) fields(p).forEach(t => { if (has(getCard(t.cardId)?.name, tn)) bump(t, e); });
-          else if (self) bump(self, e);
+          if (e.type !== "condBuff" || !condBuffMet(g, side, e, self)) return;
+          const amt = condBuffAmounts(e);
+          condBuffTargets(g, side, e, self).forEach(t => {
+            t.auraPower = (t.auraPower ?? 0) + amt.power;
+            t.auraCritical = (t.auraCritical ?? 0) + amt.critical;
+            t.auraDefense = (t.auraDefense ?? 0) + amt.defense;
+          });
         });
       });
     };
-    fields(p).forEach(fc => {
+    fieldCardsOf(p).forEach(fc => {
       if (fc.nullified) return; // ถูก Nullify: ความสามารถของการ์ดใบนี้ใช้ไม่ได้
       const c = getCard(fc.cardId);
       if (c) runCond(c, fc);
     });
     activeSetCards(p).forEach(c => runCond(c, null));
   });
+}
+
+// ---- condBuff: เงื่อนไข "ถ้าบนสนามมีการ์ดใบอื่นที่มีคุณสมบัติ/ชื่อ ..." และผู้ได้รับบัฟ ----
+const fieldCardsOf = (q: PlayerState): FieldCard[] => [...q.monsters, ...(q.item ? [q.item] : [])];
+const textHas = (hay: string | undefined, needle: string) => !!hay && hay.toLowerCase().includes(needle);
+
+function condBuffMet(g: GameState, side: Side, e: AutoEffect, self: FieldCard | null): boolean {
+  const need = (e.condText ?? "").trim().toLowerCase();
+  if (!need) return true;
+  const opp: Side = side === "host" ? "guest" : "host";
+  const sides: Side[] = e.condWhere === "opponent" ? [opp] : e.condWhere === "any" ? [side, opp] : [side];
+  return sides.some(sd => fieldCardsOf(g[sd]).some(f => {
+    if (self && f.uid === self.uid) return false; // ไม่นับการ์ดใบที่ถือสกิลนี้เอง
+    const c = getCard(f.cardId);
+    return !!c && (e.condMatch === "name" ? textHas(c.name, need) : textHas(c.attribute, need));
+  }));
+}
+
+// ผู้ได้รับบัฟ: การ์ดของเราที่ชื่อตรงกับ targetName (+ การ์ดใบนี้ถ้าไม่ระบุชื่อ หรือติ๊ก "รวมใบนี้")
+function condBuffTargets(g: GameState, side: Side, e: AutoEffect, self: FieldCard | null): FieldCard[] {
+  const tn = (e.targetName ?? "").trim().toLowerCase();
+  const out: FieldCard[] = [];
+  if (tn) fieldCardsOf(g[side]).forEach(t => { if (textHas(getCard(t.cardId)?.name, tn)) out.push(t); });
+  if (self && (!tn || e.includeSelf) && !out.includes(self)) out.push(self);
+  return out;
 }
 
 // ทำงานสกิลของการ์ด Set ที่อยู่ในช่อง Set ตามทริกเกอร์ (ต้นเทิร์น / Final / มอนสเตอร์เราโจมตี / ทำลายศัตรู / ทำดาเมจ)

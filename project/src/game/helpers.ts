@@ -1,6 +1,6 @@
 import type { Flag, Card, AutoSkill, AutoEffect } from "@/types";
 import { getCustomKeywords } from "@/storage";
-import { TRIGGER_LABELS, callCostLabel, canTransform, transformCostLabel } from "@/types";
+import { TRIGGER_LABELS, callCostLabel, canTransform, transformCostLabel, condBuffAmounts } from "@/types";
 import { KEYWORD_DEFS } from "@/game/keywords";
 
 export function getFlagColor(flag?: Flag | null): string {
@@ -57,14 +57,15 @@ export function effectText(e: AutoEffect): string {
     case "powerPerSoul": return `Power +${v} ต่อการ์ด 1 ใบใน Soul`;
     case "criticalPerSoul": return `Critical +${v} ต่อการ์ด 1 ใบใน Soul`;
     case "condBuff": {
-      const stat = e.stat === "critical" ? "Critical" : e.stat === "defense" ? "Defense" : "Power";
+      const amt = condBuffAmounts(e);
+      const gain = [amt.power ? `Power +${amt.power}` : "", amt.critical ? `Critical +${amt.critical}` : "", amt.defense ? `Defense +${amt.defense}` : ""].filter(Boolean).join(" และ ") || "บัฟ";
       const where = e.condWhere === "opponent" ? "ฝั่งศัตรู" : e.condWhere === "any" ? "ทั้งสองฝั่ง" : "ของเรา";
       const kind = e.condMatch === "name" ? "ชื่อ" : "คุณสมบัติ";
       const need = (e.condText ?? "").trim();
       const tn = (e.targetName ?? "").trim();
       const cond = need ? `ถ้าในสนาม${where}มีการ์ดใบอื่นที่มี${kind} “${need}” ` : "";
-      const target = tn ? `การ์ดชื่อ “${tn}” ของเรา` : "การ์ดใบนี้";
-      return `${cond}${target}ได้รับ ${stat} +${v}`;
+      const target = tn ? (e.includeSelf ? `การ์ดใบนี้และการ์ดชื่อ “${tn}” ของเรา` : `การ์ดชื่อ “${tn}” ของเรา`) : "การ์ดใบนี้";
+      return `${cond}${target}ได้รับ ${gain}`;
     }
     case "chooseRemoveSoul": return `เลือกการ์ดของเรา 1 ใบ ถอด Soul ${v} ใบ (ถ้าถอดได้ จึงทำต่อ)`;
     case "destroyOpponentSet": return `ทำลายการ์ด Set ของศัตรู ${v} ใบ`;
@@ -105,7 +106,7 @@ export function skillLines(card: Card): string[] {
       if ((sk.cost.handToDrop ?? 0) > 0) costParts.push(`ทิ้งการ์ดบนมือ ${sk.cost.handToDrop} ใบ`);
     }
     const costStr = costParts.length ? `[จ่าย ${costParts.join(" + ")}] ` : "";
-    const body = costStr + sk.effects.map(effectText).join("、");
+    const body = costStr + sk.effects.map(e => effectText(e) + (e.type === "condBuff" && sk.trigger !== "continuous" ? " จนจบเทิร์น" : "")).join("、");
     const helpStr = help ? ` — ${help}` : "";
     if (sk.name) lines.push(`【${sk.name}】${sk.trigger === "continuous" ? "" : `${trig}${timing}: `}${body}${helpStr}`);
     else lines.push(`【${trig}】${timing ? timing.trim() + " " : ""}${body}${helpStr}`);
