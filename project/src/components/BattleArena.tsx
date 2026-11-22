@@ -5,7 +5,7 @@ import {
   Copy, LogIn, Users, RefreshCw, Wrench, X, Shield, Star, AlertTriangle, Link2, Eye,
 } from "lucide-react";
 import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet, FieldCard } from "@/types";
-import { TRIGGER_LABELS, customTextList, callCostLabel, canTransform, transformCostLabel } from "@/types";
+import { TRIGGER_LABELS, customTextList, callCostLabel, canTransform, transformCostLabel, isMonsterImpact, impactCostLabel, matchesType } from "@/types";
 import { DEFAULT_RULES, deckBuddies } from "@/types";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
@@ -718,7 +718,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     const c = cardOf(me.hand[d.index] ?? "");
     if (!c) return;
     if (c.type === "Item") tryEquip(d.index);
-    else if (c.type === "Spell" || c.type === "Impact") tryCast(d.index);
+    else if (c.type === "Spell" || c.type === "Impact" || (isMonsterImpact(c) && game.phase === "final")) tryCast(d.index);
     else setNotice({ title: "วางไม่ได้", msg: "ช่องนี้ใช้ติดตั้งไอเทม หรือร่ายเวท/Impact" });
   }
   function handleDropOnSet() {
@@ -1067,7 +1067,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                   if (game.phase === "draw") return openInspect(card, p.flagId, null, "ตอนนี้เป็น Draw Phase — กำลังจั่วการ์ดประจำเทิร์น (กดปุ่ม 'Draw' ถ้ายังไม่จั่ว) จากนั้นจึงถึง Charge & Draw");
                   if (game.phase === "charge" && chargePick) return doCharge(i);
                   if (game.phase === "charge") return openInspect(card, p.flagId, null, "ตอนนี้เป็นช่วง Charge & Draw — กดปุ่ม 'Charge & Draw' แล้วเลือกการ์ดเพื่อใส่เกจ หรือกด 'ข้าม' เพื่อเข้า Main Phase ก่อนจึงลงการ์ดได้");
-                  if (game.phase === "final" && card.type !== "Impact") return openInspect(card, p.flagId, null, "ตอนนี้เป็น Final Phase ใช้ได้เฉพาะ Impact (ลงมอนสเตอร์/ร่ายเวทได้เฉพาะ Main Phase)");
+                  if (game.phase === "final" && card.type !== "Impact" && !isMonsterImpact(card)) return openInspect(card, p.flagId, null, "ตอนนี้เป็น Final Phase ใช้ได้เฉพาะ Impact (ลงมอนสเตอร์/ร่ายเวทได้เฉพาะ Main Phase)");
                   setHandSel(sel ? null : i);
                 }}
               />
@@ -1096,14 +1096,15 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           <div className="font-display font-bold text-cyan-300">{card.name}</div>
           <div className="text-xs text-slate-400 mb-2">Cost {callCostLabel(card)}{card.type === "Monster" ? ` · Size ${card.size}` : ""}{hasCounter(card) ? " · มี Counter Act" : ""} · ลากการ์ดไปวางบนสนามได้{reqMatch && reqMatch.missing.length > 0 ? ` · ยังขาดบนสนาม: ${reqMatch.missing.join(", ")}` : reqMatch ? " · เงื่อนไขครบ (การ์ดเงื่อนไขจะเข้า Soul)" : ""}</div>
           <div className="flex flex-wrap gap-2 items-center">
-            {card.type === "Monster" && empty.map(pos => (
+            {card.type === "Monster" && game.phase !== "final" && empty.map(pos => (
               <button key={pos} onClick={() => tryCall(handSel, pos)} className={`${btn} bg-cyan-600 hover:bg-cyan-500`}>ลงช่อง{POSITION_NAMES[pos]}</button>
             ))}
-            {card.type === "Monster" && empty.length === 0 && <button onClick={() => tryCall(handSel, 1)} className={`${btn} bg-slate-700`}>ลงมอนสเตอร์</button>}
+            {card.type === "Monster" && game.phase !== "final" && empty.length === 0 && <button onClick={() => tryCall(handSel, 1)} className={`${btn} bg-slate-700`}>ลงมอนสเตอร์</button>}
             {card.type === "Spell" && <button onClick={() => tryCast(handSel)} className={`${btn} ${counterOnly ? "bg-slate-700" : "bg-sky-600 hover:bg-sky-500"}`}>{hasSetKeyword(card) ? "ร่าย → วางลงช่อง Set" : "ร่ายเวท"}</button>}
             {canTransform(card) && <button onClick={() => tryTransform({ zone: "hand", index: handSel })} className={`${btn} bg-fuchsia-600 hover:bg-fuchsia-500`}>🔄 Transform (จ่าย {transformCostLabel(card)})</button>}
             {card.type === "Item" && <button onClick={() => tryEquip(handSel)} className={`${btn} bg-emerald-600 hover:bg-emerald-500`}>ติดตั้งไอเทม</button>}
             {card.type === "Impact" && <button onClick={() => tryCast(handSel)} className={`${btn} bg-rose-600 hover:bg-rose-500`}>ใช้ Impact (Final Phase)</button>}
+            {isMonsterImpact(card) && <button onClick={() => tryCast(handSel)} className={`${btn} bg-rose-600 hover:bg-rose-500`}>🔥 ใช้เป็น Impact (Final Phase · จ่าย {impactCostLabel(card)})</button>}
             {freeOpts.some(o => o.zone === "hand" && o.index === handSel) && <button onClick={() => { const o = freeOpts.find(x => x.zone === "hand" && x.index === handSel); if (o) { doFreeCounter(o); setHandSel(null); } }} className={`${btn} bg-sky-600 hover:bg-sky-500`}>⚡ ใช้ Counter ทันที</button>}
             {(hasCounter(card) || (card.type === "Spell" && hasSetKeyword(card))) && <button onClick={() => trySet(handSel)} className={`${btn} bg-violet-600 hover:bg-violet-500`}>{card.type === "Spell" && hasSetKeyword(card) ? "Set (ลงช่อง Set)" : "Set (วางคว่ำ)"}</button>}
             {sandbox && (<>
@@ -1432,7 +1433,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       const tFc = cands.find(m => m.uid === soulTarget);
       const tCard = tFc ? cardOf(tFc.cardId) : undefined;
       const selfIdx = src && (src.type === "Spell" || src.type === "Impact") ? me.dropZone.lastIndexOf(ps.cardId) : -1;
-      const typeOk = (id: string) => !ps.filter || ps.filter === "any" || cardOf(id)?.type === ps.filter;
+      const typeOk = (id: string) => matchesType(cardOf(id), ps.filter);
       const isOn = (zone: "hand" | "drop", index: number) => soulPicks.some(x => x.zone === zone && x.index === index);
       const toggle = (zone: "hand" | "drop", index: number) => setSoulPicks(prev => isOn(zone, index) ? prev.filter(x => !(x.zone === zone && x.index === index)) : prev.length >= ps.n ? prev : [...prev, { zone, index }]);
       const grid = (zone: "hand" | "drop", ids: string[]) => (

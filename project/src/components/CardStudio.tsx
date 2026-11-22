@@ -242,7 +242,7 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
   const flagOf = (c: Card) => flags.find(f => f.id === c.flagId);
   const q = search.trim().toLowerCase();
   const filtered = cards.filter(c =>
-    (filter === "all" || c.type === filter) &&
+    (filter === "all" || c.type === filter || (filter === "Impact" && isMonsterImpact(c))) &&
     (worldFilter === "all" || c.flagId === worldFilter) &&
     (!q || c.name.toLowerCase().includes(q) || (c.attribute ?? "").toLowerCase().includes(q))
   );
@@ -403,6 +403,38 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                     <label className="text-sm text-slate-400">Critical</label>
                     <input type="number" value={editing.critical} onChange={e => setEditing({ ...editing, critical: parseInt(e.target.value) || 0 })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 mt-1 focus:border-cyan-500 outline-none" />
                   </div>
+                </div>
+              )}
+
+              {editing.type === "Monster" && (
+                <div className="rounded-xl border border-rose-700/60 bg-slate-800/50 p-3">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-100 cursor-pointer">
+                    <input type="checkbox" checked={!!editing.monsterImpact}
+                      onChange={e => setEditing(e.target.checked
+                        ? { ...editing, monsterImpact: true, impactCost: editing.impactCost ?? 2, impactCostType: editing.impactCostType ?? "Gauge" }
+                        : { ...editing, monsterImpact: undefined, impactCost: undefined, impactCostType: undefined, impactCostExtra: undefined })} />
+                    มอนสเตอร์ไม้ตาย (Monster + Impact) — ลงเป็นมอนสเตอร์ได้ และใช้เป็น Impact ใน Final Phase ได้
+                  </label>
+                  {editing.monsterImpact && (
+                    <div className="grid grid-cols-3 gap-3 mt-3">
+                      <div>
+                        <label className="text-xs text-slate-400">Impact Cost</label>
+                        <input type="number" min={0} max={9} value={editing.impactCost ?? 0} onChange={e => setEditing({ ...editing, impactCost: Math.max(0, Math.min(9, parseInt(e.target.value) || 0)) })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 mt-1 focus:border-cyan-500 outline-none" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400">จ่ายด้วย</label>
+                        <select value={editing.impactCostType ?? "Gauge"} onChange={e => setEditing({ ...editing, impactCostType: e.target.value as "Gauge" | "Life" })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 mt-1 focus:border-cyan-500 outline-none">
+                          <option value="Gauge">Gauge</option>
+                          <option value="Life">Life</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400">จ่ายเพิ่มด้วย {(editing.impactCostType ?? "Gauge") === "Life" ? "Gauge" : "Life"}</label>
+                        <input type="number" min={0} max={9} value={editing.impactCostExtra ?? 0} onChange={e => setEditing({ ...editing, impactCostExtra: Math.max(0, Math.min(9, parseInt(e.target.value) || 0)) })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 mt-1 focus:border-cyan-500 outline-none" />
+                      </div>
+                      <div className="col-span-3 text-[11px] text-rose-300">ใช้เป็น Impact จ่าย: {impactCostLabel(editing)} (แยกจาก Call Cost ตอนลงเป็นมอนสเตอร์) · เอฟเฟกต์ตอนใช้เป็น Impact ใส่เป็นสกิล “เมื่อร่าย” ส่วนเอฟเฟกต์ตอนลงเป็นมอนสเตอร์ใส่เป็น “เมื่อลงสนาม” · หลังใช้เป็น Impact การ์ดลงสุสาน</div>
+                    </div>
+                  )}
                 </div>
               )}
 

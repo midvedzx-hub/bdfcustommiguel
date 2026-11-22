@@ -111,7 +111,7 @@ export function DeckBuilder({ onBack, onPlay }: { onBack: () => void; onPlay?: (
     const TYPE_COL: Record<string, string> = { Monster: "#f59e0b", Spell: "#38bdf8", Item: "#34d399", Impact: "#fb7185" };
 
     const filtered = cards.filter(c => {
-      if (typeFilter !== "all" && c.type !== typeFilter) return false;
+      if (typeFilter !== "all" && c.type !== typeFilter && !(typeFilter === "Impact" && c.type === "Monster" && c.monsterImpact)) return false;
       if (search && !c.name.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });

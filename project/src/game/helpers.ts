@@ -190,6 +190,7 @@ export function keywordBadges(card: Card): string[] {
 export function costText(card: Card): string {
   const parts: string[] = [];
   if (card.callCost > 0 || (card.callCostExtra ?? 0) > 0 || card.type === "Monster") parts.push(`จ่าย ${callCostLabel(card)}`);
+  if (isMonsterImpact(card)) parts.push(`[Impact] ใช้ใน Final Phase จ่าย ${impactCostLabel(card)} (นับเป็นทั้งมอนสเตอร์และ Impact)`);
   if (canTransform(card)) parts.push(`[Transform] จ่าย ${transformCostLabel(card)} เพื่อแปลงเป็นไอเทม (ใช้ได้จากมือหรือบนสนาม)`);
   if ((card.callSoulFromDeck ?? 0) > 0) parts.push(`นำการ์ดบนเด็ค ${card.callSoulFromDeck} ใบเข้า Soul ของการ์ดนี้`);
   return parts.join(" และ ");

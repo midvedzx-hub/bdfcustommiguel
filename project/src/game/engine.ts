@@ -2,7 +2,7 @@ import { condBuffAmounts, deckBuddies, SOUL_GRANT_KEYWORDS } from "@/types";
 import type {
   GameState, PlayerState, Card, Flag, Deck, FieldCard, AutoEffectType, AutoTrigger, RuleSet, AttackTarget, FxEvent, FxInput, AutoSkill, CounterTiming, AutoEffect,
 } from "@/types";
-import { DEFAULT_RULES, callCostAmounts, canTransform, transformCostAmounts } from "@/types";
+import { DEFAULT_RULES, callCostAmounts, canTransform, transformCostAmounts, isMonsterImpact, matchesType, impactCostAsCall } from "@/types";
 import { uid } from "@/storage";
 import { skillLines } from "@/game/helpers";
 
@@ -331,6 +331,9 @@ function shuffleInPlace<T>(a: T[]) {
     [a[i], a[j]] = [a[j], a[i]];
   }
 }
+// การ์ดที่ใช้ "ร่าย" แล้วลงสุสาน (เวท / Impact / มอนสเตอร์ไม้ตายตอนใช้เป็น Impact)
+const isCastLike = (c?: Card | null) => !!c && (c.type === "Spell" || c.type === "Impact" || isMonsterImpact(c));
+
 function soulSrcLabel(src?: string): string {
   return src === "deck" ? "บนกองเด็ค" : src === "hand" ? "มือ" : src === "handDrop" ? "มือหรือสุสาน" : "สุสาน";
 }
@@ -340,7 +343,7 @@ function pickFromDrop(g: GameState, side: Side, n: number, filter?: string): str
   const out: string[] = [];
   for (let i = p.dropZone.length - 1; i >= 0 && out.length < n; i--) {
     const c = getCard(p.dropZone[i]);
-    if (filter && filter !== "any" && c?.type !== filter) continue;
+    if (filter && filter !== "any" && !matchesType(c, filter)) continue;
     out.push(p.dropZone.splice(i, 1)[0]);
   }
   return out;
@@ -524,7 +527,7 @@ function runSkills(
           // เวทที่กำลังใช้อยู่ถูกวางในสุสานแล้ว แต่ยังไม่ควรถูกนับเป็น "การ์ดในสุสาน" ที่ใส่ใต้เด็คได้ (ตัวมันเองลงสุสานหลังจบเอฟเฟกต์)
           const pz = g[side];
           let held = false;
-          if ((card.type === "Spell" || card.type === "Impact") && !ctx?.fc && !pz.setZone.includes(card.id)) {
+          if (isCastLike(card) && !ctx?.fc && !pz.setZone.includes(card.id)) {
             const at = pz.dropZone.lastIndexOf(card.id);
             if (at >= 0) { pz.dropZone.splice(at, 1); held = true; }
           }
@@ -705,7 +708,7 @@ function runSkills(
           let fromDeck = 0;
           if (zone === "drop" || zone === "dropDeck") {
             // เวทที่กำลังร่ายอยู่ในสุสานแล้ว แต่ไม่ใช่การ์ดในสุสานที่เก็บขึ้นมือได้
-            const selfIdx = (card.type === "Spell" || card.type === "Impact") && !ctx.fc && !pz.setZone.includes(card.id) ? pz.dropZone.lastIndexOf(card.id) : -1;
+            const selfIdx = isCastLike(card) && !ctx.fc && !pz.setZone.includes(card.id) ? pz.dropZone.lastIndexOf(card.id) : -1;
             for (let i = pz.dropZone.length - 1; i >= 0 && got.length < want; i--) {
               if (i === selfIdx) continue;
               if (textHas(getCard(pz.dropZone[i])?.name, nm)) got.push(pz.dropZone.splice(i, 1)[0]);
@@ -730,7 +733,7 @@ function runSkills(
           const zoneTxt = zones.map(z => z === "field" ? "สนาม" : z === "hand" ? "มือ" : "สุสาน").join("/");
           const pz = g[side];
           const dropList = [...pz.dropZone];
-          if (card.type === "Spell" || card.type === "Impact") { const k = dropList.lastIndexOf(card.id); if (k >= 0 && !ctx.fc) dropList.splice(k, 1); } // เวทที่กำลังร่ายไม่นับเป็นการ์ดในสุสาน
+          if (isCastLike(card)) { const k = dropList.lastIndexOf(card.id); if (k >= 0 && !ctx.fc) dropList.splice(k, 1); } // เวทที่กำลังร่ายไม่นับเป็นการ์ดในสุสาน
           const has = (nm: string) =>
             (zones.includes("field") && fieldCardsOf(pz).some(f => textHas(cardOfFc(f)?.name, nm))) ||
             (zones.includes("hand") && pz.hand.some(id => textHas(getCard(id)?.name, nm))) ||
@@ -747,8 +750,8 @@ function runSkills(
           const cands = [...g[side].monsters, ...(g[side].item ? [g[side].item] : [])];
           // เวท/Impact ที่กำลังใช้อยู่ถูกวางในสุสานแล้ว แต่ยังไม่ถือเป็นการ์ดในสุสานที่เลือกนำเข้า Soul ได้ (ตัดออก 1 ใบ)
           const dropForPick = [...g[side].dropZone];
-          if (card.type === "Spell" || card.type === "Impact") { const k = dropForPick.lastIndexOf(card.id); if (k >= 0) dropForPick.splice(k, 1); }
-          const typeOk = (id: string) => !eff.filter || eff.filter === "any" || getCard(id)?.type === eff.filter;
+          if (isCastLike(card) && !ctx.fc) { const k = dropForPick.lastIndexOf(card.id); if (k >= 0) dropForPick.splice(k, 1); }
+          const typeOk = (id: string) => matchesType(getCard(id), eff.filter);
           const availHand = g[side].hand.filter(typeOk).length;
           const availDrop = dropForPick.filter(typeOk).length;
           const avail = srcKind === "deck" ? g[side].deck.length : srcKind === "hand" ? availHand : srcKind === "handDrop" ? availHand + availDrop : availDrop;
@@ -1453,6 +1456,7 @@ function mDestroySet(g: GameState, side: Side, index: number): boolean {
 function castTrigger(card: Card): AutoTrigger | null {
   const sk = card.autoSkills ?? [];
   if (sk.some(s => s.trigger === "onCast")) return "onCast";
+  if (isMonsterImpact(card)) return null; // มอนสเตอร์ไม้ตายใช้เป็น Impact: ทำเฉพาะสกิล "เมื่อร่าย" (สกิล "เมื่อลงสนาม" เป็นของตอนลงเป็นมอนสเตอร์)
   if (sk.some(s => s.trigger === "onCall")) return "onCall";
   return null;
 }
@@ -1461,7 +1465,7 @@ const isCounterOnly = (card: Card) =>
 
 export function castSpell(state: GameState, side: Side, handIndex: number): Result {
   const card0 = getCard(state[side].hand[handIndex]);
-  const isImpact = card0?.type === "Impact";
+  const isImpact = card0?.type === "Impact" || isMonsterImpact(card0); // มอนสเตอร์ไม้ตายใช้เป็น Impact ได้ใน Final Phase
   const err = guardTurn(state, side, isImpact ? "final" : "main");
   if (err) return { state, ok: false, msg: err };
 
@@ -1481,7 +1485,8 @@ export function castSpell(state: GameState, side: Side, handIndex: number): Resu
   const cardId = p.hand[handIndex];
   const card = cardId ? getCard(cardId) : undefined;
   if (!card) return { state, ok: false, msg: "ไม่พบการ์ดใบนี้ในมือ" };
-  if (card.type !== "Spell" && card.type !== "Impact") return { state, ok: false, msg: `${card.name} ไม่ใช่เวทมนตร์/Impact` };
+  if (card.type !== "Spell" && card.type !== "Impact" && !isMonsterImpact(card)) return { state, ok: false, msg: `${card.name} ไม่ใช่เวทมนตร์/Impact` };
+  const asMonsterImpact = isMonsterImpact(card); // ใช้เป็น Impact: จ่าย Impact Cost (ไม่ใช่ Call Cost) และการ์ดลงสุสานหลังใช้
 
   // เวทที่มีคีย์เวิร์ด Set: วางลงช่อง Set (ไม่ลงสุสาน) คงผลต่อเนื่อง — ตรวจก่อนทุกอย่าง แม้การ์ดจะมีสกิล Counter ด้วย
   if (card.type === "Spell" && hasSetKeyword(card)) {
@@ -1491,14 +1496,14 @@ export function castSpell(state: GameState, side: Side, handIndex: number): Resu
   }
 
   if (cardLimitReached(g, side, card)) return { state, ok: false, msg: cardLimitMsg(card) };
-  const costErr = payCost(g, side, card);
-  if (costErr) return { state, ok: false, msg: `ร่าย ${card.name} ไม่ได้ — ${costErr}` };
+  const costErr = payCost(g, side, asMonsterImpact ? impactCostAsCall(card) : card);
+  if (costErr) return { state, ok: false, msg: `${asMonsterImpact ? "ใช้ Impact" : "ร่าย"} ${card.name} ไม่ได้ — ${costErr}` };
   noteCardUse(g, side, card);
 
   p.hand.splice(handIndex, 1);
   p.dropZone.push(cardId);
-  log(g, `${card.name} ถูกร่าย!`);
-  fx(g, { k: "cast", side, cardId, label: card.type === "Impact" ? "IMPACT!" : "SPELL!" });
+  log(g, asMonsterImpact ? `${card.name} ถูกใช้เป็น Impact (มอนสเตอร์ไม้ตาย)!` : `${card.name} ถูกร่าย!`);
+  fx(g, { k: "cast", side, cardId, label: card.type === "Impact" || asMonsterImpact ? "IMPACT!" : "SPELL!" });
   // เปิดจังหวะ Counter ให้ฝั่งตรงข้ามก่อนเวทมีผล (ถ้ามี Counter ที่ใช้กับเวทได้)
   g.spellWindow = { casterSide: side, cardId, negated: false };
   if (g.rules.enableCounter && counterOptions(g, other(side)).length > 0) {
@@ -2184,8 +2189,8 @@ export function resolveSoulChoice(state: GameState, side: Side, targetUid: strin
       if (ps.src === "deck") { for (let i = 0; i < ps.n && p.deck.length > 0; i++) got.push(p.deck.shift()!); }
       else if (ps.src === "hand" || ps.src === "handDrop") {
         // ผู้เล่นเลือกใบเองจากมือ (และสุสานถ้า handDrop) — ถ้าไม่ได้ส่งมา (เช่นบอท) เลือกให้อัตโนมัติ: มือก่อน แล้วสุสานใบล่าสุด
-        const typeOk = (id: string) => !ps.filter || ps.filter === "any" || getCard(id)?.type === ps.filter;
-        const selfIdx = card?.type === "Spell" || card?.type === "Impact" ? p.dropZone.lastIndexOf(ps.cardId) : -1;
+        const typeOk = (id: string) => matchesType(getCard(id), ps.filter);
+        const selfIdx = isCastLike(card) ? p.dropZone.lastIndexOf(ps.cardId) : -1;
         let use = picks;
         if (!use) {
           use = [];
@@ -2209,7 +2214,7 @@ export function resolveSoulChoice(state: GameState, side: Side, targetUid: strin
       else {
         // ไม่หยิบเวท/Impact ที่กำลังใช้อยู่ (อยู่ในสุสานแล้ว) มาเป็น Soul ของตัวเอง
         const selfType = card?.type;
-        const selfIdx = selfType === "Spell" || selfType === "Impact" ? p.dropZone.lastIndexOf(ps.cardId) : -1;
+        const selfIdx = isCastLike(card) ? p.dropZone.lastIndexOf(ps.cardId) : -1;
         const held = selfIdx >= 0 ? p.dropZone.splice(selfIdx, 1)[0] : null;
         got = pickFromDrop(g, side, ps.n, ps.filter);
         if (held) p.dropZone.push(held);

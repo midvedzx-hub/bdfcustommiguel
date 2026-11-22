@@ -255,6 +255,10 @@ export interface Card {
   critical: number;
   callCost: number;
   callCostType: "Gauge" | "Life";
+  monsterImpact?: boolean;         // มอนสเตอร์ไม้ตาย (Monster + Impact): ลงเป็นมอนสเตอร์ได้ และใช้เป็น Impact ใน Final Phase ได้ (นับเป็นทั้ง Monster และ Impact)
+  impactCost?: number;             // ค่าใช้จ่ายตอนใช้เป็น Impact (แยกจาก Call Cost ตอนลงเป็นมอนสเตอร์)
+  impactCostType?: "Gauge" | "Life";
+  impactCostExtra?: number;        // จ่ายอีกอย่างเพิ่ม
   transformCost?: number;          // มีค่า = มอนสเตอร์ใบนี้ Transform ได้ (จ่ายแล้วกลายเป็นไอเทมของเรา) ไม่ใส่ = Transform ไม่ได้
   transformCostType?: "Gauge" | "Life";
   transformCostExtra?: number;     // จ่ายอีกอย่างเพิ่ม (เหมือน callCostExtra)
@@ -543,4 +547,22 @@ export function pruneBuddies(ids: string[], cards: Card[]): string[] {
     });
   }
   return ids.filter(id => keep.includes(id));
+}
+
+// มอนสเตอร์ไม้ตาย: นับเป็นทั้ง Monster และ Impact
+export function isMonsterImpact(card: Pick<Card, "type" | "monsterImpact"> | undefined | null): boolean {
+  return !!card && card.type === "Monster" && !!card.monsterImpact;
+}
+// ใบนี้ตรงกับชนิดที่กรอง (any = ทุกชนิด) — มอนสเตอร์ไม้ตายตรงทั้ง Monster และ Impact
+export function matchesType(card: Pick<Card, "type" | "monsterImpact"> | undefined | null, filter?: string): boolean {
+  if (!filter || filter === "any" || filter === "all") return true;
+  if (!card) return false;
+  return card.type === filter || (filter === "Impact" && isMonsterImpact(card));
+}
+// ค่าใช้จ่ายตอนใช้เป็น Impact (ใช้กับ payCost ที่รับ Call Cost)
+export function impactCostAsCall(card: Card): Card {
+  return { ...card, callCost: card.impactCost ?? 0, callCostType: card.impactCostType ?? "Gauge", callCostExtra: card.impactCostExtra };
+}
+export function impactCostLabel(card: Pick<Card, "impactCost" | "impactCostType" | "impactCostExtra">): string {
+  return callCostLabel({ callCost: card.impactCost ?? 0, callCostType: card.impactCostType ?? "Gauge", callCostExtra: card.impactCostExtra });
 }
