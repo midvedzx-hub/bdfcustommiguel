@@ -366,14 +366,19 @@ function pickFromDrop(g: GameState, side: Side, n: number, filter?: string): str
 }
 
 // เอฟเฟกต์ที่เลือกเป้าหมายมอนสเตอร์ศัตรูได้
-const TARGETED_EFFECTS: AutoEffectType[] = ["destroyOpponentMonster", "restOpponent", "nullifyOpponentMonster", "bounceOpponentMonster", "opponentMonsterToDrop", "opponentMonsterToDeck"];
+const TARGETED_EFFECTS: AutoEffectType[] = ["destroyOpponentMonster", "restOpponent", "nullifyOpponentMonster", "noStandOpponentMonster", "bounceOpponentMonster", "opponentMonsterToDrop", "opponentMonsterToDeck"];
 const TARGET_LABEL: Partial<Record<AutoEffectType, string>> = {
   destroyOpponentMonster: "ทำลาย", restOpponent: "Rest", nullifyOpponentMonster: "ยกเลิกความสามารถ",
-  bounceOpponentMonster: "ดึงกลับมือ", opponentMonsterToDrop: "ส่งลงสุสาน", opponentMonsterToDeck: "ใส่กลับเด็ค",
+  noStandOpponentMonster: "ห้าม Stand", bounceOpponentMonster: "ดึงกลับมือ", opponentMonsterToDrop: "ส่งลงสุสาน", opponentMonsterToDeck: "ใส่กลับเด็ค",
 };
 export const targetEffectLabel = (t: AutoEffectType) => TARGET_LABEL[t] ?? String(t);
 
-function applyTargetEffect(g: GameState, side: Side, card: Card, type: AutoEffectType, uids: string[]) {
+// ห้ามมอนสเตอร์ Stand จนจบเทิร์นนี้ (Stand กลับหลัง Double Attack / เอฟเฟกต์ Stand ไม่ได้ผล)
+function blockStand(g: GameState, m: FieldCard, srcName: string) {
+  m.noStandTurn = g.turn;
+  log(g, `${srcName}: ${cardOfFc(m)?.name ?? "มอนสเตอร์"} ไม่สามารถ Stand ได้ในเทิร์นนี้`);
+}
+function applyTargetEffect(g: GameState, side: Side, card: Card, type: AutoEffectType, uids: string[], noStand = false) {
   const opp = other(side);
   uids.forEach(uid => {
     const m = g[opp].monsters.find(x => x.uid === uid);
@@ -388,6 +393,9 @@ function applyTargetEffect(g: GameState, side: Side, card: Card, type: AutoEffec
       case "opponentMonsterToDeck": mLeaveField(g, opp, uid, "deck"); break;
       default: break;
     }
+    // ห้าม Stand: เป็นเอฟเฟกต์เดี่ยว หรือพ่วงกับ Rest / Nullify (ตัวเดียวกับที่เลือก) — ใช้ได้เมื่อมอนสเตอร์ยังอยู่บนสนาม
+    const still = g[opp].monsters.find(x => x.uid === uid);
+    if (still && (noStand || type === "noStandOpponentMonster")) blockStand(g, still, card.name);
   });
 }
 
@@ -401,7 +409,7 @@ export function resolveTargetChoice(state: GameState, side: Side, uids: string[]
   g.pendingTarget = null;
   const card = getCard(pt.cardId);
   if (card) {
-    applyTargetEffect(g, side, card, pt.effType, uids);
+    applyTargetEffect(g, side, card, pt.effType, uids, !!pt.noStand);
     if (pt.cont && pt.cont.skills.length > 0 && !g.winner) {
       const baseFc = pt.cont.fcUid ? findFc(g[side], pt.cont.fcUid) ?? undefined : undefined;
       runSkills(g, side, card, pt.cont.skills, { fc: baseFc });
@@ -445,7 +453,7 @@ function runSkills(
           const restOfSkill = skill.effects.slice(ei + 1);
           const restSkills: AutoSkill[] = [...(restOfSkill.length > 0 ? [{ ...skill, effects: restOfSkill }] : []), ...skills.slice(si + 1)];
           g.pendingTarget = {
-            side, cardId: card.id, effType: eff.type, n, candidates: cands.map(m => m.uid),
+            side, cardId: card.id, effType: eff.type, n, candidates: cands.map(m => m.uid), noStand: !!eff.noStand,
             cont: restSkills.length > 0 ? { skills: restSkills, fcUid: ctx.fc?.uid } : null,
           };
           log(g, `${card.name}: ${nameOf(side)} เลือกเป้าหมายมอนสเตอร์ศัตรู ${n} ตัว (${TARGET_LABEL[eff.type] ?? eff.type})`);
@@ -520,7 +528,7 @@ function runSkills(
           break;
         }
         case "restOpponent": {
-          g[opp].monsters.filter(m => m.state === "stand").slice(0, n).forEach(m => { m.state = "rest"; });
+          g[opp].monsters.filter(m => m.state === "stand").slice(0, n).forEach(m => { m.state = "rest"; if (eff.noStand) blockStand(g, m, card.name); });
           log(g, `${card.name} Rest มอนสเตอร์ศัตรู`);
           break;
         }
@@ -562,7 +570,10 @@ function runSkills(
         }
         case "standSelf": {
           const rests = g[side].monsters.filter(m => m.state === "rest");
-          (ctx?.fc ? [ctx.fc] : rests.slice(0, Math.max(1, n))).forEach(m => { m.state = "stand"; });
+          (ctx?.fc ? [ctx.fc] : rests.slice(0, Math.max(1, n))).forEach(m => {
+            if (m.noStandTurn === g.turn) { log(g, `${cardOfFc(m)?.name ?? "มอนสเตอร์"} ถูกห้าม Stand ในเทิร์นนี้ — Stand ไม่ได้`); return; }
+            m.state = "stand";
+          });
           log(g, `${card.name} Stand มอนสเตอร์`);
           break;
         }
@@ -678,7 +689,15 @@ function runSkills(
           [...g[opp].monsters]
             .sort((a, b) => order.indexOf(a.position) - order.indexOf(b.position))
             .slice(0, n)
-            .forEach(m => nullifyMonster(g, m, card.name));
+            .forEach(m => { nullifyMonster(g, m, card.name); if (eff.noStand) blockStand(g, m, card.name); });
+          break;
+        }
+        case "noStandOpponentMonster": {
+          const order = [1, 0, 2];
+          [...g[opp].monsters]
+            .sort((a, b) => order.indexOf(a.position) - order.indexOf(b.position))
+            .slice(0, n)
+            .forEach(m => blockStand(g, m, card.name));
           break;
         }
         case "removeSoul": {
@@ -2496,7 +2515,10 @@ function resolveBattle(g: GameState) {
     parts.forEach(({ fc, card }) => {
       const alive = me.monsters.some(m => m.uid === fc.uid) || me.item?.uid === fc.uid;
       if (!alive) return;
-      if (fc.attacks < maxAttacks(card)) {
+      if (fc.attacks < maxAttacks(card) && fc.noStandTurn === g.turn) {
+        fc.state = "rest";
+        log(g, `${card.name} ถูกห้าม Stand ในเทิร์นนี้ — Stand กลับไม่ได้ (Rest ค้างไว้)`);
+      } else if (fc.attacks < maxAttacks(card)) {
         fc.state = "stand";
         log(g, `${card.name} Stand กลับมา (โจมตีได้อีก ${maxAttacks(card) - fc.attacks} ครั้ง)`);
       } else {

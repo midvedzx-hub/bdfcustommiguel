@@ -40,6 +40,15 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
       )}
       {eff.type !== "condBuff" && eff.type !== "soulGrant" && eff.type !== "soulCond" && eff.type !== "destroyWeaker" && eff.type !== "callSelf" && eff.type !== "shuffleDeck" && !(eff.type === "dropToDeckBottom" && eff.allCards) && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
       <button onClick={onRemove} className="p-1 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={12} /></button>
+      {(eff.type === "nullifyOpponentMonster" || eff.type === "restOpponent") && (
+        <label className="basis-full flex items-center gap-1.5 text-xs text-slate-300 pl-1 cursor-pointer">
+          <input type="checkbox" checked={!!eff.noStand} onChange={e => onChange({ ...eff, noStand: e.target.checked })} />
+          และการ์ดที่เลือกนั้นไม่สามารถ Stand ได้ในเทิร์นนี้ (ใช้ตัวเดียวกับที่เลือก ไม่ต้องเลือกซ้ำ)
+        </label>
+      )}
+      {eff.type === "noStandOpponentMonster" && (
+        <p className="basis-full text-xs text-slate-500 pl-1">เลือกมอนสเตอร์ศัตรู (ถ้ามีมากกว่าจำนวนที่ระบุ จะให้ผู้เล่นเลือกเอง) · ตัวที่ถูกห้ามจะ Stand กลับไม่ได้จนจบเทิร์นนี้ เช่น Stand กลับจาก Double Attack หรือจากเอฟเฟกต์ Stand · ถ้าอยากให้พ่วงกับ Nullify / Rest ตัวเดียวกัน ให้ติ๊กช่อง “ไม่สามารถ Stand ได้” ในเอฟเฟกต์นั้นแทน</p>
+      )}
       {eff.type === "callCostReduce" && (
         <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
           <span>เมื่อมีการ์ดชื่อ</span>

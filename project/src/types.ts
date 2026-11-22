@@ -71,6 +71,7 @@ export type AutoEffectType =
   | "namedToHand"             // นำการ์ดที่ชื่อตรง (refName) จากสุสาน / บนกองเด็ค ขึ้นมือ N ใบ (เช่น หลังร่าย)
   | "requireOnField"          // เงื่อนไข: ต้องมีการ์ดที่กำหนด (refName) อยู่ในสนามของเรา จึงทำเอฟเฟกต์ถัดไปของสกิลนี้ ถ้าไม่มีก็ข้าม
   | "chooseAddSoul"           // เลือกการ์ดบนสนามของเรา แล้วนำการ์ดจากสุสาน/บนกองเด็คเข้า Soul ของการ์ดที่เลือก (เช่น ตอนร่ายเวท)
+  | "noStandOpponentMonster"  // เลือกมอนสเตอร์ศัตรู N ตัว: ไม่สามารถ Stand ได้ในเทิร์นนี้ (Stand กลับจาก Double Attack / เอฟเฟกต์ Stand ไม่ได้)
   | "callCostReduce"          // ถาวร: ถ้ามีการ์ดชื่อ ... หรือการ์ดที่มีคุณสมบัติ ... อยู่ในสนาม → Call Cost ของการ์ดใบนี้ลดลง value หน่วย (ไม่ต่ำกว่า 0)
   | "callSelf"                // (Counter จากมือ) คอลมอนสเตอร์ใบนี้จากมือลงช่องที่เลือก (จ่าย / ไม่จ่าย Call Cost ตามที่ตั้ง)
   | "condBuff";                // ถาวร: ถ้าในสนามมีการ์ดที่มีคุณสมบัติ/ชื่อที่กำหนด → การ์ดนี้ (หรือการ์ดที่ชื่อ ...) ได้ Power/Critical/Defense เพิ่ม และ/หรือได้คีย์เวิร์ด (grantKw)
@@ -126,6 +127,7 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "destroyAttacker", label: "[Counter] ทำลายผู้โจมตี", hint: "ใส่ 1" },
   { value: "restAttacker", label: "[Counter] Rest ผู้โจมตี", hint: "ใส่ 1" },
   { value: "negateSpell", label: "[Counter] ยกเลิกเวทที่ศัตรูร่าย", hint: "ใส่ 1" },
+  { value: "noStandOpponentMonster", label: "ห้ามมอนสเตอร์ศัตรู Stand ในเทิร์นนี้", hint: "จำนวนตัว" },
   { value: "callCostReduce", label: "ถาวร: ลด Call Cost ของการ์ดนี้ เมื่อมีการ์ด/คุณสมบัติที่กำหนดอยู่ในสนาม", hint: "ลดกี่หน่วย" },
   { value: "callSelf", label: "คอลการ์ดใบนี้ลงช่องใดก็ได้ (Counter จากมือ / เมื่อออกจาก Soul) เฉพาะมอนสเตอร์", hint: "ใส่ 1" },
   { value: "set", label: "Set (อยู่ในช่อง Set คงผลต่อเนื่อง)", hint: "Set ชื่อเดียวกันได้กี่ใบ" },
@@ -196,6 +198,7 @@ export interface AutoEffect {
   lifePerKill?: number;                             // ยิงดาเมจตรงใส่ผู้เล่นศัตรู N ต่อการ์ดที่ถูกทำลายได้จริง 1 ใบ (0/ไม่ใส่ = ไม่ยิง)
   redName?: string;                        // callCostReduce: ชื่อการ์ดบนสนาม (พิมพ์บางส่วนได้ หลายชื่อคั่น ,) — เจอใบใดใบหนึ่งก็ลด
   redAttr?: string;                        // callCostReduce: คุณสมบัติของการ์ดบนสนาม (หลายค่าคั่น ,) — เจอใบใดใบหนึ่งก็ลด (ใช้ "หรือ" กับชื่อ)
+  noStand?: boolean;                       // ใช้กับ Rest / Nullify: การ์ดที่เลือกนั้นไม่สามารถ Stand ได้ในเทิร์นนี้ด้วย (ใช้ตัวที่เลือกเดียวกัน ไม่ต้องเลือกซ้ำ)
   payCallCost?: boolean;                   // callSelf: true = ต้องจ่าย Call Cost ของการ์ดตอนคอล · ไม่ใส่/false = คอลฟรีไม่ต้องจ่าย
   allCards?: boolean;                      // dropToDeckBottom: นำการ์ดในสุสานทั้งหมด (ตามตัวกรองชนิดการ์ด) ไม่สนจำนวน
   shuffleAfter?: boolean;                  // dropToDeckBottom: สับเด็คหลังใส่การ์ดกลับ
@@ -361,6 +364,7 @@ export interface PendingTarget {
   candidates: string[];    // uid ของมอนสเตอร์ศัตรูที่เลือกได้
   cont: { skills: AutoSkill[]; fcUid?: string } | null; // เอฟเฟกต์ที่เหลือหลังเลือกเสร็จ
   resumeCounter?: boolean;
+  noStand?: boolean;       // ตัวที่เลือกจะถูกห้าม Stand ในเทิร์นนี้ด้วย
 }
 
 export interface BattleState {
@@ -393,6 +397,7 @@ export interface FieldCard {
   tempDefense: number;
   attacks: number; // จำนวนครั้งที่โจมตีแล้วในเทิร์นนี้
   soul: string[]; // การ์ดใต้การ์ดนี้ (Soul)
+  noStandTurn?: number; // เทิร์นที่ถูกห้าม Stand (ไม่สามารถ Stand ได้จนจบเทิร์นนั้น)
   movedTurn?: number; // เทิร์นที่ใช้ Move ไปแล้ว
   counterUsedTurn?: number; // เทิร์นที่ใช้ Counter Act จากสนามไปแล้ว (ใช้ได้ 1 ครั้งต่อเทิร์น)
   counterUsedSkills?: number[]; // ดัชนีสกิล Counter Act (ใน autoSkills) ที่ใช้ไปแล้วในเทิร์น counterUsedTurn — การ์ดที่มี Act หลายอันใช้ได้อันละ 1 ครั้งต่อเทิร์น

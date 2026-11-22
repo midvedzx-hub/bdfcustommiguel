@@ -49,7 +49,7 @@ export function effectText(e: AutoEffect): string {
       const all = (e.destroyScope ?? (e.includeItem ? "all" : "monster")) === "all";
       return `ทำลาย${all ? "การ์ดทั้งหมด (มอนสเตอร์/ไอเทม/การ์ด Set)" : "มอนสเตอร์"}ของศัตรูทุกใบที่ ${stats.join(joiner)} น้อยกว่า${ref ? ` “${ref}” (ต้องอยู่ในสนามของเรา)` : "การ์ดใบนี้"}${pk > 0 ? ` แล้วทำดาเมจตรง ${pk} ต่อการ์ด 1 ใบที่ถูกทำลาย` : ""}`;
     }
-    case "restOpponent": return `Rest มอนสเตอร์ศัตรู ${v} ตัว`;
+    case "restOpponent": return `Rest มอนสเตอร์ศัตรู ${v} ตัว${e.noStand ? " และการ์ดที่เลือกนั้นไม่สามารถ Stand ได้ในเทิร์นนี้" : ""}`;
     case "opponentDiscard": return `ศัตรูทิ้งการ์ดในมือ ${v} ใบ`;
     case "recoverFromDrop": return `เก็บ${filterText(e.filter)}จากสุสานขึ้นมือ ${v} ใบ`;
     case "dropToDeckBottom": return `นำ${filterText(e.filter)}จากสุสาน${e.allCards ? "ทั้งหมด" : ` ${v} ใบ`}ใส่ใต้กองเด็ค${e.shuffleAfter ? " แล้วสับเด็ค" : ""}`;
@@ -81,6 +81,10 @@ export function effectText(e: AutoEffect): string {
     case "dropToSoul": return `นำ${filterText(e.filter)} ${v} ใบจากสุสานเข้า Soul`;
     case "soulToHand": return `ถอด Soul ${v} ใบของการ์ดนี้ขึ้นมือ`;
     case "bounceOpponentMonster": return `ดึงมอนสเตอร์ศัตรู ${v} ตัวกลับมือ`;
+    case "opponentMonsterToDrop": return `ส่งมอนสเตอร์ศัตรู ${v} ตัวลงสุสาน (ไม่นับเป็นการทำลาย)`;
+    case "opponentMonsterToDeck": return `ใส่มอนสเตอร์ศัตรู ${v} ตัวกลับบนกองเด็ค`;
+    case "nullifyOpponentMonster": return `ยกเลิกความสามารถ (Nullify) ของมอนสเตอร์ศัตรู ${v} ตัว จนจบเทิร์น${e.noStand ? " และการ์ดที่เลือกนั้นไม่สามารถ Stand ได้ในเทิร์นนี้" : ""}`;
+    case "noStandOpponentMonster": return `มอนสเตอร์ศัตรู ${v} ตัวที่เลือกไม่สามารถ Stand ได้ในเทิร์นนี้`;
     case "powerPerSoul": return `Power +${v} ต่อการ์ด 1 ใบใน Soul`;
     case "criticalPerSoul": return `Critical +${v} ต่อการ์ด 1 ใบใน Soul`;
     case "soulGrant": {
@@ -245,6 +249,7 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
   { label: "ร่าย: ถอด Soul 1 → Attack +5000", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "buffPower", value: 5000 }] } },
   { label: "ร่าย: ถอด Soul 1 → Defense +5000", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "buffDefense", value: 5000 }] } },
   { label: "ร่าย: ถอด Soul 1 → จั่ว 1", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "draw", value: 1 }] } },
+  { label: "Counter 【Act】: Nullify มอนสเตอร์ศัตรู 1 ตัว และตัวที่เลือกไม่สามารถ Stand ได้ในเทิร์นนี้", skill: { trigger: "onCounterAct", effects: [{ type: "nullifyOpponentMonster", value: 1, noStand: true }] } },
   { label: "ถาวร: ถ้ามีการ์ดชื่อ X หรือคุณสมบัติ Y ในสนาม → Call Cost ลด 1", skill: { trigger: "continuous", effects: [{ type: "callCostReduce", value: 1, redName: "", redAttr: "" }] } },
   { label: "เมื่อการ์ดนี้ออกจาก Soul: คอลลงช่องใดก็ได้ (ไม่จ่าย Call Cost)", skill: { trigger: "onLeaveSoul", effects: [{ type: "callSelf", value: 1, payCallCost: false }] } },
   { label: "เมื่อการ์ดนี้ออกจาก Soul: คอลลงช่องใดก็ได้ (จ่าย Call Cost)", skill: { trigger: "onLeaveSoul", effects: [{ type: "callSelf", value: 1, payCallCost: true }] } },
