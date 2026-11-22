@@ -38,8 +38,17 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
           <label className="flex items-center gap-1 text-xs text-slate-300"><input type="checkbox" checked={!!eff.shuffleAfter} onChange={e => onChange({ ...eff, shuffleAfter: e.target.checked || undefined })} /> สับเด็คหลังใส่</label>
         </>
       )}
-      {eff.type !== "condBuff" && eff.type !== "soulGrant" && eff.type !== "soulCond" && eff.type !== "destroyWeaker" && eff.type !== "shuffleDeck" && !(eff.type === "dropToDeckBottom" && eff.allCards) && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
+      {eff.type !== "condBuff" && eff.type !== "soulGrant" && eff.type !== "soulCond" && eff.type !== "destroyWeaker" && eff.type !== "callSelf" && eff.type !== "shuffleDeck" && !(eff.type === "dropToDeckBottom" && eff.allCards) && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
       <button onClick={onRemove} className="p-1 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={12} /></button>
+      {eff.type === "callSelf" && (
+        <div className="basis-full flex flex-wrap items-center gap-3 text-xs text-slate-300 pl-1">
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" checked={!!eff.payCallCost} onChange={e => onChange({ ...eff, payCallCost: e.target.checked })} />
+            จ่าย Call Cost ของการ์ดตอนคอล {eff.payCallCost ? "(จ่ายตาม Call Cost ของการ์ด)" : "(ไม่ต้องจ่าย — คอลฟรี)"}
+          </label>
+          <p className="basis-full text-slate-500">ใช้กับการ์ดมอนสเตอร์ที่มีสกิล “Counter (ใช้จากมือ/ช่อง Set)” · ตอนใช้ผู้เล่นเลือกช่องที่จะลงได้เอง (ช่องไหนก็ได้ที่ว่างและ Size ไม่เกิน) การ์ดลงสนามเป็นมอนสเตอร์แทนที่จะลงสุสาน และเอฟเฟกต์ “เมื่อลงสนาม” / Buddy Call ทำงานตามปกติ · ใช้ได้เฉพาะจากมือ (Set คว่ำไม่ได้) · ถ้าเป็นมอนสเตอร์ไม้ตายจะไม่นับเป็น Impact Call</p>
+        </div>
+      )}
       {eff.type === "namedToHand" && (
         <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
           <span>นำการ์ดชื่อ</span>

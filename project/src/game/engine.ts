@@ -2,7 +2,7 @@ import { condBuffAmounts, deckBuddies, SOUL_GRANT_KEYWORDS } from "@/types";
 import type {
   GameState, PlayerState, Card, Flag, Deck, FieldCard, AutoEffectType, AutoTrigger, RuleSet, AttackTarget, FxEvent, FxInput, AutoSkill, CounterTiming, AutoEffect,
 } from "@/types";
-import { DEFAULT_RULES, callCostAmounts, canTransform, transformCostAmounts, isMonsterImpact, matchesType } from "@/types";
+import { DEFAULT_RULES, callCostAmounts, canTransform, transformCostAmounts, isMonsterImpact, matchesType, callSelfEffect } from "@/types";
 import { uid } from "@/storage";
 import { skillLines } from "@/game/helpers";
 
@@ -14,7 +14,7 @@ export type CounterOption = (
   | { zone: "set"; index: number }       // การ์ดคว่ำในช่อง Set ใช้เป็น 【Counter】 (ใช้แล้วลงสุสาน)
   | { zone: "setAct"; index: number }    // การ์ด Set ที่เปิดอยู่: ใช้ Counter 【Act】 ของมัน (การ์ดยังอยู่ในช่อง Set ใช้ได้ 1 ครั้งต่อเทิร์น)
   | { zone: "field"; uid: string }
-) & { discard?: number[]; skill?: number }; // skill = ดัชนีสกิล Counter Act (ใน autoSkills) เมื่อการ์ดมี Act หลายอัน // discard = ตำแหน่งการ์ดในมือที่เลือกทิ้งเป็นค่าใช้จ่าย (เมื่อสกิลมี "ทิ้งการ์ดบนมือ")
+) & { discard?: number[]; skill?: number; position?: number }; // skill = ดัชนีสกิล Counter Act (ใน autoSkills) เมื่อการ์ดมี Act หลายอัน // position = ช่องมอนสเตอร์ที่เลือกลง (ใช้กับ Counter "คอลการ์ดใบนี้จากมือ" callSelf) // discard = ตำแหน่งการ์ดในมือที่เลือกทิ้งเป็นค่าใช้จ่าย (เมื่อสกิลมี "ทิ้งการ์ดบนมือ")
 
 export const POSITION_NAMES = ["ซ้าย", "กลาง", "ขวา"];
 const other = (s: Side): Side => (s === "host" ? "guest" : "host");
@@ -695,6 +695,7 @@ function runSkills(
           }
           break;
         }
+        case "callSelf": break; // จัดการใน runCounterOption (ลงสนามจากมือ)
         case "negateSpell":
           if (g.spellWindow) { g.spellWindow.negated = true; log(g, `${card.name} ยกเลิกเวทที่ศัตรูร่าย!`); }
           break;
@@ -1733,6 +1734,7 @@ export function setCard(state: GameState, side: Side, handIndex: number): Result
     if (e2) return { state, ok: false, msg: e2 };
     return { state: g, ok: true, msg: `Set ${card.name}` };
   }
+  if (callSelfEffect(card)) return { state, ok: false, msg: `${card.name} มี Counter “คอลการ์ดใบนี้จากมือ” — ใช้ได้จากมือเท่านั้น Set คว่ำไม่ได้` };
   if (!card.autoSkills?.some(s => s.trigger === "onCounter"))
     return { state, ok: false, msg: `${card.name} ไม่มีสกิล Counter หรือคีย์เวิร์ด Set จึง Set ไม่ได้` };
   if (p.setZone.length >= g.rules.maxSet)
@@ -1903,7 +1905,7 @@ export function counterHandCost(card: Card, opt: CounterOption, timing: CounterT
 // withCall = รวม Call Cost ของการ์ดในมือเข้าไปด้วย (ใช้กับ Counter จากมือ — การ์ดที่ใช้เองไม่นับเป็นการ์ดที่ทิ้งได้)
 function canAffordExtra(p: PlayerState, card: Card, trig: AutoTrigger, timing: CounterTiming | null, withCall: boolean, only?: number): boolean {
   const ex = extraCostOf(card, trig, timing, only);
-  const cc = withCall ? callCostAmounts(card) : { gauge: 0, life: 0 };
+  const cc = withCall && !callSelfFree(card) ? callCostAmounts(card) : { gauge: 0, life: 0 };
   const gaugeNeed = ex.gauge + cc.gauge;
   const lifeNeed = ex.life + cc.life;
   if (p.gaugePile.length < gaugeNeed) return false;
@@ -1911,6 +1913,13 @@ function canAffordExtra(p: PlayerState, card: Card, trig: AutoTrigger, timing: C
   if (p.deck.length < ex.deck) return false;
   if (p.hand.length - (withCall ? 1 : 0) < ex.hand) return false;
   return true;
+}
+// Counter "คอลการ์ดใบนี้จากมือ" ที่ตั้งเป็นไม่จ่าย Call Cost
+const callSelfFree = (card: Card) => { const e = callSelfEffect(card); return !!e && !e.payCallCost; };
+// ช่องมอนสเตอร์ที่คอลการ์ดใบนี้จากมือลงได้ตอนนี้ (UI ใช้แสดงปุ่มเลือกช่อง) — ว่างและ Size ไม่เกิน
+export function callSelfSlots(state: GameState, side: Side, card: Card): number[] {
+  const g = state;
+  return [0, 1, 2].filter(pos => typeof checkCall(g, side, card, pos, false) !== "string");
 }
 // ตรวจรายการการ์ดในมือที่เลือกทิ้ง: คืน id ของการ์ด หรือข้อความผิดพลาด
 function pickDiscard(p: PlayerState, need: number, opt: CounterOption): { ids: string[] } | { err: string } {
@@ -1999,11 +2008,12 @@ export function counterOptions(state: GameState, side: Side): CounterOption[] {
   p.hand.forEach((id, i) => {
     const c = getCard(id);
     if (!c || counterSkills(c, "onCounter", timing).length === 0 || cardLimitReached(state, side, c)) return;
+    if (callSelfEffect(c) && callSelfSlots(state, side, c).length === 0) return; // ไม่มีช่องให้ลง (เต็ม / Size เกิน)
     if (canAffordExtra(p, c, "onCounter", timing, true)) out.push({ zone: "hand", index: i });
   });
   p.setZone.forEach((id, i) => {
     const c = getCard(id);
-    if (c && counterSkills(c, "onCounter", timing).length > 0 && !cardLimitReached(state, side, c) && canAffordExtra(p, c, "onCounter", timing, false)) out.push({ zone: "set", index: i });
+    if (c && !callSelfEffect(c) && counterSkills(c, "onCounter", timing).length > 0 && !cardLimitReached(state, side, c) && canAffordExtra(p, c, "onCounter", timing, false)) out.push({ zone: "set", index: i });
   });
   out.push(...setActOptions(state, side, timing, false));
   [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
@@ -2103,15 +2113,28 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
     if (!canAffordExtra(p, card, "onCounter", timing, true)) return "ค่าใช้จ่ายของ Counter นี้ไม่พอ (เกจ / Life / การ์ดบนเด็ค / การ์ดบนมือ)";
     const dis = pickDiscard(p, extraCostOf(card, "onCounter", timing).hand, opt);
     if ("err" in dis) return dis.err;
-    const costErr = payCost(g, side, card);
+    const callEff = callSelfEffect(card);
+    let plan: CallPlan | null = null;
+    if (callEff) {
+      // Counter "คอลการ์ดใบนี้จากมือ": ลงช่องที่เลือก (จ่าย Call Cost เฉพาะเมื่อตั้งไว้)
+      if (opt.position === undefined || ![0, 1, 2].includes(opt.position)) return "เลือกช่องที่จะลงมอนสเตอร์ก่อน";
+      const chk = checkCall(g, side, card, opt.position, false);
+      if (typeof chk === "string") return chk;
+      plan = chk;
+    }
+    const costErr = callEff && !callEff.payCallCost ? null : payCost(g, side, card);
     if (costErr) return costErr;
     payExtra(g, side, card, "onCounter", timing);
     p.hand.splice(opt.index, 1);
-    p.dropZone.push(cardId);
+    if (!plan) p.dropZone.push(cardId);
     discardFromHand(g, side, dis.ids, card.name);
     noteCardUse(g, side, card);
     log(g, `🛡 ${nameOf(side)} ใช้ Counter จากมือ: ${card.name}!`);
     fx(g, { k: "cast", side, cardId, label: "COUNTER!" });
+    if (plan) {
+      log(g, `${card.name} ถูกคอลจากมือลงสนามด้วย Counter${callEff!.payCallCost ? " (จ่าย Call Cost)" : " (ไม่จ่าย Call Cost)"}`);
+      placeCalled(g, side, cardId, card, opt.position!, plan);
+    }
     runSkills(g, side, card, counterSkills(card, "onCounter", timing), { fc: tgt });
   } else if (opt.zone === "set") {
     const cardId = p.setZone[opt.index];
@@ -2202,11 +2225,12 @@ export function freeCounterOptions(state: GameState, side: Side): CounterOption[
   p.hand.forEach((id, i) => {
     const c = getCard(id);
     if (!c || !usableAnytime(c, "onCounter") || cardLimitReached(state, side, c)) return;
+    if (callSelfEffect(c) && callSelfSlots(state, side, c).length === 0) return;
     if (canAffordExtra(p, c, "onCounter", null, true)) out.push({ zone: "hand", index: i });
   });
   p.setZone.forEach((id, i) => {
     const c = getCard(id);
-    if (c && usableAnytime(c, "onCounter") && !cardLimitReached(state, side, c) && canAffordExtra(p, c, "onCounter", null, false)) out.push({ zone: "set", index: i });
+    if (c && !callSelfEffect(c) && usableAnytime(c, "onCounter") && !cardLimitReached(state, side, c) && canAffordExtra(p, c, "onCounter", null, false)) out.push({ zone: "set", index: i });
   });
   out.push(...setActOptions(state, side, null, true));
   [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {

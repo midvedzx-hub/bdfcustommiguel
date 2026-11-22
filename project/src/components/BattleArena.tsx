@@ -5,13 +5,13 @@ import {
   Copy, LogIn, Users, RefreshCw, Wrench, X, Shield, Star, AlertTriangle, Link2, Eye,
 } from "lucide-react";
 import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet, FieldCard } from "@/types";
-import { TRIGGER_LABELS, customTextList, callCostLabel, canTransform, transformCostLabel, isMonsterImpact, matchesType } from "@/types";
+import { TRIGGER_LABELS, customTextList, callCostLabel, canTransform, transformCostLabel, isMonsterImpact, matchesType, callSelfEffect } from "@/types";
 import { DEFAULT_RULES, deckBuddies } from "@/types";
 import type { SoulPick } from "@/game/engine";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
   callMonster, impactCall, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
-  goToAttack, goToFinal, mulligan, transformCard, legalTargets, statsOf, counterOptions, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
+  goToAttack, goToFinal, mulligan, transformCard, legalTargets, statsOf, counterOptions, callSelfSlots, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxSetPhase, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, cardOfFc, matchCallRequires, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
@@ -241,7 +241,10 @@ export function botStep(s: GameState): GameState {
     if (s.battle?.attackerSide === "guest" || s.spellWindow?.casterSide === "guest") return s; // รอมนุษย์
     const opts = counterOptions(s, "guest");
     if (opts.length > 0) {
-      const r = counterAct(s, "guest", opts[0]);
+      const o0 = opts[0];
+      const c0 = counterCardOf(s, "guest", o0);
+      const slot = c0 && callSelfEffect(c0) ? ([1, 0, 2].find(p => callSelfSlots(s, "guest", c0).includes(p)) ?? 1) : undefined;
+      const r = counterAct(s, "guest", slot === undefined ? o0 : { ...o0, position: slot });
       if (r.ok) return (r.state.battle || r.state.spellWindow) && !r.state.pendingLook ? passCounter(r.state, "guest").state : r.state;
     }
     return passCounter(s, "guest").state;
@@ -657,8 +660,11 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     if (ok) setShowFreeCounter(false);
   };
   // ถ้าสกิลมีค่าใช้จ่าย "ทิ้งการ์ดบนมือ" ให้เปิดหน้าเลือกการ์ดก่อน แล้วค่อยใช้ Counter
+  const [slotPick, setSlotPick] = useState<{ opt: CounterOption; free: boolean } | null>(null);
   const requestCounter = (opt: CounterOption, free: boolean) => {
     const c = counterCardOf(game, mySide, opt);
+    // Counter "คอลการ์ดใบนี้จากมือ": เลือกช่องที่จะลงก่อน
+    if (c && opt.zone === "hand" && callSelfEffect(c) && opt.position === undefined) { setSlotPick({ opt, free }); return; }
     const need = c ? counterHandCost(c, opt, free ? null : (game.battle ? "attack" : "cast")) : 0;
     if (need > 0 && !opt.discard) { setDiscardPick({ opt, free, need, sel: [] }); return; }
     if (free) doFreeCounterRaw(opt); else doCounterRaw(opt);
@@ -1142,7 +1148,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             {card.type === "Item" && <button onClick={() => tryEquip(handSel)} className={`${btn} bg-emerald-600 hover:bg-emerald-500`}>ติดตั้งไอเทม</button>}
             {card.type === "Impact" && <button onClick={() => tryCast(handSel)} className={`${btn} bg-rose-600 hover:bg-rose-500`}>ใช้ Impact (Final Phase)</button>}
             {freeOpts.some(o => o.zone === "hand" && o.index === handSel) && <button onClick={() => { const o = freeOpts.find(x => x.zone === "hand" && x.index === handSel); if (o) { doFreeCounter(o); setHandSel(null); } }} className={`${btn} bg-sky-600 hover:bg-sky-500`}>⚡ ใช้ Counter ทันที</button>}
-            {(hasCounter(card) || (card.type === "Spell" && hasSetKeyword(card))) && <button onClick={() => trySet(handSel)} className={`${btn} bg-violet-600 hover:bg-violet-500`}>{card.type === "Spell" && hasSetKeyword(card) ? "Set (ลงช่อง Set)" : "Set (วางคว่ำ)"}</button>}
+            {((hasCounter(card) && !callSelfEffect(card)) || (card.type === "Spell" && hasSetKeyword(card))) && <button onClick={() => trySet(handSel)} className={`${btn} bg-violet-600 hover:bg-violet-500`}>{card.type === "Spell" && hasSetKeyword(card) ? "Set (ลงช่อง Set)" : "Set (วางคว่ำ)"}</button>}
             {sandbox && (<>
               <button onClick={() => { doAction(s => sandboxMoveCard(s, mySide, "hand", "dropZone", handSel)); setHandSel(null); }} className={`${btn} bg-slate-800 hover:bg-slate-700 flex items-center gap-1`}><Trash2 size={12} /> สุสาน</button>
               <button onClick={() => { doAction(s => sandboxMoveCard(s, mySide, "hand", "gauge", handSel)); setHandSel(null); }} className={`${btn} bg-slate-800 hover:bg-slate-700 flex items-center gap-1`}><Zap size={12} /> เกจ</button>
@@ -1292,6 +1298,33 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     );
   }
 
+  function renderSlotPick() {
+    if (!slotPick) return null;
+    const { opt, free } = slotPick;
+    const c = counterCardOf(game, mySide, opt);
+    const eff = callSelfEffect(c);
+    if (!c || !eff) return null;
+    const slots = callSelfSlots(game, mySide, c);
+    const choose = (pos: number) => { setSlotPick(null); requestCounter({ ...opt, position: pos }, free); };
+    return (
+      <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
+        <div className="bg-slate-900 border-2 border-sky-500 rounded-2xl p-5 max-w-xl w-full">
+          <h3 className="font-display text-xl font-bold text-sky-300 mb-1">คอล {c.name} ลงช่องไหน?</h3>
+          <div className="text-xs text-slate-400 mb-4">Counter คอลการ์ดจากมือ · {eff.payCallCost ? `จ่าย Call Cost ${callCostLabel(c)}` : "ไม่ต้องจ่าย Call Cost"} · Size {c.size}</div>
+          <div className="flex gap-2 mb-3">
+            {[0, 1, 2].map(pos => (
+              <button key={pos} disabled={!slots.includes(pos)} onClick={() => choose(pos)}
+                className="flex-1 py-3 rounded-xl font-bold bg-sky-600 hover:bg-sky-500 disabled:opacity-30 disabled:hover:bg-sky-600">
+                ช่อง{POSITION_NAMES[pos]}{!slots.includes(pos) ? " (ลงไม่ได้)" : ""}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setSlotPick(null)} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">ยกเลิก</button>
+        </div>
+      </div>
+    );
+  }
+
   function renderDiscardPick() {
     if (!discardPick) return null;
     const { opt, free, need, sel } = discardPick;
@@ -1348,7 +1381,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                   <CardView card={c} flag={flagOf(me.flagId)} size="md" onClick={() => doFreeCounter(o)} onInspect={() => openInspect(c, me.flagId)} className="hover:ring-4 hover:ring-sky-400" />
                   <span className="text-[11px] text-sky-300">{zoneLabel(o)}</span>
                   {counterSkillLabel(c, o) && <span className="text-[11px] text-slate-200 max-w-[180px] text-center leading-snug bg-slate-800 rounded px-2 py-1">{counterSkillLabel(c, o)}</span>}
-                  <button onClick={() => doFreeCounter(o)} className="px-3 py-1 bg-sky-600 hover:bg-sky-500 rounded-lg text-xs font-bold">ใช้ Counter{o.zone === "hand" ? ` (Cost ${callCostLabel(c)})` : ""}</button>
+                  <button onClick={() => doFreeCounter(o)} className="px-3 py-1 bg-sky-600 hover:bg-sky-500 rounded-lg text-xs font-bold">{callSelfEffect(c) && o.zone === "hand" ? "คอลลงสนามด้วย Counter" : "ใช้ Counter"}{o.zone === "hand" ? ` (${callSelfEffect(c) && !callSelfEffect(c)!.payCallCost ? "ไม่จ่าย Cost" : `Cost ${callCostLabel(c)}`})` : ""}</button>
                   {counterExtraCostLabel(c, o, null) && <span className="text-[11px] text-amber-300">เพิ่ม: {counterExtraCostLabel(c, o, null)}</span>}
                 </div>
               );
@@ -2119,6 +2152,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       {renderCounterModal()}
       {renderFreeCounterModal()}
       {flagInfo && <FlagInfoDialog flag={flagInfo} buddies={(flagInfo.buddyIds ?? []).map(id => cardOf(id)).filter((c): c is Card => !!c)} onClose={() => setFlagInfo(null)} />}
+      {renderSlotPick()}
       {renderDiscardPick()}
       {renderLookModal()}
       {renderSoulModal()}

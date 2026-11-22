@@ -70,6 +70,7 @@ export type AutoEffectType =
   | "namedToHand"             // นำการ์ดที่ชื่อตรง (refName) จากสุสาน / บนกองเด็ค ขึ้นมือ N ใบ (เช่น หลังร่าย)
   | "requireOnField"          // เงื่อนไข: ต้องมีการ์ดที่กำหนด (refName) อยู่ในสนามของเรา จึงทำเอฟเฟกต์ถัดไปของสกิลนี้ ถ้าไม่มีก็ข้าม
   | "chooseAddSoul"           // เลือกการ์ดบนสนามของเรา แล้วนำการ์ดจากสุสาน/บนกองเด็คเข้า Soul ของการ์ดที่เลือก (เช่น ตอนร่ายเวท)
+  | "callSelf"                // (Counter จากมือ) คอลมอนสเตอร์ใบนี้จากมือลงช่องที่เลือก (จ่าย / ไม่จ่าย Call Cost ตามที่ตั้ง)
   | "condBuff";                // ถาวร: ถ้าในสนามมีการ์ดที่มีคุณสมบัติ/ชื่อที่กำหนด → การ์ดนี้ (หรือการ์ดที่ชื่อ ...) ได้ Power/Critical/Defense เพิ่ม และ/หรือได้คีย์เวิร์ด (grantKw)
 
 export const TRIGGER_LABELS: { value: AutoTrigger; label: string }[] = [
@@ -122,6 +123,7 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "destroyAttacker", label: "[Counter] ทำลายผู้โจมตี", hint: "ใส่ 1" },
   { value: "restAttacker", label: "[Counter] Rest ผู้โจมตี", hint: "ใส่ 1" },
   { value: "negateSpell", label: "[Counter] ยกเลิกเวทที่ศัตรูร่าย", hint: "ใส่ 1" },
+  { value: "callSelf", label: "[Counter] คอลการ์ดใบนี้จากมือลงช่องใดก็ได้ (เฉพาะมอนสเตอร์)", hint: "ใส่ 1" },
   { value: "set", label: "Set (อยู่ในช่อง Set คงผลต่อเนื่อง)", hint: "Set ชื่อเดียวกันได้กี่ใบ" },
   { value: "destroyOpponentSet", label: "ทำลายการ์ด Set ของศัตรู", hint: "จำนวนใบ" },
   { value: "chooseRemoveSoul", label: "ถอด Soul ของการ์ดที่เลือก 1 ใบ (ถ้าถอดได้ ทำเอฟเฟกต์ถัดไป)", hint: "ถอดกี่ใบ" },
@@ -188,6 +190,7 @@ export interface AutoEffect {
   includeItem?: boolean;                            // (เก่า) รวมไอเทมของศัตรูด้วย — ถ้าไม่มี destroyScope: true ถือเป็น "all"
   destroyScope?: "monster" | "all";                 // destroyWeaker: ทำลายเฉพาะมอนสเตอร์ หรือ "การ์ดทั้งหมด" (มอนสเตอร์ + ไอเทม + การ์ด Set)
   lifePerKill?: number;                             // ยิงดาเมจตรงใส่ผู้เล่นศัตรู N ต่อการ์ดที่ถูกทำลายได้จริง 1 ใบ (0/ไม่ใส่ = ไม่ยิง)
+  payCallCost?: boolean;                   // callSelf: true = ต้องจ่าย Call Cost ของการ์ดตอนคอล · ไม่ใส่/false = คอลฟรีไม่ต้องจ่าย
   allCards?: boolean;                      // dropToDeckBottom: นำการ์ดในสุสานทั้งหมด (ตามตัวกรองชนิดการ์ด) ไม่สนจำนวน
   shuffleAfter?: boolean;                  // dropToDeckBottom: สับเด็คหลังใส่การ์ดกลับ
   grantKw?: AutoEffectType[];              // soulCond / condBuff: คีย์เวิร์ดที่ได้รับเมื่อเงื่อนไขครบ (เช่น penetrate, doubleAttack)
@@ -556,4 +559,15 @@ export function matchesType(card: Pick<Card, "type" | "monsterImpact"> | undefin
   if (!filter || filter === "any" || filter === "all") return true;
   if (!card) return false;
   return card.type === filter || (filter === "Impact" && isMonsterImpact(card));
+}
+
+// Counter "คอลการ์ดใบนี้จากมือ": คืนเอฟเฟกต์ callSelf ของสกิล Counter (ถ้าการ์ดเป็นมอนสเตอร์และมีเอฟเฟกต์นี้)
+export function callSelfEffect(card: Pick<Card, "type" | "autoSkills"> | undefined | null): AutoEffect | undefined {
+  if (!card || card.type !== "Monster") return undefined;
+  for (const sk of card.autoSkills ?? []) {
+    if (sk.trigger !== "onCounter") continue;
+    const e = sk.effects.find(x => x.type === "callSelf");
+    if (e) return e;
+  }
+  return undefined;
 }

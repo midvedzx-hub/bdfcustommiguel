@@ -117,6 +117,7 @@ export function effectText(e: AutoEffect): string {
     case "chooseRemoveSoul": return `เลือกการ์ดของเรา 1 ใบ ถอด Soul ${v} ใบ (ถ้าถอดได้ จึงทำต่อ)`;
     case "destroyOpponentSet": return `ทำลายการ์ด Set ของศัตรู ${v} ใบ`;
     case "negateSpell": return `ยกเลิกเวทที่ศัตรูกำลังร่าย`;
+    case "callSelf": return `คอลการ์ดใบนี้จากมือลงช่องใดก็ได้ (${e.payCallCost ? "จ่าย Call Cost" : "ไม่ต้องจ่าย Call Cost"})`;
     case "lookTop": {
       const opts: string[] = [];
       if ((e.toHand ?? 0) > 0) opts.push(`ขึ้นมือ ${e.toHand} ใบ`);
@@ -238,6 +239,8 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
   { label: "ร่าย: ถอด Soul 1 → Attack +5000", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "buffPower", value: 5000 }] } },
   { label: "ร่าย: ถอด Soul 1 → Defense +5000", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "buffDefense", value: 5000 }] } },
   { label: "ร่าย: ถอด Soul 1 → จั่ว 1", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "draw", value: 1 }] } },
+  { label: "Counter: คอลการ์ดใบนี้จากมือลงช่องใดก็ได้ (ไม่จ่าย Call Cost)", skill: { trigger: "onCounter", timing: "any", effects: [{ type: "callSelf", value: 1, payCallCost: false }] } },
+  { label: "Counter: คอลการ์ดใบนี้จากมือลงช่องใดก็ได้ (จ่าย Call Cost)", skill: { trigger: "onCounter", timing: "any", effects: [{ type: "callSelf", value: 1, payCallCost: true }] } },
   { label: "Counter: ยกเลิกเวทที่ศัตรูร่าย", skill: { trigger: "onCounter", timing: "cast", effects: [{ type: "negateSpell", value: 1 }] } },
   { label: "ถอด Soul → ดาเมจ 1", skill: { trigger: "onSoulRemoved", effects: [{ type: "reduceLife", value: 1 }] } },
   { label: "Buddy Call: จั่ว 1", skill: { trigger: "onBuddyCall", effects: [{ type: "draw", value: 1 }] } },
