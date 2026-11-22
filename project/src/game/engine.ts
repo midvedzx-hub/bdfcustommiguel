@@ -131,13 +131,10 @@ function mCharge(g: GameState, side: Side, n: number, canLose = true): number {
 
 function mPayGauge(g: GameState, side: Side, n: number) {
   const p = g[side];
-  let paid = 0;
   for (let i = 0; i < n && p.gaugePile.length > 0; i++) {
     p.dropZone.push(p.gaugePile.shift()!);
-    paid++;
   }
   syncGauge(p);
-  if (paid > 0) fx(g, { k: "pay", side, n: paid });
 }
 
 function mLife(g: GameState, side: Side, delta: number) {
@@ -214,8 +211,6 @@ function nullifyMonster(g: GameState, m: FieldCard, srcName: string) {
   const nm = c?.name ?? "มอนสเตอร์";
   if (isNullifyProof(c)) { log(g, `${srcName} Nullify ${nm} ไม่ได้ — ความสามารถของ ${nm} ไม่สามารถถูกยกเลิกได้`); return; }
   m.nullified = true;
-  const owner: Side = g.host.monsters.includes(m) ? "host" : "guest";
-  fx(g, { k: "nullifyFx", side: owner, uid: m.uid, pos: posOf(g, owner, m) });
   log(g, `${srcName} Nullify! ความสามารถของ ${nm} ถูกยกเลิกจนจบเทิร์น`);
 }
 
@@ -363,7 +358,7 @@ function applyTargetEffect(g: GameState, side: Side, card: Card, type: AutoEffec
     const nm = cardOfFc(m)?.name ?? "มอนสเตอร์";
     switch (type) {
       case "destroyOpponentMonster": mDestroyMonster(g, opp, uid); break;
-      case "restOpponent": m.state = "rest"; fx(g, { k: "restFx", side: opp, uid, pos: posOf(g, opp, m) }); log(g, `${card.name} Rest ${nm}`); break;
+      case "restOpponent": m.state = "rest"; log(g, `${card.name} Rest ${nm}`); break;
       case "nullifyOpponentMonster": nullifyMonster(g, m, card.name); break;
       case "bounceOpponentMonster": mLeaveField(g, opp, uid, "hand"); break;
       case "opponentMonsterToDrop": mLeaveField(g, opp, uid, "drop"); break;
@@ -502,7 +497,7 @@ function runSkills(
           break;
         }
         case "restOpponent": {
-          g[opp].monsters.filter(m => m.state === "stand").slice(0, n).forEach(m => { m.state = "rest"; fx(g, { k: "restFx", side: opp, uid: m.uid, pos: posOf(g, opp, m) }); });
+          g[opp].monsters.filter(m => m.state === "stand").slice(0, n).forEach(m => { m.state = "rest"; });
           log(g, `${card.name} Rest มอนสเตอร์ศัตรู`);
           break;
         }
@@ -512,7 +507,6 @@ function runSkills(
             const idx = Math.floor(Math.random() * h.length);
             g[opp].dropZone.push(h.splice(idx, 1)[0]);
           }
-          fx(g, { k: "discard", side: opp, n, from: "hand" });
           log(g, `${card.name} ทำให้ศัตรูทิ้งการ์ด`);
           break;
         }
@@ -534,11 +528,12 @@ function runSkills(
           if (held) pz.dropZone.push(card.id);
           g[side].deck.push(...got.reverse()); // ใส่ใต้กอง: คงลำดับเดิมของสุสาน (ใบเก่าอยู่ก่อน)
           log(g, `${card.name} นำการ์ดจากสุสาน ${got.length} ใบใส่ใต้กองเด็ค${eff.shuffleAfter ? " และสับเด็ค" : ""}`);
-          if (eff.shuffleAfter) shuffleInPlace(g[side].deck);
+          if (eff.shuffleAfter) { shuffleInPlace(g[side].deck); fx(g, { k: "shuffle", side }); }
           break;
         }
         case "shuffleDeck": {
           shuffleInPlace(g[side].deck);
+          fx(g, { k: "shuffle", side });
           log(g, `${card.name}: ${nameOf(side)} สับเด็ค`);
           break;
         }
@@ -557,7 +552,6 @@ function runSkills(
             if (eff.type === "buffPower") target.tempPower += eff.value;
             if (eff.type === "buffCritical") target.tempCritical += eff.value;
             if (eff.type === "buffDefense") target.tempDefense += eff.value;
-            fx(g, { k: "buff", side, uid: target.uid, pos: posOf(g, side, target), stat: eff.type === "buffPower" ? "power" : eff.type === "buffCritical" ? "critical" : "defense", amount: eff.value });
           });
           log(g, `${card.name} ${eff.type === "buffPower" ? "Power" : eff.type === "buffCritical" ? "Critical" : "Defense"} +${eff.value}`);
           break;
@@ -697,6 +691,29 @@ function runSkills(
         case "negateSpell":
           if (g.spellWindow) { g.spellWindow.negated = true; log(g, `${card.name} ยกเลิกเวทที่ศัตรูร่าย!`); }
           break;
+        case "chooseAddSoul": {
+          // เลือกการ์ดบนสนามของเรา แล้วนำการ์ดจากสุสาน/บนกองเด็คเข้า Soul ของใบที่เลือก
+          const srcKind: "drop" | "deck" = eff.soulSrc === "deck" ? "deck" : "drop";
+          const cnt = Math.max(1, n);
+          const cands = [...g[side].monsters, ...(g[side].item ? [g[side].item] : [])];
+          // เวท/Impact ที่กำลังใช้อยู่ถูกวางในสุสานแล้ว แต่ยังไม่ถือเป็นการ์ดในสุสานที่เลือกนำเข้า Soul ได้ (ตัดออก 1 ใบ)
+          const dropForPick = [...g[side].dropZone];
+          if (card.type === "Spell" || card.type === "Impact") { const k = dropForPick.lastIndexOf(card.id); if (k >= 0) dropForPick.splice(k, 1); }
+          const avail = srcKind === "deck"
+            ? g[side].deck.length
+            : dropForPick.filter(id => !eff.filter || eff.filter === "any" || getCard(id)?.type === eff.filter).length;
+          if (cands.length === 0) { log(g, `${card.name}: ไม่มีการ์ดบนสนามที่จะรับ Soul`); break; }
+          if (avail === 0) { log(g, `${card.name}: ไม่มี${srcKind === "deck" ? "การ์ดบนกองเด็ค" : "การ์ดที่ตรงเงื่อนไขในสุสาน"}ให้นำเข้า Soul`); break; }
+          const restOfSkillA = skill.effects.slice(ei + 1);
+          const restSkillsA: AutoSkill[] = [...(restOfSkillA.length > 0 ? [{ ...skill, effects: restOfSkillA }] : []), ...skills.slice(si + 1)];
+          g.pendingSoul = {
+            side, cardId: card.id, n: cnt, mode: "add", src: srcKind, filter: eff.filter,
+            candidates: cands.map(c => c.uid),
+            cont: restSkillsA.length > 0 ? { skills: restSkillsA, fcUid: ctx.fc?.uid, firstIsRest: false } : null,
+          };
+          log(g, `${card.name}: ${nameOf(side)} เลือกการ์ดที่จะรับ Soul ${cnt} ใบจาก${srcKind === "deck" ? "บนกองเด็ค" : "สุสาน"}`);
+          return;
+        }
         case "chooseRemoveSoul": {
           const cands = [...g[side].monsters, ...(g[side].item ? [g[side].item] : [])].filter(m => m.soul.length >= Math.max(1, n));
           if (cands.length === 0) { abort = true; log(g, `${card.name}: ไม่มีการ์ดที่มี Soul พอให้ถอด เอฟเฟกต์ที่เหลือไม่ทำงาน`); break; }
@@ -787,7 +804,6 @@ function startTurn(g: GameState, skipDraw: boolean) {
   const p = g[side];
   p.monsters.forEach(m => { m.state = "stand"; m.attacks = 0; });
   if (p.item) { p.item.state = "stand"; p.item.attacks = 0; }
-  if (p.monsters.length > 0 || p.item) fx(g, { k: "standFx", side });
   g.attacksThisTurn = 0;
   g.battle = null;
   g.moveWindow = null;
@@ -1576,10 +1592,8 @@ export function moveMonster(state: GameState, side: Side, monsterUid: string, po
   if (m.position === position) return { state, ok: false, msg: "มอนสเตอร์อยู่ช่องนั้นอยู่แล้ว" };
   if (p.monsters.some(x => x.position === position))
     return { state, ok: false, msg: `Move ย้ายได้เฉพาะไปยัง "ช่องมอนสเตอร์ที่ว่าง" แต่ช่อง${POSITION_NAMES[position]}มีมอนสเตอร์อยู่` };
-  const fromPos = m.position;
   m.position = position;
   m.movedTurn = g.turn;
-  fx(g, { k: "moveFx", side, uid: m.uid, cardId: m.cardId, from: fromPos, to: position });
   log(g, `${card.name} Move ไปช่อง${POSITION_NAMES[position]}`);
   return { state: g, ok: true, msg: "Move" };
 }
@@ -2109,11 +2123,29 @@ export function resolveSoulChoice(state: GameState, side: Side, targetUid: strin
   let chosen: FieldCard | undefined;
   let skills = ps.cont?.skills ?? [];
   if (targetUid === null) {
-    log(g, `${nameOf(side)} เลือกไม่ถอด Soul`);
+    log(g, ps.mode === "add" ? `${nameOf(side)} เลือกไม่ใส่ Soul` : `${nameOf(side)} เลือกไม่ถอด Soul`);
     if (ps.cont?.firstIsRest) skills = skills.slice(1);
   } else {
     chosen = findFc(p, targetUid) ?? undefined;
-    if (chosen) mRemoveSoul(g, side, chosen, ps.n);
+    if (chosen && ps.mode === "add") {
+      // นำการ์ดจากสุสาน/บนกองเด็คเข้า Soul ของการ์ดที่เลือก
+      let got: string[] = [];
+      if (ps.src === "deck") { for (let i = 0; i < ps.n && p.deck.length > 0; i++) got.push(p.deck.shift()!); }
+      else {
+        // ไม่หยิบเวท/Impact ที่กำลังใช้อยู่ (อยู่ในสุสานแล้ว) มาเป็น Soul ของตัวเอง
+        const selfType = card?.type;
+        const selfIdx = selfType === "Spell" || selfType === "Impact" ? p.dropZone.lastIndexOf(ps.cardId) : -1;
+        const held = selfIdx >= 0 ? p.dropZone.splice(selfIdx, 1)[0] : null;
+        got = pickFromDrop(g, side, ps.n, ps.filter);
+        if (held) p.dropZone.push(held);
+      }
+      if (got.length > 0) {
+        chosen.soul.push(...got);
+        log(g, `${card?.name ?? "เวท"} นำการ์ด${ps.src === "deck" ? "จากบนกองเด็ค" : "จากสุสาน"} ${got.length} ใบเข้า Soul ของ ${cardOfFc(chosen)?.name ?? "การ์ด"} (รวม ${chosen.soul.length})`);
+        fx(g, { k: "soulIn", side, uid: chosen.uid, pos: posOf(g, side, chosen), n: got.length, from: ps.src === "deck" ? "deck" : "drop" });
+        recalcAuras(g);
+      } else log(g, `${card?.name ?? "เวท"}: ไม่มีการ์ดให้นำเข้า Soul แล้ว`);
+    } else if (chosen) mRemoveSoul(g, side, chosen, ps.n);
     else if (ps.cont?.firstIsRest) skills = skills.slice(1);
   }
   if (card && skills.length > 0 && !g.winner) {
@@ -2421,6 +2453,7 @@ export function sandboxShuffleDeck(state: GameState, side: Side): GameState {
     [d[i], d[j]] = [d[j], d[i]];
   }
   log(g, `[Sandbox] ${nameOf(side)} สับเด็ค`);
+  fx(g, { k: "shuffle", side });
   return g;
 }
 
@@ -2453,6 +2486,22 @@ export function sandboxMoveToPosition(state: GameState, side: Side, monsterUid: 
   const occ = p.monsters.find(mo => mo.position === pos);
   if (occ) occ.position = m.position;
   m.position = pos;
+  return g;
+}
+
+// Sandbox: ตั้งเฟสของเทิร์นปัจจุบัน (ย้อนกลับ/ข้ามได้) — ไม่รันเอฟเฟกต์ของเฟสนั้น ล้างหน้าต่างที่ค้างอยู่ (Counter / Move / เลือกเป้าหมาย)
+export function sandboxSetPhase(state: GameState, phase: "charge" | "main" | "attack" | "final"): GameState {
+  if (state.winner || state.phase === phase) return state;
+  const g = structuredClone(state);
+  const cleared: string[] = [];
+  if (g.battle) { g.battle = null; cleared.push("การต่อสู้ที่รอ Counter"); }
+  if (g.spellWindow) { g.spellWindow = null; cleared.push("จังหวะ Counter ของเวท"); }
+  if (g.moveWindow) { g.moveWindow = null; cleared.push("ช่วง Move"); }
+  if (g.pendingLook || g.pendingSoul || g.pendingTarget) { g.pendingLook = null; g.pendingSoul = null; g.pendingTarget = null; cleared.push("การเลือกที่ค้างอยู่"); }
+  const names: Record<string, string> = { charge: "Charge & Draw", main: "Main Phase", attack: "Attack Phase", final: "Final Phase" };
+  log(g, `🛠 [Sandbox] ${nameOf(g.currentTurn)} ตั้งเฟสเป็น ${names[phase]}${cleared.length ? ` (ล้าง: ${cleared.join(", ")})` : ""}`);
+  g.phase = phase;
+  recalcAuras(g);
   return g;
 }
 

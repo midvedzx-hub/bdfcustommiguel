@@ -12,7 +12,7 @@ import { keywordValue,
   callMonster, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
   goToAttack, goToFinal, mulligan, transformCard, legalTargets, statsOf, counterOptions, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
-  sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
+  sandboxMoveCard, sandboxSetPhase, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, cardOfFc, matchCallRequires, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
   type AttackTarget, type CounterOption, type Result,
   setSoulguardAuto, closeMoveWindow, movableMonsters, recalcAuras, hasSetKeyword, activeSetCards, sandboxDestroySet, sandboxMoveSet, resolveLook, resolveSoulChoice, resolveTargetChoice, targetEffectLabel,
@@ -220,7 +220,8 @@ export function botStep(s: GameState): GameState {
     if (s.pendingSoul.side === "host") return s;
     // บอทเลือกถอด Soul จากการ์ดที่มี Soul มากที่สุด
     const ps = s.pendingSoul;
-    const best = [...s.guest.monsters, ...(s.guest.item ? [s.guest.item] : [])].filter(m => ps.candidates.includes(m.uid)).sort((a, b) => b.soul.length - a.soul.length)[0];
+    const pool = [...s.guest.monsters, ...(s.guest.item ? [s.guest.item] : [])].filter(m => ps.candidates.includes(m.uid));
+    const best = ps.mode === "add" ? pool[0] : pool.sort((a, b) => b.soul.length - a.soul.length)[0];
     return resolveSoulChoice(s, "guest", best ? best.uid : null).state;
   }
   if (s.pendingTarget) {
@@ -353,9 +354,10 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const [, setImgTick] = useState(0);
   const dragRef = useRef<Drag>(null);
   const [inspectMode, setInspectMode] = useState(false);
+  const [soulView, setSoulView] = useState<{ title: string; ids: string[]; flagId?: string } | null>(null); // หน้าต่างดูการ์ดใน Soul
   const [flagInfo, setFlagInfo] = useState<Flag | null>(null);
   const [hidden, setHidden] = useState<string[]>([]);
-  const [banner, setBanner] = useState<{ key: number; text: string; sub?: string; color: string } | null>(null);
+  const [banner, setBanner] = useState<{ key: number; text: string; sub?: string; color: string; back?: boolean } | null>(null);
   const bannerTimer = useRef<number | undefined>(undefined);
   const prevPhase = useRef({ turn: 0, phase: "", started: false });
   const [inspect, setInspect] = useState<{ card: Card; flagId?: string; fc?: FieldCard | null; note?: string } | null>(null);
@@ -512,15 +514,25 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     prevPhase.current = { turn: game.turn, phase: game.phase, started };
     if (game.winner || !started) return;
     const mine = game.currentTurn === mySide;
-    let nb: { text: string; sub?: string; color: string } | null = null;
+    let nb: { text: string; sub?: string; color: string; back?: boolean } | null = null;
+    const ORDER: Record<string, number> = { draw: 0, charge: 1, main: 2, attack: 3, final: 4 };
+    const LABEL: Record<string, string> = { charge: "CHARGE & DRAW", main: "MAIN PHASE", attack: "ATTACK PHASE", final: "FINAL PHASE" };
     if (!prev.started || game.turn !== prev.turn) {
       nb = mine
         ? { text: "เทิร์นของคุณ", sub: `TURN ${game.turn}`, color: "#0891b2" }
         : { text: "เทิร์นฝั่งตรงข้าม", sub: `TURN ${game.turn}`, color: "#be123c" };
-    } else if (mine && game.phase !== prev.phase && game.phase === "attack") {
-      nb = { text: "ATTACK PHASE", sub: "เลือกผู้โจมตี แล้วเลือกเป้าหมาย", color: "#dc2626" };
-    } else if (mine && game.phase !== prev.phase && game.phase === "final") {
-      nb = { text: "FINAL PHASE", sub: "ใช้ Impact ได้ แล้วจบเทิร์น", color: "#a21caf" };
+    } else if (game.phase !== prev.phase) {
+      if ((ORDER[game.phase] ?? 0) < (ORDER[prev.phase] ?? 0)) {
+        nb = { text: `◀ ${LABEL[game.phase] ?? game.phase.toUpperCase()}`, sub: "ย้อนกลับเฟส (Sandbox)", color: "#475569", back: true };
+      } else if (mine && game.phase === "main") {
+        nb = { text: "MAIN PHASE", sub: "ลงมอนสเตอร์ ร่ายเวท จัดทัพ", color: "#059669" };
+      } else if (mine && game.phase === "attack") {
+        nb = { text: "ATTACK PHASE", sub: "เลือกผู้โจมตี แล้วเลือกเป้าหมาย", color: "#dc2626" };
+      } else if (mine && game.phase === "final") {
+        nb = { text: "FINAL PHASE", sub: "ใช้ Impact ได้ แล้วจบเทิร์น", color: "#a21caf" };
+      } else if (!mine && (game.phase === "attack" || game.phase === "final")) {
+        nb = { text: LABEL[game.phase], sub: "ฝั่งตรงข้าม", color: game.phase === "attack" ? "#9f1239" : "#6b21a8" };
+      }
     }
     if (nb) {
       playSfx("turn");
@@ -665,6 +677,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
 
   // เปิดหน้าต่างดูรายละเอียดการ์ด (คลิกขวา / ดับเบิลคลิก / โหมดดูการ์ด / คลิกการ์ดที่ตอนนี้ใช้ไม่ได้)
   const openInspect = (card: Card, flagId?: string, fc?: FieldCard | null, note?: string) => setInspect({ card, flagId, fc, note });
+  const openSoulView = (title: string, ids: string[], flagId?: string) => setSoulView({ title, ids: [...ids], flagId });
 
   // เหตุผลที่ตอนนี้ยังกระทำกับการ์ดไม่ได้ (แสดงในหน้าต่างดูการ์ด)
   function whyBlocked(): string | undefined {
@@ -672,7 +685,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     if (!started) return "ยังเริ่มเกมไม่ได้: รอทั้งสองฝั่งเลือก Mulligan ก่อน";
     if (myTargetPick) return "กำลังเลือกเป้าหมายมอนสเตอร์ศัตรู: เลือกให้เสร็จก่อน";
     if (oppTargetPick) return "กำลังรอฝั่งตรงข้ามเลือกเป้าหมายมอนสเตอร์";
-    if (mySoulPick) return "กำลังเลือกการ์ดที่จะถอด Soul: เลือกให้เสร็จก่อน";
+    if (mySoulPick) return mySoulPick.mode === "add" ? "กำลังเลือกการ์ดที่จะรับ Soul: เลือกให้เสร็จก่อน" : "กำลังเลือกการ์ดที่จะถอด Soul: เลือกให้เสร็จก่อน";
     if (oppSoulPick) return "กำลังรอฝั่งตรงข้ามเลือกการ์ดที่จะถอด Soul";
     if (myLook) return "กำลังเลือกการ์ดหลังดูกอง: เลือกให้เสร็จก่อน";
     if (oppLooking) return "กำลังรอฝั่งตรงข้ามเลือกการ์ดหลังดูกอง";
@@ -792,6 +805,14 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         >
           {m && card && (
             <div key={m.uid} className="anim-call relative" data-fxcard={m.uid} style={{ visibility: hidden.includes(m.uid) ? "hidden" : "visible" }}>
+              {m.soul.length > 0 && (
+                <button
+                  className="absolute -bottom-1 -left-1 z-20 bg-violet-700 hover:bg-violet-600 border border-violet-200 text-white font-bold rounded-full px-1.5 shadow-lg"
+                  style={{ fontSize: "10px" }}
+                  title="ดูการ์ดใน Soul"
+                  onClick={e => { e.stopPropagation(); openSoulView(card.name, m.soul, p.flagId); }}
+                >◆ {m.soul.length}</button>
+              )}
               <div
                 className="transition-transform duration-500 relative"
                 style={{ transform: m.state === "rest" ? "rotate(90deg)" : "none" }}
@@ -834,7 +855,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     return (
       <div
         data-fx={`mat:${side}`}
-        className={`relative rounded-2xl overflow-hidden transition-shadow duration-500 ${active ? "mat-active" : ""}`}
+        className="relative rounded-2xl overflow-hidden transition-shadow duration-500"
         style={{
           width: "var(--mw)", height: "var(--mh)",
           background: `radial-gradient(ellipse at 50% 90%, ${color}55, transparent 60%), repeating-linear-gradient(45deg, #9aa0ab 0 6px, #8d93a0 6px 12px)`,
@@ -844,7 +865,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       >
         {/* Life track */}
         <div data-fx={`life:${side}`} style={{ ...place(10, 0, 81, 8.5, mirror), background: "linear-gradient(180deg,#7f1d1d,#5b1414)", borderRadius: mirror ? "0 0 10px 10px" : "10px 10px 0 0" }}
-          className={`flex items-center gap-[1%] px-[1.2%] ${fighterLegal ? "glow-target cursor-crosshair" : "cursor-pointer"} ${p.life <= 3 ? "life-danger" : ""}`} title="กดเพื่อดูความสามารถของ Flag"
+          className={`flex items-center gap-[1%] px-[1.2%] ${fighterLegal ? "glow-target cursor-crosshair" : "cursor-pointer"}`} title="กดเพื่อดูความสามารถของ Flag"
           onClick={() => { if (!isMine && atkSels.length > 0) tryAttack({ kind: "fighter" }); else if (flag) setFlagInfo(flag); }}
           onDragOver={draggingAttack ? (e) => e.preventDefault() : undefined}
           onDrop={draggingAttack ? (e) => { e.preventDefault(); handleDropAttack({ kind: "fighter" }); } : undefined}>
@@ -896,7 +917,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         </RectZone>
 
         {/* Set */}
-        <RectZone fx={`set:${side}`} style={place(2, 66, 24, 29, mirror)} onDrop={isMine ? handleDropOnSet : undefined} label={p.setZone.length === 0 ? "เซ็ท" : undefined}>
+        <RectZone style={place(2, 66, 24, 29, mirror)} onDrop={isMine ? handleDropOnSet : undefined} label={p.setZone.length === 0 ? "เซ็ท" : undefined}>
           <div className="flex gap-1 items-center justify-center flex-wrap">
             {p.setZone.map((id, i) => {
               const c = cardOf(id);
@@ -909,6 +930,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                       onClick={() => sandbox ? setMenuTarget({ kind: "set", side, index: i }) : openInspect(c, p.flagId, null, `การ์ด Set: ผลต่อเนื่องทำงานตลอดที่อยู่ในช่อง Set จนกว่าจะถูกทำลาย${sandbox ? "" : ""}`)}
                       onInspect={() => openInspect(c, p.flagId)} />
                     <span className="absolute -top-1 -left-1 bg-violet-600 text-white font-bold rounded px-1" style={{ fontSize: "9px" }}>SET</span>
+                    {setSoulOf(p, i).length > 0 && <button className="absolute -bottom-1 -right-1 bg-violet-700 hover:bg-violet-600 border border-violet-200 text-white font-bold rounded-full px-1.5 z-10" style={{ fontSize: "10px" }} title="ดูการ์ดใน Soul ของการ์ด Set" onClick={e => { e.stopPropagation(); openSoulView(c.name, setSoulOf(p, i), p.flagId); }}>◆{setSoulOf(p, i).length}</button>}
                   </div>
                 );
               }
@@ -916,7 +938,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 <div key={i} onMouseEnter={() => (isMine || sandbox) && c && setHovered({ card: c, flagId: p.flagId })}>
                   <div className="relative">
                     <CardView faceDown width="calc(var(--mh) * 0.17)" onClick={sandbox && c ? () => setMenuTarget({ kind: "set", side, index: i }) : isMine && c ? () => openInspect(c, p.flagId, null, "การ์ด Set (คว่ำ): ใช้เป็น Counter ได้ตอนศัตรูโจมตีหรือร่ายเวท") : undefined} />
-                    {setSoulOf(p, i).length > 0 && <span className="absolute -bottom-1 -right-1 bg-violet-700 border border-violet-200 text-white font-bold rounded-full px-1.5 z-10" style={{ fontSize: "10px" }} title="Soul ใต้การ์ด Set">◆{setSoulOf(p, i).length}</span>}
+                    {setSoulOf(p, i).length > 0 && <button className="absolute -bottom-1 -right-1 bg-violet-700 hover:bg-violet-600 border border-violet-200 text-white font-bold rounded-full px-1.5 z-10" style={{ fontSize: "10px" }} title="ดูการ์ดใน Soul ของการ์ด Set" onClick={e => { e.stopPropagation(); openSoulView(c?.name ?? "การ์ด Set", setSoulOf(p, i), p.flagId); }}>◆{setSoulOf(p, i).length}</button>}
                   </div>
                 </div>
               );
@@ -957,7 +979,15 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               }}
             >
               {p.item && cardOfFc(p.item) ? (
-                <div key={p.item.uid} className="anim-call" style={{ visibility: hidden.includes(p.item.uid) ? "hidden" : "visible" }}>
+                <div key={p.item.uid} className="anim-call relative" style={{ visibility: hidden.includes(p.item.uid) ? "hidden" : "visible" }}>
+                {p.item.soul.length > 0 && (
+                  <button
+                    className="absolute -bottom-1 -left-1 z-20 bg-violet-700 hover:bg-violet-600 border border-violet-200 text-white font-bold rounded-full px-1.5 shadow-lg"
+                    style={{ fontSize: "10px" }}
+                    title="ดูการ์ดใน Soul"
+                    onClick={e => { e.stopPropagation(); openSoulView(cardOfFc(p.item!)?.name ?? "ไอเทม", p.item!.soul, p.flagId); }}
+                  >◆ {p.item.soul.length}</button>
+                )}
                 <div className="transition-transform duration-500 relative" style={{ transform: p.item.state === "rest" ? "rotate(90deg)" : "none" }} onMouseEnter={() => setHovered({ card: cardOfFc(p.item!)!, flagId: p.flagId, stats: statsOf(p.item!), soul: p.item!.soul.length })}>
                   <SoulStack n={p.item.soul.length} />
                   <CardView card={cardOfFc(p.item)!} flag={flag} width="calc(var(--mh) * 0.22)" hideText stats={statsOf(p.item)} soul={p.item.soul.length}
@@ -1011,7 +1041,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     const hw = isMine ? "calc(var(--cw) * 0.95)" : "calc(var(--cw) * 0.5)";
     const overlap = p.hand.length > 8 ? "-0.4" : p.hand.length > 6 ? "-0.2" : "0.08";
     return (
-      <div data-fx={`hand:${isMine ? mySide : oppSide}`} className="flex justify-center items-end px-2" style={{ minHeight: isMine ? "calc(var(--cw) * 1.3)" : "calc(var(--cw) * 0.45)", paddingTop: isMine ? "1rem" : 0 }}>
+      <div className="flex justify-center items-end px-2" style={{ minHeight: isMine ? "calc(var(--cw) * 1.3)" : "calc(var(--cw) * 0.45)", paddingTop: isMine ? "1rem" : 0 }}>
         {p.hand.length === 0 && <span className="text-slate-600 text-xs py-3">ไม่มีการ์ดในมือ</span>}
         {p.hand.map((cid, i) => {
           const style: CSSProperties = { marginLeft: i === 0 ? 0 : `calc(${hw} * ${overlap})` };
@@ -1100,8 +1130,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     else if (!started) hint = "รอทั้งสองฝั่งเลือก Mulligan...";
     else if (myTargetPick) hint = "เลือกมอนสเตอร์ศัตรูเป้าหมาย แล้วกดยืนยัน";
     else if (oppTargetPick) hint = "รอฝั่งตรงข้ามเลือกเป้าหมายมอนสเตอร์...";
-    else if (mySoulPick) hint = "เลือกการ์ดของคุณที่จะถอด Soul (หรือเลือกไม่ถอด)";
-    else if (oppSoulPick) hint = "รอฝั่งตรงข้ามเลือกการ์ดที่จะถอด Soul...";
+    else if (mySoulPick) hint = mySoulPick.mode === "add" ? "เลือกการ์ดของคุณที่จะรับ Soul (หรือเลือกไม่ใส่)" : "เลือกการ์ดของคุณที่จะถอด Soul (หรือเลือกไม่ถอด)";
+    else if (oppSoulPick) hint = "รอฝั่งตรงข้ามเลือกการ์ดเกี่ยวกับ Soul...";
     else if (myLook) hint = "เลือกการ์ดจากการดูกอง แล้วกดยืนยัน";
     else if (oppLooking) hint = "รอฝั่งตรงข้ามเลือกการ์ดหลังดูกอง...";
     else if (waitingCounter) hint = "รอฝั่งตรงข้ามเลือกว่าจะใช้ Counter หรือไม่...";
@@ -1172,6 +1202,21 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           <button onClick={doEndTurn} className={`${b} bg-amber-600 hover:bg-amber-500 transition ${game.phase === "final" ? "btn-nudge" : ""}`}>จบเทิร์น</button>
         )}
         {(atkSels.length > 0 || moveSel) && <button onClick={() => { setAtkSels([]); setMoveSel(null); }} className={`${b} bg-slate-700 hover:bg-slate-600 flex items-center gap-1`}><X size={14} /> ยกเลิกเลือก</button>}
+        {sandbox && started && !game.winner && game.phase !== "draw" && (() => {
+          const seq = ["charge", "main", "attack", "final"] as const;
+          const names: Record<string, string> = { charge: "Charge", main: "Main", attack: "Attack", final: "Final" };
+          const idx = seq.indexOf(game.phase as typeof seq[number]);
+          return (
+            <div className="basis-full flex items-center justify-center gap-1.5 flex-wrap" title="Sandbox: ตั้งเฟสของเทิร์นปัจจุบัน (ไม่รันเอฟเฟกต์ของเฟส)">
+              <span className="text-[11px] text-cyan-300 mr-1">🛠 เฟส</span>
+              <button disabled={idx <= 0} onClick={() => doAction(s => sandboxSetPhase(s, seq[idx - 1]))} className="px-2 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 disabled:opacity-30 transition">◀ ย้อนเฟส</button>
+              {seq.map(ph => (
+                <button key={ph} onClick={() => doAction(s => sandboxSetPhase(s, ph))}
+                  className={`phase-pill px-2.5 py-1 rounded-full text-xs font-bold border ${game.phase === ph ? "phase-pill-on bg-cyan-500 text-slate-900 border-cyan-200" : "bg-slate-800 text-slate-300 border-slate-600 hover:border-cyan-400"}`}>{names[ph]}</button>
+              ))}
+            </div>
+          );
+        })()}
         {hint && <div className="basis-full text-center text-xs text-slate-300">{hint}</div>}
       </div>
     );
@@ -1377,11 +1422,13 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     if (!ps || game.winner) return null;
     const src = cardOf(ps.cardId);
     const cands = [...me.monsters, ...(me.item ? [me.item] : [])].filter(m => ps.candidates.includes(m.uid));
+    const adding = ps.mode === "add";
+    const fromTxt = ps.src === "deck" ? "บนกองเด็ค" : "สุสาน";
     return (
       <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
         <div className="bg-slate-900 border-2 border-violet-400 rounded-2xl p-5 max-w-3xl w-full max-h-[94vh] overflow-y-auto">
-          <h3 className="font-display text-xl font-bold text-violet-300 mb-1">เลือกการ์ดที่จะถอด Soul {ps.n} ใบ{src ? ` — ${src.name}` : ""}</h3>
-          <p className="text-sm text-slate-400 mb-4">เลือกการ์ดของคุณ 1 ใบที่มี Soul พอ ถ้าถอดได้ เอฟเฟกต์ถัดไปของการ์ดนี้ (เช่น Life / Attack / Defense / จั่ว) จะทำงานกับการ์ดใบที่เลือก ถ้าไม่ต้องการให้กด "ไม่ถอด"</p>
+          <h3 className="font-display text-xl font-bold text-violet-300 mb-1">{adding ? `เลือกการ์ดที่จะรับ Soul ${ps.n} ใบจาก${fromTxt}` : `เลือกการ์ดที่จะถอด Soul ${ps.n} ใบ`}{src ? ` — ${src.name}` : ""}</h3>
+          {adding ? <p className="text-sm text-slate-400 mb-4">เลือกการ์ดบนสนามของคุณ 1 ใบ เพื่อนำการ์ด {ps.n} ใบจาก{fromTxt}เข้า Soul ของการ์ดใบนั้น ถ้าไม่ต้องการให้กด "ไม่ใส่ Soul"</p> : <p className="text-sm text-slate-400 mb-4">เลือกการ์ดของคุณ 1 ใบที่มี Soul พอ ถ้าถอดได้ เอฟเฟกต์ถัดไปของการ์ดนี้ (เช่น Life / Attack / Defense / จั่ว) จะทำงานกับการ์ดใบที่เลือก ถ้าไม่ต้องการให้กด "ไม่ถอด"</p>}
           <div className="flex flex-wrap gap-4 justify-center mb-5">
             {cands.map(m => {
               const c = cardOf(m.cardId);
@@ -1390,12 +1437,12 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 <div key={m.uid} className="flex flex-col items-center gap-2">
                   <CardView card={c} flag={flagOf(me.flagId)} size="md" stats={statsOf(m)} onClick={() => act("ถอด Soul ไม่ได้", st => resolveSoulChoice(st, mySide, m.uid))} onInspect={() => openInspect(c, me.flagId, m)} className="hover:ring-4 hover:ring-violet-400" />
                   <span className="chip !text-violet-300">SOUL {m.soul.length}</span>
-                  <button onClick={() => act("ถอด Soul ไม่ได้", st => resolveSoulChoice(st, mySide, m.uid))} className="btn btn-primary !py-1 !text-xs">ถอด Soul การ์ดใบนี้</button>
+                  <button onClick={() => act(adding ? "ใส่ Soul ไม่ได้" : "ถอด Soul ไม่ได้", st => resolveSoulChoice(st, mySide, m.uid))} className="btn btn-primary !py-1 !text-xs">{adding ? "ใส่ Soul ให้การ์ดใบนี้" : "ถอด Soul การ์ดใบนี้"}</button>
                 </div>
               );
             })}
           </div>
-          <button onClick={() => act("ผิดพลาด", st => resolveSoulChoice(st, mySide, null))} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">ไม่ถอด Soul</button>
+          <button onClick={() => act("ผิดพลาด", st => resolveSoulChoice(st, mySide, null))} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">{adding ? "ไม่ใส่ Soul" : "ไม่ถอด Soul"}</button>
         </div>
       </div>
     );
@@ -1458,6 +1505,40 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     );
   }
 
+  // หน้าต่างดูการ์ดใน Soul ของการ์ดใบหนึ่ง (เปิดจากปุ่ม ◆ ที่การ์ด หรือจากหน้าดูการ์ด) กดการ์ดเพื่อดูรายละเอียด
+  function renderSoulView() {
+    if (!soulView) return null;
+    const flag = flagOf(soulView.flagId);
+    return (
+      <div className="fixed inset-0 bg-black/70 z-[54] flex items-center justify-center p-4" onClick={() => setSoulView(null)}>
+        <div className="bg-slate-900 border-2 border-violet-500 rounded-2xl p-5 max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="flex justify-between items-start mb-3">
+            <h3 className="font-display text-lg font-bold text-violet-300">Soul ของ {soulView.title} <span className="text-sm text-slate-400 font-normal">({soulView.ids.length} ใบ)</span></h3>
+            <button onClick={() => setSoulView(null)} className="p-1 hover:bg-slate-800 rounded"><X size={18} /></button>
+          </div>
+          {soulView.ids.length === 0 ? (
+            <div className="text-slate-500 text-center py-6">ไม่มีการ์ดใน Soul</div>
+          ) : (
+            <div className="flex flex-wrap gap-4 justify-center">
+              {soulView.ids.map((id, i) => {
+                const c = cardOf(id);
+                return (
+                  <div key={`${i}-${id}`} className="flex flex-col items-center gap-1" style={{ width: 128 }}>
+                    {c
+                      ? <CardView card={c} flag={flagOf(c.flagId) ?? flag} width="128px" hideText onClick={() => openInspect(c, c.flagId, null, `การ์ดใบนี้อยู่ใน Soul ของ ${soulView.title}`)} />
+                      : <CardView faceDown width="128px" />}
+                    <span className="text-[11px] text-slate-300 text-center leading-tight">{i + 1}. {c?.name ?? "ไม่ทราบการ์ด"}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <p className="text-[11px] text-slate-500 mt-3 text-center">กดที่การ์ดเพื่อดูรายละเอียด · ใบแรกคือใบที่เข้า Soul ก่อน</p>
+        </div>
+      </div>
+    );
+  }
+
   function renderInspect() {
     if (!inspect) return null;
     const { card, flagId, fc, note } = inspect;
@@ -1500,6 +1581,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 <div className="text-xs text-slate-400 bg-slate-800/60 rounded-lg px-3 py-2">
                   สถานะบนสนาม: <b className="text-white">{fc.state === "stand" ? "Stand" : "Rest"}</b>
                   {" · "}Soul: <b className="text-violet-300">{fc.soul.length}</b>
+                  {fc.soul.length > 0 && <button onClick={() => { setInspect(null); openSoulView(card.name, fc.soul, flagId); }} className="ml-2 px-2 py-0.5 rounded bg-violet-700 hover:bg-violet-600 text-white text-[11px] font-bold">ดูการ์ดใน Soul</button>}
                   {fc.soul.length > 0 && <span className="inline-flex gap-1 ml-2 align-middle">{fc.soul.slice(0, 10).map((_, i) => <span key={i} className="soul-orb soul-bob" style={{ width: 12, height: 12, animationDelay: `${i * 0.15}s` }} />)}</span>}
                   {keywordValue(card, "soulguard") > 0 && <span className="ml-2 text-violet-200">🛡 Soulguard กันออกจากสนามได้อีก <b>{fc.nullified ? 0 : fc.soul.length}</b> ครั้ง{fc.nullified ? " (ถูก Nullify)" : ""}</span>}
                   {maxAttacks(card) > 1 ? <> · โจมตีแล้ว <b className="text-white">{fc.attacks}/{maxAttacks(card)}</b></> : null}
@@ -1948,7 +2030,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       </aside>
 
       <FxLayer game={game} cardOf={cardOf} flagOf={flagOf} onHide={hideUnits} />
-      {banner && <Banner key={banner.key} text={banner.text} sub={banner.sub} color={banner.color} />}
+      {banner && <Banner key={banner.key} text={banner.text} sub={banner.sub} color={banner.color} back={banner.back} />}
       {renderMenus()}
       {renderMulligan()}
       {moveWindowMine && !game.battle && !game.winner && (
@@ -1973,6 +2055,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       {oppLooking && !game.winner && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[44] panel !rounded-2xl px-4 py-2 text-sm text-amber-200 border-amber-500/50">ศัตรูกำลังดูการ์ดบนกองและเลือกการ์ด...</div>
       )}
+      {renderSoulView()}
       {renderInspect()}
       {renderNotice()}
 

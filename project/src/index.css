@@ -84,6 +84,18 @@
 .banner-sweep { animation: bannerSweep 1.5s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes bannerText { 0% { letter-spacing: .6em; opacity: 0; } 25% { letter-spacing: .08em; opacity: 1; } 100% { letter-spacing: .12em; opacity: 1; } }
 .banner-text { animation: bannerText 1.1s ease-out both; }
+/* แบนเนอร์ย้อนเฟส: กวาดจากขวาไปซ้าย */
+@keyframes bannerSweepBack {
+  0%   { transform: translateX(120%) skewX(-14deg); opacity: 0; }
+  18%  { transform: translateX(0) skewX(-14deg); opacity: 1; }
+  78%  { transform: translateX(0) skewX(-14deg); opacity: 1; }
+  100% { transform: translateX(-120%) skewX(-14deg); opacity: 0; }
+}
+.banner-sweep-back { animation: bannerSweepBack 1.5s cubic-bezier(.2,.8,.2,1) both; }
+/* ตัวบอกเฟส (Sandbox): เฟสที่ถูกเลือกเด้งและเรืองแสง */
+@keyframes phasePop { 0% { transform: scale(.85); } 60% { transform: scale(1.18); } 100% { transform: scale(1.08); } }
+.phase-pill { transition: background-color .25s, color .25s, box-shadow .25s, transform .25s; }
+.phase-pill-on { animation: phasePop .35s ease-out both; box-shadow: 0 0 14px rgba(34,211,238,.7); }
 
 /* ปุ่ม/ป้ายที่ควรกดต่อไป */
 @keyframes nudge { 0%,100% { box-shadow: 0 0 0 0 rgba(251,191,36,.65); } 50% { box-shadow: 0 0 0 8px rgba(251,191,36,0); } }
@@ -107,8 +119,22 @@
 
 /* การ์ดบนมือ: ชี้แล้วเรืองแสง */
 .hand-card:hover { box-shadow: 0 10px 28px rgba(34,211,238,.35); }
+
+/* ---------- แอนิเมชันเพิ่มเติม ---------- */
+/* หน้าต่างป๊อปอัป (ทุกหน้าต่างที่เป็นพื้นดำเต็มจอ): พื้นหลังค่อย ๆ ขึ้น + กล่องเด้งเข้า */
+@keyframes modalFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalPop { 0% { transform: scale(.92) translateY(12px); opacity: 0; } 100% { transform: none; opacity: 1; } }
+div.fixed.inset-0[class*="bg-black"] { animation: modalFade .18s ease-out both; }
+div.fixed.inset-0[class*="bg-black"] > div { animation: modalPop .26s cubic-bezier(.2,.9,.3,1.2) both; }
+/* ปุ่ม: ยุบเมื่อกด สว่างขึ้นเมื่อชี้ (ใช้ property scale แยก จึงไม่ทับ transform เดิม) */
+button { transition: scale .12s ease, filter .15s ease, background-color .2s ease, box-shadow .2s ease, opacity .2s ease; }
+button:not(:disabled):active { scale: .94; }
+button:not(:disabled):hover { filter: brightness(1.08); }
+/* ตัวเลือกที่กดเลือกได้ (การ์ดในหน้าต่างเลือก) ค่อย ๆ ลอยขึ้นเมื่อชี้ */
+[class*="hover:ring-"] { transition: box-shadow .15s ease, translate .15s ease; }
+[class*="hover:ring-"]:hover { translate: 0 -4px; }
 @media (prefers-reduced-motion: reduce) {
-  .anim-call, .anim-draw, .soul-bob, .soul-pop, .soul-guard-live, .banner-sweep, .banner-text, .btn-nudge, .log-in, .crown-float, .confetti { animation: none !important; }
+  .anim-call, .anim-draw, .soul-bob, .soul-pop, .soul-guard-live, .banner-sweep, .banner-sweep-back, div.fixed.inset-0[class*="bg-black"], div.fixed.inset-0[class*="bg-black"] > div, .phase-pill-on, .banner-text, .btn-nudge, .log-in, .crown-float, .confetti { animation: none !important; }
 }
 
 /* ================= ธีมกลาง: เมนู/หน้าจัดการ ================= */
@@ -178,35 +204,3 @@ input[type="checkbox"] { accent-color: #06b6d4; }
 .switch.on { background: linear-gradient(135deg, #06b6d4, #3b82f6); }
 .switch.on::after { transform: translateX(1.1rem); }
 @media (prefers-reduced-motion: reduce) { .floaty, .glow-pulse, .hero-title, .page-in { animation: none !important; } }
-
-/* ===== อนิเมชันเสริมในสนาม ===== */
-/* Life ใกล้หมด: แถบ Life สั่นเต้นเป็นสีแดง เหมือนหัวใจเต้น */
-@keyframes lifeDanger {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(244,63,94,.0); filter: none; }
-  15% { box-shadow: 0 0 22px 4px rgba(244,63,94,.75); filter: brightness(1.25); }
-  30% { box-shadow: 0 0 6px 0 rgba(244,63,94,.35); filter: none; }
-  45% { box-shadow: 0 0 22px 4px rgba(244,63,94,.75); filter: brightness(1.25); }
-}
-.life-danger { animation: lifeDanger 1.25s ease-in-out infinite; }
-
-/* เทิร์นของใคร กระดานฝั่งนั้นจะมีแสงเต้นเบาๆ */
-@keyframes matBreath { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.09); } }
-.mat-active { animation: matBreath 3.2s ease-in-out infinite; }
-
-/* ผู้โจมตีที่เลือกไว้ ลอยขึ้นลงเบาๆ */
-@keyframes selBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
-.glow-sel { animation: selBob 1.1s ease-in-out infinite; }
-
-/* หน้าต่างป๊อปอัปเด้งเข้า */
-@keyframes modalFade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes modalPop { 0% { transform: scale(.88) translateY(14px); opacity: 0; } 70% { transform: scale(1.02); opacity: 1; } 100% { transform: none; opacity: 1; } }
-.fixed.inset-0 { animation: modalFade .18s ease-out both; }
-.fixed.inset-0 > .rounded-2xl, .fixed.inset-0 > div > .rounded-2xl { animation: modalPop .28s cubic-bezier(.2,.9,.3,1.1) both; }
-
-/* ปุ่มสำคัญแตะแล้วยุบ + เมนู Sandbox/ปุ่มไอคอนหมุนนิดๆ ตอนชี้ */
-.btn svg { transition: transform .2s ease; }
-.btn:hover svg { transform: rotate(-8deg) scale(1.12); }
-
-@media (prefers-reduced-motion: reduce) {
-  .life-danger, .mat-active, .glow-sel, .fixed.inset-0, .fixed.inset-0 > .rounded-2xl, .fixed.inset-0 > div > .rounded-2xl { animation: none !important; }
-}

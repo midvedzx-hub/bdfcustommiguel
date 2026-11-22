@@ -19,7 +19,13 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
           {KEYWORD_DEFS.filter(k => !k.engine).map(k => <option key={k.id} value={k.id}>{k.id}</option>)}
         </select>
       )}
-      {(eff.type === "dropToSoul" || eff.type === "recoverFromDrop" || eff.type === "dropToDeckBottom") && (
+      {eff.type === "chooseAddSoul" && (
+        <select value={eff.soulSrc ?? "drop"} onChange={e => onChange({ ...eff, soulSrc: e.target.value as "drop" | "deck" })} className={sel} title="แหล่งที่นำการ์ดเข้า Soul">
+          <option value="drop">จากสุสาน</option>
+          <option value="deck">จากบนกองเด็ค</option>
+        </select>
+      )}
+      {(eff.type === "dropToSoul" || eff.type === "recoverFromDrop" || eff.type === "dropToDeckBottom" || (eff.type === "chooseAddSoul" && (eff.soulSrc ?? "drop") === "drop")) && (
         <select value={eff.filter ?? "any"} onChange={e => onChange({ ...eff, filter: e.target.value as CardFilter })} className={sel} title="เลือกชนิดการ์ดที่จะดึงจากสุสาน (เอาใบที่ลงสุสานล่าสุดก่อน)">
           {DROP_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
