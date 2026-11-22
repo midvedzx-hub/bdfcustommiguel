@@ -528,11 +528,12 @@ function runSkills(
           if (held) pz.dropZone.push(card.id);
           g[side].deck.push(...got.reverse()); // ใส่ใต้กอง: คงลำดับเดิมของสุสาน (ใบเก่าอยู่ก่อน)
           log(g, `${card.name} นำการ์ดจากสุสาน ${got.length} ใบใส่ใต้กองเด็ค${eff.shuffleAfter ? " และสับเด็ค" : ""}`);
-          if (eff.shuffleAfter) shuffleInPlace(g[side].deck);
+          if (eff.shuffleAfter) { shuffleInPlace(g[side].deck); fx(g, { k: "shuffle", side }); }
           break;
         }
         case "shuffleDeck": {
           shuffleInPlace(g[side].deck);
+          fx(g, { k: "shuffle", side });
           log(g, `${card.name}: ${nameOf(side)} สับเด็ค`);
           break;
         }
@@ -2411,6 +2412,7 @@ export function sandboxShuffleDeck(state: GameState, side: Side): GameState {
     [d[i], d[j]] = [d[j], d[i]];
   }
   log(g, `[Sandbox] ${nameOf(side)} สับเด็ค`);
+  fx(g, { k: "shuffle", side });
   return g;
 }
 
@@ -2443,6 +2445,22 @@ export function sandboxMoveToPosition(state: GameState, side: Side, monsterUid: 
   const occ = p.monsters.find(mo => mo.position === pos);
   if (occ) occ.position = m.position;
   m.position = pos;
+  return g;
+}
+
+// Sandbox: ตั้งเฟสของเทิร์นปัจจุบัน (ย้อนกลับ/ข้ามได้) — ไม่รันเอฟเฟกต์ของเฟสนั้น ล้างหน้าต่างที่ค้างอยู่ (Counter / Move / เลือกเป้าหมาย)
+export function sandboxSetPhase(state: GameState, phase: "charge" | "main" | "attack" | "final"): GameState {
+  if (state.winner || state.phase === phase) return state;
+  const g = structuredClone(state);
+  const cleared: string[] = [];
+  if (g.battle) { g.battle = null; cleared.push("การต่อสู้ที่รอ Counter"); }
+  if (g.spellWindow) { g.spellWindow = null; cleared.push("จังหวะ Counter ของเวท"); }
+  if (g.moveWindow) { g.moveWindow = null; cleared.push("ช่วง Move"); }
+  if (g.pendingLook || g.pendingSoul || g.pendingTarget) { g.pendingLook = null; g.pendingSoul = null; g.pendingTarget = null; cleared.push("การเลือกที่ค้างอยู่"); }
+  const names: Record<string, string> = { charge: "Charge & Draw", main: "Main Phase", attack: "Attack Phase", final: "Final Phase" };
+  log(g, `🛠 [Sandbox] ${nameOf(g.currentTurn)} ตั้งเฟสเป็น ${names[phase]}${cleared.length ? ` (ล้าง: ${cleared.join(", ")})` : ""}`);
+  g.phase = phase;
+  recalcAuras(g);
   return g;
 }
 

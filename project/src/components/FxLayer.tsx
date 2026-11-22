@@ -23,6 +23,7 @@ function sfxFor(ev: FxEvent, at: number, impact: number) {
     case "charge": playSfx("charge", at); break;
     case "draw": playSfx("draw", at); break;
     case "negate": playSfx("negate", at); break;
+    case "shuffle": playSfx("draw", at); break;
   }
 }
 interface Pt { x: number; y: number; w: number; h: number }
@@ -309,6 +310,29 @@ export function FxLayer({ game, cardOf, flagOf, onHide }: {
           pulse(`deck:${ev.side}`, at, "#22d3ee");
           break;
         }
+        case "shuffle": {
+          const p = pointOf(`deck:${ev.side}`);
+          if (!p) break;
+          idx++;
+          shake(`deck:${ev.side}`, at, 5);
+          shake(`deck:${ev.side}`, at + 380, 8);
+          pulse(`deck:${ev.side}`, at, "#22d3ee");
+          // ไพ่สลับตำแหน่งวนเป็นปีก
+          for (let i = 0; i < 5; i++) {
+            const dir = i % 2 === 0 ? 1 : -1;
+            push(done => (
+              <Anim onDone={done} style={{ left: p.x - 12, top: p.y - 17, width: 24, height: 34, borderRadius: 4, background: "linear-gradient(135deg,#0e7490,#164e63)", border: "1px solid #67e8f9" }}
+                frames={[
+                  { transform: "translate(0,0) rotate(0deg)", opacity: 0 },
+                  { transform: `translate(${dir * 34}px,-8px) rotate(${dir * 18}deg)`, opacity: 1, offset: 0.3 },
+                  { transform: `translate(${-dir * 34}px,6px) rotate(${-dir * 18}deg)`, opacity: 1, offset: 0.65 },
+                  { transform: "translate(0,0) rotate(0deg)", opacity: 0 },
+                ]} opts={{ duration: 800, delay: at + i * 90, easing: "ease-in-out" }} />
+            ));
+          }
+          float(p.x, p.y - 36, "SHUFFLE", "#67e8f9", at + 100, 20);
+          break;
+        }
         case "negate": {
           idx++;
           float(window.innerWidth / 2 - 80, window.innerHeight / 2 - 40, "ATTACK NEGATED!", "#67e8f9", at, 38);
@@ -324,11 +348,89 @@ export function FxLayer({ game, cardOf, flagOf, onHide }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.fxSeq]);
 
+  /* ---------- เอฟเฟกต์จากการเปลี่ยนแปลงของสถานะ (ไม่ต้องมี event จาก engine) ----------
+   * ค่าสถานะมอนสเตอร์เพิ่ม/ลด · Rest/Stand · Nullify · เกจ / เด็ค / สุสาน เพิ่มลด  */
+  const snap = useRef<Snap | null>(null);
+  useLayoutEffect(() => {
+    const cur = takeSnap(game);
+    const prev = snap.current;
+    snap.current = cur;
+    if (!prev || cur.turn < prev.turn) return;
+    const newEvs = (game.fx ?? []).filter(e => e.id > prev.fxSeq);
+    if (newEvs.length > 14) return; // ซิงค์กระโดดข้ามหลายเหตุการณ์
+    const hasAttack = newEvs.some(e => e.k === "attack");
+    const newTurn = cur.turn !== prev.turn;
+    const add = (n: (done: () => void) => ReactNode) => { const key = ++keySeq.current; setItems(p => [...p, { key, node: n }]); };
+    const fl = (x: number, y: number, text: string, color: string, delay: number, size = 20) => add(done => (
+      <Anim onDone={done} style={{ left: x, top: y, color, fontSize: size, fontWeight: 900, textShadow: `0 0 8px ${color}, 0 2px 3px #000`, whiteSpace: "nowrap", fontFamily: "Kanit, sans-serif" }}
+        frames={[
+          { transform: "translate(-50%,-50%) translateY(10px) scale(.4)", opacity: 0 },
+          { transform: "translate(-50%,-50%) translateY(-2px) scale(1.25)", opacity: 1, offset: 0.2 },
+          { transform: "translate(-50%,-50%) translateY(-16px) scale(1)", opacity: 1, offset: 0.7 },
+          { transform: "translate(-50%,-50%) translateY(-46px) scale(.9)", opacity: 0 },
+        ]} opts={{ duration: 1100, delay, easing: "ease-out" }}>{text}</Anim>
+    ));
+    let n = 0;
+    const MAX = 12;
+    (["host", "guest"] as Side[]).forEach(side => {
+      const a = prev.sides[side], b = cur.sides[side];
+      // การ์ดบนสนาม
+      Object.entries(b.cards).forEach(([uid, c]) => {
+        const o = a.cards[uid];
+        if (!o || n >= MAX) return;
+        const where = c.pos < 0 ? `item:${side}` : `slot:${side}:${c.pos}`;
+        const pt = pointOf(where);
+        if (!pt) return;
+        const stat = (d: number, label: string, color: string) => {
+          if (d === 0 || n >= MAX) return;
+          fl(pt.x, pt.y - pt.h * 0.1 + n * 4, `${d > 0 ? "+" : "−"}${Math.abs(d)} ${label}`, color, n * 120, 20);
+          pulse(where, n * 120, color);
+          n++;
+        };
+        stat(c.pw - o.pw, "POWER", "#f87171");
+        stat(c.df - o.df, "DEF", "#7dd3fc");
+        stat(c.cr - o.cr, "CRIT", "#fde047");
+        if (!hasAttack && !newTurn && c.rest !== o.rest && n < MAX) { fl(pt.x, pt.y + pt.h * 0.25, c.rest ? "REST" : "STAND", c.rest ? "#cbd5e1" : "#86efac", n * 120, 16); n++; }
+        if (c.nul && !o.nul && n < MAX) { fl(pt.x, pt.y, "NULLIFY", "#c084fc", n * 120, 22); pulse(where, n * 120, "#a855f7"); n++; }
+        if (!c.nul && o.nul && n < MAX && !newTurn) { fl(pt.x, pt.y, "ความสามารถกลับมา", "#a7f3d0", n * 120, 14); n++; }
+      });
+      // เกจ / เด็ค / สุสาน / ช่อง Set
+      const zone = (id: string, d: number, label: string, color: string, skip: boolean) => {
+        if (d === 0 || skip || n >= MAX) return;
+        const pt = pointOf(id);
+        if (!pt) return;
+        pulse(id, n * 100, color);
+        fl(pt.x, pt.y - 6, `${d > 0 ? "+" : "−"}${Math.abs(d)} ${label}`, color, n * 100, 16);
+        n++;
+      };
+      const hasCharge = newEvs.some(e => e.k === "charge" && e.side === side);
+      const hasDraw = newEvs.some(e => e.k === "draw" && e.side === side);
+      zone(`gauge:${side}`, b.gauge - a.gauge, "GAUGE", b.gauge > a.gauge ? "#fcd34d" : "#fb923c", hasCharge && b.gauge > a.gauge);
+      zone(`deck:${side}`, b.deck - a.deck, "DECK", "#67e8f9", hasDraw && b.deck < a.deck);
+      zone(`drop:${side}`, b.drop - a.drop, "DROP", "#c4b5fd", false);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game]);
+
   return (
     <>
       {items.map(it => <FxHost key={it.key} item={it} onDone={() => remove(it.key)} />)}
     </>
   );
+}
+
+interface Snap { turn: number; fxSeq: number; sides: Record<Side, { gauge: number; deck: number; drop: number; cards: Record<string, { pw: number; df: number; cr: number; rest: boolean; nul: boolean; pos: number }> }> }
+function takeSnap(g: GameState): Snap {
+  const mk = (side: Side) => {
+    const p = g[side];
+    const cards: Snap["sides"][Side]["cards"] = {};
+    [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
+      const st = statsOf(fc);
+      cards[fc.uid] = { pw: st.power, df: st.defense, cr: st.critical, rest: fc.state === "rest", nul: !!fc.nullified, pos: p.item?.uid === fc.uid ? -1 : fc.position };
+    });
+    return { gauge: p.gaugePile.length, deck: p.deck.length, drop: p.dropZone.length, cards };
+  };
+  return { turn: g.turn, fxSeq: g.fxSeq ?? 0, sides: { host: mk("host"), guest: mk("guest") } };
 }
 
 function FxHost({ item, onDone }: { item: Item; onDone: () => void }) {
@@ -338,10 +440,10 @@ function FxHost({ item, onDone }: { item: Item; onDone: () => void }) {
 }
 
 /* แบนเนอร์ตัวใหญ่กลางจอ: เปลี่ยนเทิร์น / เฟส */
-export function Banner({ text, sub, color }: { text: string; sub?: string; color: string }) {
+export function Banner({ text, sub, color, back }: { text: string; sub?: string; color: string; back?: boolean }) {
   return (
     <div className="fixed inset-x-0 z-[90] pointer-events-none flex justify-center" style={{ top: "38%" }}>
-      <div className="banner-sweep w-full flex flex-col items-center justify-center py-4" style={{ background: `linear-gradient(90deg, transparent, ${color}dd 18%, ${color}dd 82%, transparent)`, boxShadow: `0 0 40px ${color}88`, borderTop: "2px solid rgba(255,255,255,.7)", borderBottom: "2px solid rgba(255,255,255,.7)" }}>
+      <div className={`${back ? "banner-sweep-back" : "banner-sweep"} w-full flex flex-col items-center justify-center py-4`} style={{ background: `linear-gradient(90deg, transparent, ${color}dd 18%, ${color}dd 82%, transparent)`, boxShadow: `0 0 40px ${color}88`, borderTop: "2px solid rgba(255,255,255,.7)", borderBottom: "2px solid rgba(255,255,255,.7)" }}>
         <div className="banner-text font-display font-extrabold text-white text-4xl md:text-5xl" style={{ textShadow: "0 3px 12px rgba(0,0,0,.6)", transform: "skewX(14deg)" }}>{text}</div>
         {sub && <div className="font-display text-white/90 text-sm md:text-base mt-1" style={{ transform: "skewX(14deg)" }}>{sub}</div>}
       </div>

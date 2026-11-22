@@ -449,6 +449,7 @@ export type FxEvent = { id: number } & (
   | { k: "charge"; side: "host" | "guest"; n: number }
   | { k: "draw"; side: "host" | "guest"; n: number }
   | { k: "negate"; side: "host" | "guest" }
+  | { k: "shuffle"; side: "host" | "guest" }
 );
 export type FxInput = FxEvent extends infer E ? (E extends FxEvent ? Omit<E, "id"> : never) : never;
 
