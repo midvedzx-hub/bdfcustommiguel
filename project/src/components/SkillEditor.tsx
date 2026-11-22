@@ -40,6 +40,21 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
       )}
       {eff.type !== "condBuff" && eff.type !== "soulGrant" && eff.type !== "soulCond" && eff.type !== "destroyWeaker" && eff.type !== "callSelf" && eff.type !== "shuffleDeck" && !(eff.type === "dropToDeckBottom" && eff.allCards) && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
       <button onClick={onRemove} className="p-1 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={12} /></button>
+      {eff.type === "callCostReduce" && (
+        <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
+          <span>เมื่อมีการ์ดชื่อ</span>
+          <input value={eff.redName ?? ""} onChange={e => onChange({ ...eff, redName: e.target.value })} placeholder="เช่น Albis Wis (หลายชื่อคั่นด้วย , พิมพ์บางส่วนได้)" className={`${num} !py-0.5 text-xs w-64`} />
+          <span>หรือการ์ดที่มีคุณสมบัติ</span>
+          <input value={eff.redAttr ?? ""} onChange={e => onChange({ ...eff, redAttr: e.target.value })} placeholder="เช่น Dragon (หลายค่าคั่นด้วย ,)" className={`${num} !py-0.5 text-xs w-56`} />
+          <span>อยู่ใน</span>
+          <select value={eff.condWhere ?? "own"} onChange={e => onChange({ ...eff, condWhere: e.target.value as "own" | "opponent" | "any" })} className={`${sel} !py-0.5 text-xs`}>
+            <option value="own">สนามของเรา</option>
+            <option value="opponent">สนามศัตรู</option>
+            <option value="any">สนามฝั่งใดก็ได้</option>
+          </select>
+          <p className="basis-full text-slate-500">ใช้กับสกิลแบบ “ถาวร” · ช่องตัวเลขด้านบน = ลด Call Cost กี่หน่วย (ลดจากค่าหลักของ Call Cost ต่ำสุด 0) · เจอการ์ดที่ตรงชื่อ <b>หรือ</b> ตรงคุณสมบัติใบใดใบหนึ่ง = ลด · ใช้ตอนลงสนาม / Impact Call / Counter ที่ต้องจ่าย Call Cost · หลายสกิลที่เงื่อนไขครบจะลดรวมกัน</p>
+        </div>
+      )}
       {eff.type === "callSelf" && (
         <div className="basis-full flex flex-wrap items-center gap-3 text-xs text-slate-300 pl-1">
           <label className="flex items-center gap-1.5 cursor-pointer">

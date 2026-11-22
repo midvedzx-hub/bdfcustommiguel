@@ -117,6 +117,12 @@ export function effectText(e: AutoEffect): string {
     case "chooseRemoveSoul": return `เลือกการ์ดของเรา 1 ใบ ถอด Soul ${v} ใบ (ถ้าถอดได้ จึงทำต่อ)`;
     case "destroyOpponentSet": return `ทำลายการ์ด Set ของศัตรู ${v} ใบ`;
     case "negateSpell": return `ยกเลิกเวทที่ศัตรูกำลังร่าย`;
+    case "callCostReduce": {
+      const nm = (e.redName ?? "").split(",").map(x => x.trim()).filter(Boolean).map(x => `ชื่อ “${x}”`);
+      const at = (e.redAttr ?? "").split(",").map(x => x.trim()).filter(Boolean).map(x => `คุณสมบัติ “${x}”`);
+      const w = [...nm, ...at].join(" หรือ ") || "(ยังไม่ได้ใส่เงื่อนไข)";
+      return `ถ้ามีการ์ด${w} อยู่ในสนาม Call Cost ของการ์ดนี้ลดลง ${v} หน่วย`;
+    }
     case "callSelf": return `คอลการ์ดใบนี้ลงช่องใดก็ได้ (${e.payCallCost ? "จ่าย Call Cost" : "ไม่ต้องจ่าย Call Cost"})`;
     case "lookTop": {
       const opts: string[] = [];
@@ -239,6 +245,7 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
   { label: "ร่าย: ถอด Soul 1 → Attack +5000", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "buffPower", value: 5000 }] } },
   { label: "ร่าย: ถอด Soul 1 → Defense +5000", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "buffDefense", value: 5000 }] } },
   { label: "ร่าย: ถอด Soul 1 → จั่ว 1", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "draw", value: 1 }] } },
+  { label: "ถาวร: ถ้ามีการ์ดชื่อ X หรือคุณสมบัติ Y ในสนาม → Call Cost ลด 1", skill: { trigger: "continuous", effects: [{ type: "callCostReduce", value: 1, redName: "", redAttr: "" }] } },
   { label: "เมื่อการ์ดนี้ออกจาก Soul: คอลลงช่องใดก็ได้ (ไม่จ่าย Call Cost)", skill: { trigger: "onLeaveSoul", effects: [{ type: "callSelf", value: 1, payCallCost: false }] } },
   { label: "เมื่อการ์ดนี้ออกจาก Soul: คอลลงช่องใดก็ได้ (จ่าย Call Cost)", skill: { trigger: "onLeaveSoul", effects: [{ type: "callSelf", value: 1, payCallCost: true }] } },
   { label: "Counter: คอลการ์ดใบนี้จากมือลงช่องใดก็ได้ (ไม่จ่าย Call Cost)", skill: { trigger: "onCounter", timing: "any", effects: [{ type: "callSelf", value: 1, payCallCost: false }] } },

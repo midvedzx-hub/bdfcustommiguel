@@ -71,6 +71,7 @@ export type AutoEffectType =
   | "namedToHand"             // นำการ์ดที่ชื่อตรง (refName) จากสุสาน / บนกองเด็ค ขึ้นมือ N ใบ (เช่น หลังร่าย)
   | "requireOnField"          // เงื่อนไข: ต้องมีการ์ดที่กำหนด (refName) อยู่ในสนามของเรา จึงทำเอฟเฟกต์ถัดไปของสกิลนี้ ถ้าไม่มีก็ข้าม
   | "chooseAddSoul"           // เลือกการ์ดบนสนามของเรา แล้วนำการ์ดจากสุสาน/บนกองเด็คเข้า Soul ของการ์ดที่เลือก (เช่น ตอนร่ายเวท)
+  | "callCostReduce"          // ถาวร: ถ้ามีการ์ดชื่อ ... หรือการ์ดที่มีคุณสมบัติ ... อยู่ในสนาม → Call Cost ของการ์ดใบนี้ลดลง value หน่วย (ไม่ต่ำกว่า 0)
   | "callSelf"                // (Counter จากมือ) คอลมอนสเตอร์ใบนี้จากมือลงช่องที่เลือก (จ่าย / ไม่จ่าย Call Cost ตามที่ตั้ง)
   | "condBuff";                // ถาวร: ถ้าในสนามมีการ์ดที่มีคุณสมบัติ/ชื่อที่กำหนด → การ์ดนี้ (หรือการ์ดที่ชื่อ ...) ได้ Power/Critical/Defense เพิ่ม และ/หรือได้คีย์เวิร์ด (grantKw)
 
@@ -125,6 +126,7 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "destroyAttacker", label: "[Counter] ทำลายผู้โจมตี", hint: "ใส่ 1" },
   { value: "restAttacker", label: "[Counter] Rest ผู้โจมตี", hint: "ใส่ 1" },
   { value: "negateSpell", label: "[Counter] ยกเลิกเวทที่ศัตรูร่าย", hint: "ใส่ 1" },
+  { value: "callCostReduce", label: "ถาวร: ลด Call Cost ของการ์ดนี้ เมื่อมีการ์ด/คุณสมบัติที่กำหนดอยู่ในสนาม", hint: "ลดกี่หน่วย" },
   { value: "callSelf", label: "คอลการ์ดใบนี้ลงช่องใดก็ได้ (Counter จากมือ / เมื่อออกจาก Soul) เฉพาะมอนสเตอร์", hint: "ใส่ 1" },
   { value: "set", label: "Set (อยู่ในช่อง Set คงผลต่อเนื่อง)", hint: "Set ชื่อเดียวกันได้กี่ใบ" },
   { value: "destroyOpponentSet", label: "ทำลายการ์ด Set ของศัตรู", hint: "จำนวนใบ" },
@@ -192,6 +194,8 @@ export interface AutoEffect {
   includeItem?: boolean;                            // (เก่า) รวมไอเทมของศัตรูด้วย — ถ้าไม่มี destroyScope: true ถือเป็น "all"
   destroyScope?: "monster" | "all";                 // destroyWeaker: ทำลายเฉพาะมอนสเตอร์ หรือ "การ์ดทั้งหมด" (มอนสเตอร์ + ไอเทม + การ์ด Set)
   lifePerKill?: number;                             // ยิงดาเมจตรงใส่ผู้เล่นศัตรู N ต่อการ์ดที่ถูกทำลายได้จริง 1 ใบ (0/ไม่ใส่ = ไม่ยิง)
+  redName?: string;                        // callCostReduce: ชื่อการ์ดบนสนาม (พิมพ์บางส่วนได้ หลายชื่อคั่น ,) — เจอใบใดใบหนึ่งก็ลด
+  redAttr?: string;                        // callCostReduce: คุณสมบัติของการ์ดบนสนาม (หลายค่าคั่น ,) — เจอใบใดใบหนึ่งก็ลด (ใช้ "หรือ" กับชื่อ)
   payCallCost?: boolean;                   // callSelf: true = ต้องจ่าย Call Cost ของการ์ดตอนคอล · ไม่ใส่/false = คอลฟรีไม่ต้องจ่าย
   allCards?: boolean;                      // dropToDeckBottom: นำการ์ดในสุสานทั้งหมด (ตามตัวกรองชนิดการ์ด) ไม่สนจำนวน
   shuffleAfter?: boolean;                  // dropToDeckBottom: สับเด็คหลังใส่การ์ดกลับ
@@ -573,4 +577,9 @@ export function callSelfEffect(card: Pick<Card, "type" | "autoSkills"> | undefin
     if (e) return e;
   }
   return undefined;
+}
+
+// Call Cost หลังหักตัวลด (ลดจากค่าหลัก: เกจหรือ Life ตามชนิด Call Cost ของการ์ด ต่ำสุด 0)
+export function withCallCostReduced<T extends { callCost: number }>(card: T, n: number): T {
+  return n > 0 ? { ...card, callCost: Math.max(0, (card.callCost || 0) - n) } : card;
 }

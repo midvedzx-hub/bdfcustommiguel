@@ -11,7 +11,7 @@ import type { SoulPick } from "@/game/engine";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
   callMonster, impactCall, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
-  goToAttack, goToFinal, mulligan, transformCard, legalTargets, statsOf, counterOptions, callSelfSlots, soulCallOffers, useSoulCall, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
+  goToAttack, goToFinal, mulligan, transformCard, legalTargets, statsOf, counterOptions, callSelfSlots, effCostCard, soulCallOffers, useSoulCall, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxSetPhase, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, cardOfFc, matchCallRequires, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
@@ -1155,7 +1155,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         <CardView card={card} flag={flagOf(me.flagId)} size="md" onClick={() => openInspect(card, me.flagId)} />
         <div className="flex-1 min-w-0">
           <div className="font-display font-bold text-cyan-300">{card.name}</div>
-          <div className="text-xs text-slate-400 mb-2">Cost {callCostLabel(card)}{card.type === "Monster" ? ` · Size ${card.size}` : ""}{isMonsterImpact(card) ? " · มอนสเตอร์ไม้ตาย" : ""}{hasCounter(card) ? " · มี Counter Act" : ""} · ลากการ์ดไปวางบนสนามได้{reqMatch && reqMatch.missing.length > 0 ? ` · ยังขาดบนสนาม: ${reqMatch.missing.join(", ")}` : reqMatch ? " · เงื่อนไขครบ (การ์ดเงื่อนไขจะเข้า Soul)" : ""}</div>
+          <div className="text-xs text-slate-400 mb-2">Cost {callCostLabel(effCostCard(game, mySide, card))}{card.type === "Monster" ? ` · Size ${card.size}` : ""}{isMonsterImpact(card) ? " · มอนสเตอร์ไม้ตาย" : ""}{hasCounter(card) ? " · มี Counter Act" : ""} · ลากการ์ดไปวางบนสนามได้{reqMatch && reqMatch.missing.length > 0 ? ` · ยังขาดบนสนาม: ${reqMatch.missing.join(", ")}` : reqMatch ? " · เงื่อนไขครบ (การ์ดเงื่อนไขจะเข้า Soul)" : ""}</div>
           <div className="flex flex-wrap gap-2 items-center">
             {isMyTurn && card.type === "Monster" && !isMonsterImpact(card) && game.phase !== "final" && empty.map(pos => (
               <button key={pos} onClick={() => tryCall(handSel, pos)} className={`${btn} bg-cyan-600 hover:bg-cyan-500`}>ลงช่อง{POSITION_NAMES[pos]}</button>
@@ -1172,7 +1172,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             {card.type === "Impact" && <button onClick={() => tryCast(handSel)} className={`${btn} bg-rose-600 hover:bg-rose-500`}>ใช้ Impact (Final Phase)</button>}
             {counterNow && !cs && <button onClick={() => { const o = freeOpts.find(x => x.zone === "hand" && x.index === handSel); if (o) { doFreeCounter(o); setHandSel(null); } }} className={`${btn} bg-sky-600 hover:bg-sky-500`}>⚡ ใช้ Counter ทันที</button>}
             {counterNow && cs && csSlots.map(pos => (
-              <button key={`cs${pos}`} onClick={() => { const o = freeOpts.find(x => x.zone === "hand" && x.index === handSel); if (o) { requestCounter({ ...o, position: pos }, true); setHandSel(null); } }} className={`${btn} bg-sky-600 hover:bg-sky-500`}>⚡ Counter คอลลงช่อง{POSITION_NAMES[pos]}{cs.payCallCost ? ` (จ่าย ${callCostLabel(card)})` : " (ฟรี)"}</button>
+              <button key={`cs${pos}`} onClick={() => { const o = freeOpts.find(x => x.zone === "hand" && x.index === handSel); if (o) { requestCounter({ ...o, position: pos }, true); setHandSel(null); } }} className={`${btn} bg-sky-600 hover:bg-sky-500`}>⚡ Counter คอลลงช่อง{POSITION_NAMES[pos]}{cs.payCallCost ? ` (จ่าย ${callCostLabel(effCostCard(game, mySide, card))})` : " (ฟรี)"}</button>
             ))}
             {cs && !counterNow && <span className="text-xs text-amber-300 self-center">ใช้ Counter คอลตอนนี้ไม่ได้ (เกจ/Life ไม่พอ ไม่มีช่องว่าง หรือ Size เกิน)</span>}
             {((hasCounter(card) && !callSelfEffect(card)) || (card.type === "Spell" && hasSetKeyword(card))) && <button onClick={() => trySet(handSel)} className={`${btn} bg-violet-600 hover:bg-violet-500`}>{card.type === "Spell" && hasSetKeyword(card) ? "Set (ลงช่อง Set)" : "Set (วางคว่ำ)"}</button>}
@@ -1348,7 +1348,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               return (
                 <div key={o.index} className="flex flex-col items-center gap-1.5">
                   <CardView card={c} flag={flagOf(me.flagId)} size="md" onInspect={() => openInspect(c, me.flagId)} />
-                  <span className="text-[11px] text-slate-300">อยู่ใน{o.from === "hand" ? "มือ" : "สุสาน"} · {o.pay ? `จ่าย Call Cost ${callCostLabel(c)}` : "ไม่ต้องจ่าย Call Cost"}</span>
+                  <span className="text-[11px] text-slate-300">อยู่ใน{o.from === "hand" ? "มือ" : "สุสาน"} · {o.pay ? `จ่าย Call Cost ${callCostLabel(effCostCard(game, mySide, c))}` : "ไม่ต้องจ่าย Call Cost"}</span>
                   <div className="flex gap-1.5">
                     {slots.map(pos => (
                       <button key={pos} onClick={() => { const ok = act("คอลไม่ได้", s => useSoulCall(s, mySide, o.index, pos)); if (ok) setShowSoulCall(false); }}
@@ -1377,7 +1377,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
         <div className="bg-slate-900 border-2 border-sky-500 rounded-2xl p-5 max-w-xl w-full">
           <h3 className="font-display text-xl font-bold text-sky-300 mb-1">คอล {c.name} ลงช่องไหน?</h3>
-          <div className="text-xs text-slate-400 mb-4">Counter คอลการ์ดจากมือ · {eff.payCallCost ? `จ่าย Call Cost ${callCostLabel(c)}` : "ไม่ต้องจ่าย Call Cost"} · Size {c.size}</div>
+          <div className="text-xs text-slate-400 mb-4">Counter คอลการ์ดจากมือ · {eff.payCallCost ? `จ่าย Call Cost ${callCostLabel(effCostCard(game, mySide, c))}` : "ไม่ต้องจ่าย Call Cost"} · Size {c.size}</div>
           <div className="flex gap-2 mb-3">
             {[0, 1, 2].map(pos => (
               <button key={pos} disabled={!slots.includes(pos)} onClick={() => choose(pos)}
@@ -1448,7 +1448,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                   <CardView card={c} flag={flagOf(me.flagId)} size="md" onClick={() => doFreeCounter(o)} onInspect={() => openInspect(c, me.flagId)} className="hover:ring-4 hover:ring-sky-400" />
                   <span className="text-[11px] text-sky-300">{zoneLabel(o)}</span>
                   {counterSkillLabel(c, o) && <span className="text-[11px] text-slate-200 max-w-[180px] text-center leading-snug bg-slate-800 rounded px-2 py-1">{counterSkillLabel(c, o)}</span>}
-                  <button onClick={() => doFreeCounter(o)} className="px-3 py-1 bg-sky-600 hover:bg-sky-500 rounded-lg text-xs font-bold">{callSelfEffect(c) && o.zone === "hand" ? "คอลลงสนามด้วย Counter" : "ใช้ Counter"}{o.zone === "hand" ? ` (${callSelfEffect(c) && !callSelfEffect(c)!.payCallCost ? "ไม่จ่าย Cost" : `Cost ${callCostLabel(c)}`})` : ""}</button>
+                  <button onClick={() => doFreeCounter(o)} className="px-3 py-1 bg-sky-600 hover:bg-sky-500 rounded-lg text-xs font-bold">{callSelfEffect(c) && o.zone === "hand" ? "คอลลงสนามด้วย Counter" : "ใช้ Counter"}{o.zone === "hand" ? ` (${callSelfEffect(c) && !callSelfEffect(c)!.payCallCost ? "ไม่จ่าย Cost" : `Cost ${callCostLabel(effCostCard(game, mySide, c))}`})` : ""}</button>
                   {counterExtraCostLabel(c, o, null) && <span className="text-[11px] text-amber-300">เพิ่ม: {counterExtraCostLabel(c, o, null)}</span>}
                 </div>
               );
