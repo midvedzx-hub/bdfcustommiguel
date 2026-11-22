@@ -2134,6 +2134,13 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
     if (plan) {
       log(g, `${card.name} ถูกคอลจากมือลงสนามด้วย Counter${callEff!.payCallCost ? " (จ่าย Call Cost)" : " (ไม่จ่าย Call Cost)"}`);
       placeCalled(g, side, cardId, card, opt.position!, plan);
+      // ถูกโจมตีผู้เล่นตอนช่องกลางว่าง: คอลมอนลงช่องกลางแล้ว มอนตัวนั้นรับการโจมตีแทน (ยกเว้นผู้โจมตีมี ignoreCenter ที่ตีผู้เล่นได้อยู่ดี)
+      const bt = g.battle;
+      if (bt && bt.attackerSide !== side && bt.target.kind === "fighter" && opt.position === 1
+        && !legalTargets(g, bt.attackerSide, bt.attackerUid, bt.linkUids).some(t => t.kind === "fighter")) {
+        bt.target = { kind: "monster", position: 1 };
+        log(g, `${card.name} ลงช่องกลาง — รับการโจมตีแทนผู้เล่น!`);
+      }
     }
     runSkills(g, side, card, counterSkills(card, "onCounter", timing), { fc: tgt });
   } else if (opt.zone === "set") {
