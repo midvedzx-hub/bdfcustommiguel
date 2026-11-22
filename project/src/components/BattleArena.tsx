@@ -11,7 +11,7 @@ import type { SoulPick } from "@/game/engine";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
   callMonster, impactCall, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
-  goToAttack, goToFinal, mulligan, transformCard, legalTargets, statsOf, counterOptions, callSelfSlots, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
+  goToAttack, goToFinal, mulligan, transformCard, legalTargets, statsOf, counterOptions, callSelfSlots, soulCallOffers, useSoulCall, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxSetPhase, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, cardOfFc, matchCallRequires, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
@@ -262,6 +262,14 @@ export function botStep(s: GameState): GameState {
     }
     case "main": {
       let state = s;
+      // บอทคอลการ์ดที่เพิ่งออกจาก Soul ลงช่องว่าง
+      for (const o of soulCallOffers(state, "guest")) {
+        const c0 = getCard(o.cardId);
+        const slot = c0 ? [1, 0, 2].find(p => callSelfSlots(state, "guest", c0).includes(p)) : undefined;
+        if (slot === undefined) continue;
+        const r = useSoulCall(state, "guest", o.index, slot);
+        if (r.ok) return r.state;
+      }
       for (let i = state.guest.hand.length - 1; i >= 0; i--) {
         const card = getCard(state.guest.hand[i]);
         if (!card) continue;
@@ -618,6 +626,12 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   /* ---------------- Actions ---------------- */
   const tryCall = (i: number, pos: number) => {
     const c = cardOf(me.hand[i] ?? "");
+    // มอนสเตอร์ที่มี Counter "คอลจากมือ": นอก Main Phase ของเรา (เช่น Attack Phase / เทิร์นคู่ต่อสู้) ลงด้วย Counter ได้ทุกเฟส
+    if (c && callSelfEffect(c) && !(isMyTurn && game.phase === "main" && !busy)) {
+      const o = freeOpts.find(x => x.zone === "hand" && x.index === i);
+      if (!o) { setNotice({ title: "Counter ไม่ได้", msg: "ใช้ Counter คอลมอนสเตอร์ตอนนี้ไม่ได้ (เช่น เกจ/Life ไม่พอ ไม่มีช่องว่าง Size เกิน หรือกำลังรอเลือกอยู่)" }); setHandSel(null); return; }
+      requestCounter({ ...o, position: pos }, true); setHandSel(null); return;
+    }
     if (isMonsterImpact(c)) {
       // มอนสเตอร์ไม้ตาย: Main Phase ลงไม่ได้ ต้อง Impact Call ใน Final Phase (Sandbox ลงด้วยมือได้เหมือนถูกเอฟเฟกต์เรียก)
       if (game.phase === "final") act("Impact Call ไม่ได้", s => impactCall(s, mySide, i, pos, { ignoreSize: sandbox, free: sandbox }));
@@ -660,6 +674,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     if (ok) setShowFreeCounter(false);
   };
   // ถ้าสกิลมีค่าใช้จ่าย "ทิ้งการ์ดบนมือ" ให้เปิดหน้าเลือกการ์ดก่อน แล้วค่อยใช้ Counter
+  const [showSoulCall, setShowSoulCall] = useState(false);
+  const mySoulCalls = soulCallOffers(game, mySide);
   const [slotPick, setSlotPick] = useState<{ opt: CounterOption; free: boolean } | null>(null);
   const requestCounter = (opt: CounterOption, free: boolean) => {
     const c = counterCardOf(game, mySide, opt);
@@ -803,7 +819,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       const card = m ? cardOfFc(m) ?? null : null;
       const isTarget = !isMine && legal.some(t => t.kind === "monster" && t.position === pos);
       const selHand = isMine && handSel !== null ? cardOf(me.hand[handSel] ?? "") : undefined;
-      const callable = isMine && handSel !== null && !m && selHand?.type === "Monster" && (isMonsterImpact(selHand) ? canImpactCallNow : canPlayNow);
+      const selCounterCall = !!selHand && !!callSelfEffect(selHand) && freeOpts.some(o => o.zone === "hand" && o.index === handSel) && callSelfSlots(game, mySide, selHand).includes(pos);
+      const callable = isMine && handSel !== null && !m && selHand?.type === "Monster" && (selCounterCall || (isMonsterImpact(selHand) ? canImpactCallNow : canPlayNow));
       const moveTarget = isMine && canMoveNow && moveSel !== null && !m;
       const selected = isMine && !!m && atkSels.includes(m.uid);
       const glow = isTarget ? "glow-target" : (callable || moveTarget) ? "glow-slot" : selected ? "glow-sel" : "";
@@ -1094,12 +1111,14 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             <div key={i} className={`hand-card anim-draw ${glow} rounded-lg`} style={{ ...style, animationDelay: `${Math.min(i, 8) * 45}ms` }} onMouseEnter={() => setHovered({ card, flagId: p.flagId })}>
               <CardView
                 card={card} flag={flag} width={hw} hideText
-                draggable={canPlayNow || (isMyTurn && game.phase === "final")}
+                draggable={canPlayNow || (isMyTurn && game.phase === "final") || freeOpts.some(o => o.zone === "hand" && o.index === i)}
                 onDragStart={() => { dragRef.current = { kind: "hand", index: i }; setHandSel(i); }}
                 onDragEnd={() => { dragRef.current = null; }}
                 onInspect={() => openInspect(card, p.flagId)}
                 onClick={() => {
                   if (inspectMode) return openInspect(card, p.flagId);
+                  // การ์ด Counter ในมือที่ใช้ได้ตอนนี้: เลือกได้ทุกเฟส ทั้งเทิร์นเราและเทิร์นคู่ต่อสู้
+                  if (freeOpts.some(o => o.zone === "hand" && o.index === i) && !(isMyTurn && game.phase === "charge" && chargePick)) { setHandSel(sel ? null : i); return; }
                   if (!isMyTurn) return openInspect(card, p.flagId, null, whyBlocked() ?? "ยังไม่ใช่เทิร์นของคุณ");
                   if (game.phase === "draw") return openInspect(card, p.flagId, null, "ตอนนี้เป็น Draw Phase — กำลังจั่วการ์ดประจำเทิร์น (กดปุ่ม 'Draw' ถ้ายังไม่จั่ว) จากนั้นจึงถึง Charge & Draw");
                   if (game.phase === "charge" && chargePick) return doCharge(i);
@@ -1117,9 +1136,13 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   }
 
   function renderHandBar() {
-    if (handSel === null || !isMyTurn) return null;
+    if (handSel === null) return null;
     const card = cardOf(me.hand[handSel] ?? "");
     if (!card) return null;
+    const counterNow = freeOpts.some(o => o.zone === "hand" && o.index === handSel);
+    if (!isMyTurn && !counterNow) return null;
+    const cs = callSelfEffect(card);
+    const csSlots = cs && counterNow ? callSelfSlots(game, mySide, card) : [];
     // การ์ดที่ต้องมีการ์ดเงื่อนไขบนสนามก่อน (callRequires): ลงทับช่องของการ์ดเงื่อนไขได้ เพราะการ์ดเหล่านั้นจะเข้า Soul
     const reqMatch = (card.callRequires ?? []).length > 0 ? matchCallRequires(me, card.callRequires ?? []) : null;
     const absorbPos = new Set(me.monsters.filter(m => reqMatch?.uids.includes(m.uid)).map(m => m.position));
@@ -1134,20 +1157,24 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           <div className="font-display font-bold text-cyan-300">{card.name}</div>
           <div className="text-xs text-slate-400 mb-2">Cost {callCostLabel(card)}{card.type === "Monster" ? ` · Size ${card.size}` : ""}{isMonsterImpact(card) ? " · มอนสเตอร์ไม้ตาย" : ""}{hasCounter(card) ? " · มี Counter Act" : ""} · ลากการ์ดไปวางบนสนามได้{reqMatch && reqMatch.missing.length > 0 ? ` · ยังขาดบนสนาม: ${reqMatch.missing.join(", ")}` : reqMatch ? " · เงื่อนไขครบ (การ์ดเงื่อนไขจะเข้า Soul)" : ""}</div>
           <div className="flex flex-wrap gap-2 items-center">
-            {card.type === "Monster" && !isMonsterImpact(card) && game.phase !== "final" && empty.map(pos => (
+            {isMyTurn && card.type === "Monster" && !isMonsterImpact(card) && game.phase !== "final" && empty.map(pos => (
               <button key={pos} onClick={() => tryCall(handSel, pos)} className={`${btn} bg-cyan-600 hover:bg-cyan-500`}>ลงช่อง{POSITION_NAMES[pos]}</button>
             ))}
-            {card.type === "Monster" && !isMonsterImpact(card) && game.phase !== "final" && empty.length === 0 && <button onClick={() => tryCall(handSel, 1)} className={`${btn} bg-slate-700`}>ลงมอนสเตอร์</button>}
-            {isMonsterImpact(card) && game.phase === "final" && empty.map(pos => (
+            {isMyTurn && card.type === "Monster" && !isMonsterImpact(card) && game.phase !== "final" && empty.length === 0 && <button onClick={() => tryCall(handSel, 1)} className={`${btn} bg-slate-700`}>ลงมอนสเตอร์</button>}
+            {isMyTurn && isMonsterImpact(card) && game.phase === "final" && empty.map(pos => (
               <button key={pos} onClick={() => tryCall(handSel, pos)} className={`${btn} bg-rose-600 hover:bg-rose-500`}>🔥 Impact Call ช่อง{POSITION_NAMES[pos]}</button>
             ))}
-            {isMonsterImpact(card) && game.phase === "final" && empty.length === 0 && <button onClick={() => tryCall(handSel, 1)} className={`${btn} bg-slate-700`}>🔥 Impact Call</button>}
-            {isMonsterImpact(card) && game.phase !== "final" && <span className="text-xs text-rose-300 self-center">มอนสเตอร์ไม้ตายลงสนามได้เฉพาะ Impact Call ใน Final Phase (เทิร์นละ 1 ใบ)</span>}
+            {isMyTurn && isMonsterImpact(card) && game.phase === "final" && empty.length === 0 && <button onClick={() => tryCall(handSel, 1)} className={`${btn} bg-slate-700`}>🔥 Impact Call</button>}
+            {isMyTurn && isMonsterImpact(card) && game.phase !== "final" && <span className="text-xs text-rose-300 self-center">มอนสเตอร์ไม้ตายลงสนามได้เฉพาะ Impact Call ใน Final Phase (เทิร์นละ 1 ใบ)</span>}
             {card.type === "Spell" && <button onClick={() => tryCast(handSel)} className={`${btn} ${counterOnly ? "bg-slate-700" : "bg-sky-600 hover:bg-sky-500"}`}>{hasSetKeyword(card) ? "ร่าย → วางลงช่อง Set" : "ร่ายเวท"}</button>}
             {canTransform(card) && <button onClick={() => tryTransform({ zone: "hand", index: handSel })} className={`${btn} bg-fuchsia-600 hover:bg-fuchsia-500`}>🔄 Transform (จ่าย {transformCostLabel(card)})</button>}
             {card.type === "Item" && <button onClick={() => tryEquip(handSel)} className={`${btn} bg-emerald-600 hover:bg-emerald-500`}>ติดตั้งไอเทม</button>}
             {card.type === "Impact" && <button onClick={() => tryCast(handSel)} className={`${btn} bg-rose-600 hover:bg-rose-500`}>ใช้ Impact (Final Phase)</button>}
-            {freeOpts.some(o => o.zone === "hand" && o.index === handSel) && <button onClick={() => { const o = freeOpts.find(x => x.zone === "hand" && x.index === handSel); if (o) { doFreeCounter(o); setHandSel(null); } }} className={`${btn} bg-sky-600 hover:bg-sky-500`}>⚡ ใช้ Counter ทันที</button>}
+            {counterNow && !cs && <button onClick={() => { const o = freeOpts.find(x => x.zone === "hand" && x.index === handSel); if (o) { doFreeCounter(o); setHandSel(null); } }} className={`${btn} bg-sky-600 hover:bg-sky-500`}>⚡ ใช้ Counter ทันที</button>}
+            {counterNow && cs && csSlots.map(pos => (
+              <button key={`cs${pos}`} onClick={() => { const o = freeOpts.find(x => x.zone === "hand" && x.index === handSel); if (o) { requestCounter({ ...o, position: pos }, true); setHandSel(null); } }} className={`${btn} bg-sky-600 hover:bg-sky-500`}>⚡ Counter คอลลงช่อง{POSITION_NAMES[pos]}{cs.payCallCost ? ` (จ่าย ${callCostLabel(card)})` : " (ฟรี)"}</button>
+            ))}
+            {cs && !counterNow && <span className="text-xs text-amber-300 self-center">ใช้ Counter คอลตอนนี้ไม่ได้ (เกจ/Life ไม่พอ ไม่มีช่องว่าง หรือ Size เกิน)</span>}
             {((hasCounter(card) && !callSelfEffect(card)) || (card.type === "Spell" && hasSetKeyword(card))) && <button onClick={() => trySet(handSel)} className={`${btn} bg-violet-600 hover:bg-violet-500`}>{card.type === "Spell" && hasSetKeyword(card) ? "Set (ลงช่อง Set)" : "Set (วางคว่ำ)"}</button>}
             {sandbox && (<>
               <button onClick={() => { doAction(s => sandboxMoveCard(s, mySide, "hand", "dropZone", handSel)); setHandSel(null); }} className={`${btn} bg-slate-800 hover:bg-slate-700 flex items-center gap-1`}><Trash2 size={12} /> สุสาน</button>
@@ -1212,6 +1239,13 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           title="เปิด: การ์ด Soulguard ที่จะออกจากสนามจะถอด Soul 1 ใบกันให้ทันที · ปิด: ไม่ใช้ Soulguard (ปล่อยให้ออกจากสนามตามปกติ)"
           className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${me.soulguardOff ? "bg-slate-800 border-slate-600 text-slate-400" : "bg-violet-700/80 border-violet-300 text-white shadow-[0_0_10px_rgba(168,85,247,.6)]"}`}
         >🛡 Soulguard {me.soulguardOff ? "ปิด" : "ใช้อัตโนมัติ"}</button>
+        {mySoulCalls.length > 0 && !game.winner && !busy && (
+          <button
+            onClick={() => setShowSoulCall(true)}
+            title="การ์ดที่เพิ่งออกจาก Soul และมีความสามารถคอลลงสนาม — ใช้ได้ภายในเทิร์นนี้"
+            className="px-3 py-1.5 rounded-lg text-xs font-bold border bg-emerald-700/80 border-emerald-300 text-white shadow-[0_0_10px_rgba(52,211,153,.6)] hover:bg-emerald-600 transition"
+          >✨ คอลจาก Soul ({mySoulCalls.length})</button>
+        )}
         {freeOpts.length > 0 && !game.winner && (
           <button
             onClick={() => setShowFreeCounter(true)}
@@ -1293,6 +1327,39 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               {mullSel.length > 0 ? `เปลี่ยน ${mullSel.length} ใบ` : "เก็บมือเดิม"}
             </button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderSoulCallModal() {
+    if (!showSoulCall) return null;
+    if (mySoulCalls.length === 0 || busy) { return null; }
+    return (
+      <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
+        <div className="bg-slate-900 border-2 border-emerald-500 rounded-2xl p-5 max-w-3xl w-full max-h-[92vh] overflow-y-auto">
+          <h3 className="font-display text-xl font-bold text-emerald-300 mb-1">✨ การ์ดที่ออกจาก Soul — คอลลงสนามได้</h3>
+          <div className="text-xs text-slate-400 mb-4">เลือกช่องที่จะคอล (ช่องไหนก็ได้ที่ว่างและ Size ไม่เกิน) · ใช้ได้ภายในเทิร์นนี้เท่านั้น</div>
+          <div className="flex flex-wrap gap-4 mb-4">
+            {mySoulCalls.map(o => {
+              const c = cardOf(o.cardId);
+              if (!c) return null;
+              const slots = callSelfSlots(game, mySide, c);
+              return (
+                <div key={o.index} className="flex flex-col items-center gap-1.5">
+                  <CardView card={c} flag={flagOf(me.flagId)} size="md" onInspect={() => openInspect(c, me.flagId)} />
+                  <span className="text-[11px] text-slate-300">อยู่ใน{o.from === "hand" ? "มือ" : "สุสาน"} · {o.pay ? `จ่าย Call Cost ${callCostLabel(c)}` : "ไม่ต้องจ่าย Call Cost"}</span>
+                  <div className="flex gap-1.5">
+                    {slots.map(pos => (
+                      <button key={pos} onClick={() => { const ok = act("คอลไม่ได้", s => useSoulCall(s, mySide, o.index, pos)); if (ok) setShowSoulCall(false); }}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold">ลงช่อง{POSITION_NAMES[pos]}</button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <button onClick={() => setShowSoulCall(false)} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">ปิด</button>
         </div>
       </div>
     );
@@ -2152,6 +2219,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       {renderCounterModal()}
       {renderFreeCounterModal()}
       {flagInfo && <FlagInfoDialog flag={flagInfo} buddies={(flagInfo.buddyIds ?? []).map(id => cardOf(id)).filter((c): c is Card => !!c)} onClose={() => setFlagInfo(null)} />}
+      {renderSoulCallModal()}
       {renderSlotPick()}
       {renderDiscardPick()}
       {renderLookModal()}

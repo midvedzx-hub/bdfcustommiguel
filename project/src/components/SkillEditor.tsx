@@ -46,7 +46,7 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
             <input type="checkbox" checked={!!eff.payCallCost} onChange={e => onChange({ ...eff, payCallCost: e.target.checked })} />
             จ่าย Call Cost ของการ์ดตอนคอล {eff.payCallCost ? "(จ่ายตาม Call Cost ของการ์ด)" : "(ไม่ต้องจ่าย — คอลฟรี)"}
           </label>
-          <p className="basis-full text-slate-500">ใช้กับการ์ดมอนสเตอร์ที่มีสกิล “Counter (ใช้จากมือ/ช่อง Set)” · ตอนใช้ผู้เล่นเลือกช่องที่จะลงได้เอง (ช่องไหนก็ได้ที่ว่างและ Size ไม่เกิน) การ์ดลงสนามเป็นมอนสเตอร์แทนที่จะลงสุสาน และเอฟเฟกต์ “เมื่อลงสนาม” / Buddy Call ทำงานตามปกติ · ใช้ได้เฉพาะจากมือ (Set คว่ำไม่ได้) · ถ้าเป็นมอนสเตอร์ไม้ตายจะไม่นับเป็น Impact Call</p>
+          <p className="basis-full text-slate-500">ใช้กับการ์ดมอนสเตอร์ที่มีสกิล “Counter (ใช้จากมือ/ช่อง Set)” หรือ “เมื่อการ์ดนี้ออกจาก Soul” · ตอนใช้ผู้เล่นเลือกช่องที่จะลงได้เอง (ช่องไหนก็ได้ที่ว่างและ Size ไม่เกิน) การ์ดลงสนามเป็นมอนสเตอร์แทนที่จะลงสุสาน และเอฟเฟกต์ “เมื่อลงสนาม” / Buddy Call ทำงานตามปกติ · แบบ Counter ใช้ได้เฉพาะจากมือ (Set คว่ำไม่ได้) · แบบ “ออกจาก Soul” ใช้ได้ภายในเทิร์นนั้น จากมือหรือสุสานที่การ์ดไปอยู่ (ถูกถอด Soul / เจ้าของ Soul ถูกทำลายหรือออกจากสนาม) · ถ้าเป็นมอนสเตอร์ไม้ตายจะไม่นับเป็น Impact Call</p>
         </div>
       )}
       {eff.type === "namedToHand" && (

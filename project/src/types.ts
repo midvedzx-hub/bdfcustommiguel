@@ -11,6 +11,7 @@ export type AutoTrigger =
   | "onCounter"     // 【Counter】: ใช้จากมือ/ช่อง Set ตอนศัตรูโจมตีหรือร่ายเวท
   | "onCounterAct"  // Counter 【Act】: ความสามารถของการ์ดบนสนาม กดใช้ตอนศัตรูโจมตีหรือร่ายเวท
   | "onSoulRemoved" // เมื่อโซลของการ์ดนี้ถูกถอดออก
+  | "onLeaveSoul"   // เมื่อ "การ์ดนี้" ออกจาก Soul ของมอนสเตอร์/ไอเทม (ถูกถอด / เจ้าของ Soul ถูกทำลายหรือออกจากสนาม) — ใช้คู่กับเอฟเฟกต์ "คอลการ์ดใบนี้ลงช่องใดก็ได้"
   | "onBuddyCall"   // เมื่อลงสนามด้วย Buddy Call
   | "onTurnStart"   // ต้นเทิร์นของเรา
   | "onFinal"       // ใน Final Phase ของเรา
@@ -84,6 +85,7 @@ export const TRIGGER_LABELS: { value: AutoTrigger; label: string }[] = [
   { value: "onCounter", label: "Counter (ใช้จากมือ/ช่อง Set)" },
   { value: "onCounterAct", label: "Counter 【Act】 (ความสามารถบนสนาม)" },
   { value: "onSoulRemoved", label: "เมื่อโซลถูกถอด" },
+  { value: "onLeaveSoul", label: "เมื่อการ์ดนี้ออกจาก Soul (คอลลงสนามได้)" },
   { value: "onBuddyCall", label: "เมื่อลงสนามด้วย Buddy Call" },
   { value: "onTurnStart", label: "ต้นเทิร์นของเรา" },
   { value: "onFinal", label: "ใน Final Phase" },
@@ -123,7 +125,7 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "destroyAttacker", label: "[Counter] ทำลายผู้โจมตี", hint: "ใส่ 1" },
   { value: "restAttacker", label: "[Counter] Rest ผู้โจมตี", hint: "ใส่ 1" },
   { value: "negateSpell", label: "[Counter] ยกเลิกเวทที่ศัตรูร่าย", hint: "ใส่ 1" },
-  { value: "callSelf", label: "[Counter] คอลการ์ดใบนี้จากมือลงช่องใดก็ได้ (เฉพาะมอนสเตอร์)", hint: "ใส่ 1" },
+  { value: "callSelf", label: "คอลการ์ดใบนี้ลงช่องใดก็ได้ (Counter จากมือ / เมื่อออกจาก Soul) เฉพาะมอนสเตอร์", hint: "ใส่ 1" },
   { value: "set", label: "Set (อยู่ในช่อง Set คงผลต่อเนื่อง)", hint: "Set ชื่อเดียวกันได้กี่ใบ" },
   { value: "destroyOpponentSet", label: "ทำลายการ์ด Set ของศัตรู", hint: "จำนวนใบ" },
   { value: "chooseRemoveSoul", label: "ถอด Soul ของการ์ดที่เลือก 1 ใบ (ถ้าถอดได้ ทำเอฟเฟกต์ถัดไป)", hint: "ถอดกี่ใบ" },
@@ -424,6 +426,7 @@ export interface PlayerState {
   buddyId: string | null;
   buddyIds?: string[];        // Buddy ทั้งหมดของผู้เล่น (1-4 ตัว)
   buddiesCalled?: string[];   // Buddy ที่ Buddy Call ไปแล้ว (ตัวละครั้งเดียวต่อเกม)
+  soulCallOffers?: { cardId: string; from: "hand" | "drop"; turn: number }[]; // การ์ดที่เพิ่งออกจาก Soul และมีความสามารถ "คอลลงช่องใดก็ได้" — กดใช้ได้ภายในเทิร์นนั้น
   buddyCalledThisGame: boolean; // true เมื่อ Buddy ทุกตัว Buddy Call ครบแล้ว
   impactCalledTurn?: number; // เทิร์นที่ Impact Call มอนสเตอร์ไม้ตายไปแล้ว (ทำได้เทิร์นละ 1 ใบ; การลงด้วยเอฟเฟกต์ไม่นับ)
   soulguardOff?: boolean; // ปิดการใช้ Soulguard อัตโนมัติ (ผู้เล่นเลือกไม่ใช้ได้)
@@ -562,10 +565,10 @@ export function matchesType(card: Pick<Card, "type" | "monsterImpact"> | undefin
 }
 
 // Counter "คอลการ์ดใบนี้จากมือ": คืนเอฟเฟกต์ callSelf ของสกิล Counter (ถ้าการ์ดเป็นมอนสเตอร์และมีเอฟเฟกต์นี้)
-export function callSelfEffect(card: Pick<Card, "type" | "autoSkills"> | undefined | null): AutoEffect | undefined {
+export function callSelfEffect(card: Pick<Card, "type" | "autoSkills"> | undefined | null, trig: AutoTrigger = "onCounter"): AutoEffect | undefined {
   if (!card || card.type !== "Monster") return undefined;
   for (const sk of card.autoSkills ?? []) {
-    if (sk.trigger !== "onCounter") continue;
+    if (sk.trigger !== trig) continue;
     const e = sk.effects.find(x => x.type === "callSelf");
     if (e) return e;
   }

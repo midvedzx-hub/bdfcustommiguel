@@ -243,14 +243,28 @@ function findFc(p: PlayerState, fcUid: string): FieldCard | null {
 /* ------------------------------------------------------------------ */
 /* Soul / destroy / effects                                            */
 /* ------------------------------------------------------------------ */
+// การ์ดที่ออกจาก Soul และมีสกิล "เมื่อการ์ดนี้ออกจาก Soul → คอลลงช่องใดก็ได้": เปิดให้กดคอลได้ภายในเทิร์นนี้ (จากมือ/สุสานที่การ์ดไปอยู่)
+function offerLeaveSoul(g: GameState, side: Side, ids: string[], from: "hand" | "drop") {
+  const p = g[side];
+  ids.forEach(id => {
+    const c = getCard(id);
+    if (!callSelfEffect(c, "onLeaveSoul")) return;
+    p.soulCallOffers = [...(p.soulCallOffers ?? []).filter(o => o.turn === g.turn), { cardId: id, from, turn: g.turn }];
+    log(g, `${c!.name} ออกจาก Soul — คอลลงสนามได้ (กดปุ่ม “คอลจาก Soul”)`);
+  });
+}
 function mRemoveSoul(g: GameState, side: Side, fc: FieldCard, n: number): number {
   const p = g[side];
   let moved = 0;
+  const leftIds: string[] = [];
   for (let i = 0; i < n && fc.soul.length > 0; i++) {
-    p.dropZone.push(fc.soul.pop()!);
+    const id = fc.soul.pop()!;
+    p.dropZone.push(id);
+    leftIds.push(id);
     moved++;
   }
   if (moved > 0) {
+    offerLeaveSoul(g, side, leftIds, "drop");
     const card = cardOfFc(fc);
     log(g, `${card?.name ?? "การ์ด"} ถูกถอด Soul ${moved} ใบลงสุสาน`);
     fx(g, { k: "soulOut", side, uid: fc.uid, pos: posOf(g, side, fc), n: moved });
@@ -295,6 +309,7 @@ function mDestroyMonster(g: GameState, side: Side, monsterUid: string, via: "eff
   fx(g, { k: "destroy", side, uid: m.uid, cardId: m.cardId, pos: m.position });
   p.monsters = p.monsters.filter(x => x.uid !== monsterUid);
   p.dropZone.push(m.cardId, ...m.soul);
+  offerLeaveSoul(g, side, m.soul, "drop");
   log(g, `${card?.name ?? "มอนสเตอร์"} ถูกทำลาย`);
   if (card) applyEffects(g, side, card, "onDestroyed");
   // Lifelink: เมื่อการ์ดนี้ตาย เจ้าของโดนดาเมจตามค่า Lifelink
@@ -320,6 +335,7 @@ function mLeaveField(g: GameState, side: Side, monsterUid: string, dest: "hand" 
   else if (dest === "drop") p.dropZone.push(m.cardId);
   else p.deck.unshift(m.cardId);
   p.dropZone.push(...m.soul); // Soul ลงสุสานเสมอ
+  offerLeaveSoul(g, side, m.soul, "drop");
   log(g, `${card?.name ?? "มอนสเตอร์"} ${label}`);
   return true;
 }
@@ -631,7 +647,9 @@ function runSkills(
           const fc = ctx?.fc;
           if (!fc || fc.soul.length === 0) { log(g, `${card.name}: ไม่มี Soul ให้ถอดขึ้นมือ`); break; }
           let moved = 0;
-          for (let i = 0; i < n && fc.soul.length > 0; i++) { g[side].hand.push(fc.soul.pop()!); moved++; }
+          const handIds: string[] = [];
+          for (let i = 0; i < n && fc.soul.length > 0; i++) { const id = fc.soul.pop()!; g[side].hand.push(id); handIds.push(id); moved++; }
+          offerLeaveSoul(g, side, handIds, "hand");
           log(g, `${card.name} ถอด Soul ${moved} ใบขึ้นมือ`);
           fx(g, { k: "soulOut", side, uid: fc.uid, pos: posOf(g, side, fc), n: moved });
           const c0 = cardOfFc(fc);
@@ -1916,6 +1934,48 @@ function canAffordExtra(p: PlayerState, card: Card, trig: AutoTrigger, timing: C
 }
 // Counter "คอลการ์ดใบนี้จากมือ" ที่ตั้งเป็นไม่จ่าย Call Cost
 const callSelfFree = (card: Card) => { const e = callSelfEffect(card); return !!e && !e.payCallCost; };
+// รายการ "คอลจาก Soul" ที่ใช้ได้ตอนนี้ของ side (การ์ดยังอยู่ในมือ/สุสานตามที่บันทึก และอยู่ในเทิร์นเดียวกัน)
+export type SoulCallOffer = { index: number; cardId: string; from: "hand" | "drop"; pay: boolean };
+export function soulCallOffers(state: GameState, side: Side): SoulCallOffer[] {
+  const p = state[side];
+  const out: SoulCallOffer[] = [];
+  (p.soulCallOffers ?? []).forEach((o, index) => {
+    if (o.turn !== state.turn) return;
+    const c = getCard(o.cardId);
+    const eff = callSelfEffect(c, "onLeaveSoul");
+    if (!c || !eff) return;
+    if (!(o.from === "hand" ? p.hand : p.dropZone).includes(o.cardId)) return;
+    if (callSelfSlots(state, side, c).length === 0) return;
+    out.push({ index, cardId: o.cardId, from: o.from, pay: !!eff.payCallCost });
+  });
+  return out;
+}
+// ใช้ความสามารถ "เมื่อการ์ดนี้ออกจาก Soul → คอลลงช่องที่เลือก" (จ่าย Call Cost เฉพาะเมื่อสกิลตั้งไว้)
+export function useSoulCall(state: GameState, side: Side, offerIndex: number, position: number): Result {
+  if (state.winner) return { state, ok: false, msg: "เกมจบแล้ว" };
+  if (state.battle || state.spellWindow || state.pendingLook || state.pendingSoul || state.pendingTarget || state.moveWindow)
+    return { state, ok: false, msg: "กำลังรอการตัดสินใจอื่นอยู่ — ทำให้เสร็จก่อนแล้วค่อยคอล (ตัวเลือกยังอยู่ตลอดเทิร์นนี้)" };
+  const offer = soulCallOffers(state, side).find(o => o.index === offerIndex);
+  if (!offer) return { state, ok: false, msg: "ความสามารถนี้ใช้ไม่ได้แล้ว (หมดเทิร์น การ์ดย้ายที่ หรือไม่มีช่องว่าง)" };
+  if (![0, 1, 2].includes(position)) return { state, ok: false, msg: "เลือกช่องที่จะลงมอนสเตอร์ก่อน" };
+  const g = structuredClone(state);
+  const p = g[side];
+  const card = getCard(offer.cardId)!;
+  const eff = callSelfEffect(card, "onLeaveSoul")!;
+  const plan = checkCall(g, side, card, position, false);
+  if (typeof plan === "string") return { state, ok: false, msg: plan };
+  if (eff.payCallCost) {
+    const costErr = payCost(g, side, card);
+    if (costErr) return { state, ok: false, msg: costErr };
+  }
+  const zone = offer.from === "hand" ? p.hand : p.dropZone;
+  zone.splice(zone.lastIndexOf(offer.cardId), 1);
+  p.soulCallOffers = (p.soulCallOffers ?? []).filter((_, i) => i !== offerIndex);
+  log(g, `${nameOf(side)} คอล ${card.name} ลงสนามหลังออกจาก Soul${eff.payCallCost ? " (จ่าย Call Cost)" : " (ไม่จ่าย Call Cost)"}`);
+  fx(g, { k: "cast", side, cardId: offer.cardId, label: "CALL!" });
+  placeCalled(g, side, offer.cardId, card, position, plan);
+  return { state: g, ok: true, msg: `${card.name} ลงสนามสำเร็จ` };
+}
 // ช่องมอนสเตอร์ที่คอลการ์ดใบนี้จากมือลงได้ตอนนี้ (UI ใช้แสดงปุ่มเลือกช่อง) — ว่างและ Size ไม่เกิน
 export function callSelfSlots(state: GameState, side: Side, card: Card): number[] {
   const g = state;
