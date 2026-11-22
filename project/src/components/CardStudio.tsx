@@ -2,7 +2,7 @@ import { useState, useRef, useLayoutEffect, useEffect } from "react";
 import { Plus, Save, Trash2, Download, Upload, Edit3, Copy, Zap, Search, Layers, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, GripVertical } from "lucide-react";
 import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Card, Flag, CardType, AutoTrigger, AutoEffectType, AutoEffect, AutoSkill } from "@/types";
-import { TRIGGER_LABELS, EFFECT_LABELS, DROP_FILTERS, callCostLabel, transformCostLabel, deckBuddies } from "@/types";
+import { TRIGGER_LABELS, EFFECT_LABELS, DROP_FILTERS, callCostLabel, transformCostLabel, deckBuddies, isMonsterImpact, impactCostLabel } from "@/types";
 import type { CardFilter } from "@/types";
 import { getCards, saveCards, getFlags, saveFlags, getDecks, saveDecks, uid, downloadJSON, parseImport, applyImport, exportCards } from "@/storage";
 import type { ParsedImport } from "@/storage";

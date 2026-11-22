@@ -7,6 +7,7 @@ import {
 import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet, FieldCard } from "@/types";
 import { TRIGGER_LABELS, customTextList, callCostLabel, canTransform, transformCostLabel, isMonsterImpact, impactCostLabel, matchesType } from "@/types";
 import { DEFAULT_RULES, deckBuddies } from "@/types";
+import type { SoulPick } from "@/game/engine";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
   callMonster, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,

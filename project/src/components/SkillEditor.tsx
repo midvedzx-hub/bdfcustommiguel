@@ -60,7 +60,7 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
           <input value={eff.refName ?? ""} onChange={e => onChange({ ...eff, refName: e.target.value })} placeholder="เช่น Albis Wis (หลายใบคั่นด้วย , ต้องมีครบทุกใบ)" className={`${num} !py-0.5 text-xs w-72`} />
           <span>อยู่ใน</span>
           {([["field", "สนาม"], ["hand", "มือ"], ["drop", "สุสาน"]] as const).map(([z, label]) => {
-            const cur = eff.reqZones && eff.reqZones.length ? eff.reqZones : (["field"] as const);
+            const cur: ("field" | "hand" | "drop")[] = eff.reqZones && eff.reqZones.length ? [...eff.reqZones] : ["field"];
             const on = cur.includes(z);
             return (
               <button key={z} type="button" onClick={() => {
@@ -74,7 +74,7 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
         </div>
       )}
       {eff.type === "destroyWeaker" && (() => {
-        const stats = eff.cmpStats && eff.cmpStats.length ? eff.cmpStats : (["power"] as const);
+        const stats: ("power" | "critical" | "defense")[] = eff.cmpStats && eff.cmpStats.length ? [...eff.cmpStats] : ["power"];
         const toggle = (k: "power" | "critical" | "defense") => {
           const cur: ("power" | "critical" | "defense")[] = [...stats];
           const next = cur.includes(k) ? cur.filter(x => x !== k) : [...cur, k];

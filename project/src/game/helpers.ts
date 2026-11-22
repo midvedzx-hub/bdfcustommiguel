@@ -1,6 +1,6 @@
 import type { Flag, Card, AutoSkill, AutoEffect } from "@/types";
 import { getCustomKeywords } from "@/storage";
-import { TRIGGER_LABELS, callCostLabel, canTransform, transformCostLabel, condBuffAmounts, SOUL_GRANT_KEYWORDS } from "@/types";
+import { TRIGGER_LABELS, callCostLabel, canTransform, transformCostLabel, condBuffAmounts, SOUL_GRANT_KEYWORDS, isMonsterImpact, impactCostLabel } from "@/types";
 import { KEYWORD_DEFS } from "@/game/keywords";
 
 export function getFlagColor(flag?: Flag | null): string {
