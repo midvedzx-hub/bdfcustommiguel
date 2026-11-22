@@ -67,6 +67,8 @@ export type AutoEffectType =
   | "criticalPerSoul"         // Critical +N ต่อการ์ด 1 ใบในโซล (ถาวร)
   | "soulGrant"               // ถาวร: ถ้าการ์ดนี้อยู่ใน Soul ของการ์ด (ชื่อ ...) การ์ดนั้นจะได้รับความสามารถทั้งหมดของการ์ดนี้
   | "soulCond"                // ถาวร: ถ้าโซลของการ์ดนี้มีการ์ด (คุณสมบัติ/ชื่อที่กำหนด) อย่างน้อย X ใบ → การ์ดนี้ได้ Power/Critical/Defense เพิ่ม และ/หรือได้คีย์เวิร์ด (Penetrate / Double Attack ...)
+  | "namedToHand"             // นำการ์ดที่ชื่อตรง (refName) จากสุสาน / บนกองเด็ค ขึ้นมือ N ใบ (เช่น หลังร่าย)
+  | "requireOnField"          // เงื่อนไข: ต้องมีการ์ดที่กำหนด (refName) อยู่ในสนามของเรา จึงทำเอฟเฟกต์ถัดไปของสกิลนี้ ถ้าไม่มีก็ข้าม
   | "chooseAddSoul"           // เลือกการ์ดบนสนามของเรา แล้วนำการ์ดจากสุสาน/บนกองเด็คเข้า Soul ของการ์ดที่เลือก (เช่น ตอนร่ายเวท)
   | "condBuff";                // ถาวร: ถ้าในสนามมีการ์ดที่มีคุณสมบัติ/ชื่อที่กำหนด → การ์ดนี้ (หรือการ์ดที่ชื่อ ...) ได้ Power/Critical/Defense เพิ่ม และ/หรือได้คีย์เวิร์ด (grantKw)
 
@@ -138,7 +140,9 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "criticalPerSoul", label: "Critical เพิ่มต่อ Soul 1 ใบ (ถาวร)", hint: "เช่น 1" },
   { value: "soulGrant", label: "อยู่ใน Soul → ให้ความสามารถทั้งหมดแก่เจ้าของโซล", hint: "ไม่ต้องใส่ค่า" },
   { value: "soulCond", label: "บัฟ/คีย์เวิร์ดตามโซล (ถ้าโซลมีการ์ด X ใบ…)", hint: "จำนวนการ์ดในโซลขั้นต่ำ (X)" },
-  { value: "chooseAddSoul", label: "เลือกการ์ดบนสนาม → นำการ์ดจากสุสาน/บนกองเข้า Soul", hint: "จำนวนใบที่นำเข้า" },
+  { value: "requireOnField", label: "เงื่อนไข: ถ้ามีการ์ดที่กำหนด (ในสนาม/มือ/สุสาน) จึงทำเอฟเฟกต์ถัดไป", hint: "ไม่ต้องใส่ (ใส่ชื่อด้านล่าง)" },
+  { value: "namedToHand", label: "นำการ์ดที่กำหนด (ตามชื่อ) จากสุสาน/เด็คขึ้นมือ", hint: "จำนวนใบ" },
+  { value: "chooseAddSoul", label: "เลือกการ์ดบนสนาม → นำการ์ดจากมือ/สุสาน/บนกองเข้า Soul", hint: "จำนวนใบที่นำเข้า" },
   { value: "condBuff", label: "บัฟถาวรแบบมีเงื่อนไข (ถ้าบนสนามมีการ์ด…)", hint: "ค่าที่เพิ่ม เช่น 1 หรือ 5000" },
 ];
 
@@ -166,7 +170,9 @@ export interface AutoEffect {
   bCritical?: number;
   bDefense?: number;
   bSize?: number;                         // Size ที่เพิ่ม/ลด (ติดลบ = ลด Size) ของผู้ได้รับบัฟ
-  soulSrc?: "drop" | "deck";               // chooseAddSoul: นำการ์ดจากสุสาน (drop) หรือบนกองเด็ค (deck)
+  soulSrc?: "drop" | "deck" | "hand" | "handDrop";
+  reqZones?: ("field" | "hand" | "drop")[];        // requireOnField: ตรวจการ์ดที่กำหนดใน โซนไหนบ้าง (ไม่ใส่ = สนามอย่างเดียว) — เจอในโซนใดโซนหนึ่งก็ถือว่ามี
+  fromZone?: "drop" | "deck" | "dropDeck";          // namedToHand: เอาการ์ดจากสุสาน / กองเด็ค / ทั้งสองที่ (สุสานก่อน)               // chooseAddSoul: นำการ์ดจากสุสาน (drop) หรือบนกองเด็ค (deck)
   includeSelf?: boolean;                   // เมื่อระบุ targetName: ให้การ์ดใบนี้ได้รับบัฟด้วย
   condMatch?: "attr" | "name";             // ตรวจจาก "คุณสมบัติ" (attribute) หรือ "ชื่อ" ของการ์ดบนสนาม
   condText?: string;                       // ข้อความที่ต้องมี (ไม่สนตัวพิมพ์) ว่าง = ไม่มีเงื่อนไข ได้บัฟเสมอ
@@ -331,7 +337,7 @@ export interface PendingSoul {
   candidates: string[];    // uid ของการ์ดของเรา (มอนสเตอร์/ไอเทม) ที่มี Soul พอ
   cont: { skills: AutoSkill[]; fcUid?: string; firstIsRest: boolean } | null; // เอฟเฟกต์ที่เหลือ (firstIsRest = รายการแรกคือส่วนที่เหลือของสกิลเดียวกัน ซึ่งจะไม่ทำถ้าไม่ถอด)
   mode?: "add";             // ถ้ามี = กำลังเลือกการ์ดที่จะ "รับ" Soul (chooseAddSoul) แทนการถอด
-  src?: "drop" | "deck";    // แหล่งที่นำการ์ดเข้า Soul (mode add)
+  src?: "drop" | "deck" | "hand" | "handDrop";    // แหล่งที่นำการ์ดเข้า Soul (mode add) · hand / handDrop = ผู้เล่นเลือกใบเอง
   filter?: string;          // ชนิดการ์ดที่ดึงจากสุสาน (mode add, src drop)
   resumeCounter?: boolean;
 }

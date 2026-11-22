@@ -331,6 +331,10 @@ function shuffleInPlace<T>(a: T[]) {
     [a[i], a[j]] = [a[j], a[i]];
   }
 }
+function soulSrcLabel(src?: string): string {
+  return src === "deck" ? "บนกองเด็ค" : src === "hand" ? "มือ" : src === "handDrop" ? "มือหรือสุสาน" : "สุสาน";
+}
+
 function pickFromDrop(g: GameState, side: Side, n: number, filter?: string): string[] {
   const p = g[side];
   const out: string[] = [];
@@ -691,19 +695,65 @@ function runSkills(
         case "negateSpell":
           if (g.spellWindow) { g.spellWindow.negated = true; log(g, `${card.name} ยกเลิกเวทที่ศัตรูร่าย!`); }
           break;
+        case "namedToHand": {
+          const nm = (eff.refName ?? "").trim().toLowerCase();
+          if (!nm) { log(g, `${card.name}: ยังไม่ได้ระบุชื่อการ์ดที่จะนำขึ้นมือ`); break; }
+          const zone = eff.fromZone ?? "drop";
+          const pz = g[side];
+          const want = Math.max(1, n);
+          const got: string[] = [];
+          let fromDeck = 0;
+          if (zone === "drop" || zone === "dropDeck") {
+            // เวทที่กำลังร่ายอยู่ในสุสานแล้ว แต่ไม่ใช่การ์ดในสุสานที่เก็บขึ้นมือได้
+            const selfIdx = (card.type === "Spell" || card.type === "Impact") && !ctx.fc && !pz.setZone.includes(card.id) ? pz.dropZone.lastIndexOf(card.id) : -1;
+            for (let i = pz.dropZone.length - 1; i >= 0 && got.length < want; i--) {
+              if (i === selfIdx) continue;
+              if (textHas(getCard(pz.dropZone[i])?.name, nm)) got.push(pz.dropZone.splice(i, 1)[0]);
+            }
+          }
+          if (zone === "deck" || zone === "dropDeck") {
+            for (let i = 0; i < pz.deck.length && got.length < want; ) {
+              if (textHas(getCard(pz.deck[i])?.name, nm)) { got.push(pz.deck.splice(i, 1)[0]); fromDeck++; } else i++;
+            }
+            if (fromDeck > 0) shuffleInPlace(pz.deck); // ค้นเด็คแล้วสับเด็ค
+          }
+          if (got.length === 0) { log(g, `${card.name}: ไม่พบการ์ด “${eff.refName?.trim()}” ใน${zone === "drop" ? "สุสาน" : zone === "deck" ? "กองเด็ค" : "สุสานหรือกองเด็ค"}`); break; }
+          pz.hand.push(...got);
+          log(g, `${card.name}: นำ ${got.map(id => getCard(id)?.name ?? "การ์ด").join(", ")} ขึ้นมือ${fromDeck > 0 ? " (สับเด็ค)" : ""}`);
+          break;
+        }
+        case "requireOnField": {
+          // ต้องมีการ์ดที่กำหนดครบทุกชื่อ (คั่นด้วย , ) อยู่ในสนามของเรา จึงทำเอฟเฟกต์ถัดไป ไม่งั้นข้ามที่เหลือของสกิลนี้
+          const names = (eff.refName ?? "").split(",").map(x => x.trim().toLowerCase()).filter(Boolean);
+          if (names.length === 0) break;
+          const zones = eff.reqZones && eff.reqZones.length ? eff.reqZones : ["field"];
+          const zoneTxt = zones.map(z => z === "field" ? "สนาม" : z === "hand" ? "มือ" : "สุสาน").join("/");
+          const pz = g[side];
+          const dropList = [...pz.dropZone];
+          if (card.type === "Spell" || card.type === "Impact") { const k = dropList.lastIndexOf(card.id); if (k >= 0 && !ctx.fc) dropList.splice(k, 1); } // เวทที่กำลังร่ายไม่นับเป็นการ์ดในสุสาน
+          const has = (nm: string) =>
+            (zones.includes("field") && fieldCardsOf(pz).some(f => textHas(cardOfFc(f)?.name, nm))) ||
+            (zones.includes("hand") && pz.hand.some(id => textHas(getCard(id)?.name, nm))) ||
+            (zones.includes("drop") && dropList.some(id => textHas(getCard(id)?.name, nm)));
+          const missing = names.filter(nm => !has(nm));
+          if (missing.length > 0) { abort = true; log(g, `${card.name}: ไม่มี ${missing.map(x => `“${x}”`).join(", ")} (${zoneTxt}) — เอฟเฟกต์ที่เหลือไม่ทำงาน`); break; }
+          log(g, `${card.name}: มี ${names.map(x => `“${x}”`).join(", ")} (${zoneTxt}) — ทำเอฟเฟกต์ถัดไปได้`);
+          break;
+        }
         case "chooseAddSoul": {
           // เลือกการ์ดบนสนามของเรา แล้วนำการ์ดจากสุสาน/บนกองเด็คเข้า Soul ของใบที่เลือก
-          const srcKind: "drop" | "deck" = eff.soulSrc === "deck" ? "deck" : "drop";
+          const srcKind: "drop" | "deck" | "hand" | "handDrop" = eff.soulSrc === "deck" ? "deck" : eff.soulSrc === "hand" ? "hand" : eff.soulSrc === "handDrop" ? "handDrop" : "drop";
           const cnt = Math.max(1, n);
           const cands = [...g[side].monsters, ...(g[side].item ? [g[side].item] : [])];
           // เวท/Impact ที่กำลังใช้อยู่ถูกวางในสุสานแล้ว แต่ยังไม่ถือเป็นการ์ดในสุสานที่เลือกนำเข้า Soul ได้ (ตัดออก 1 ใบ)
           const dropForPick = [...g[side].dropZone];
           if (card.type === "Spell" || card.type === "Impact") { const k = dropForPick.lastIndexOf(card.id); if (k >= 0) dropForPick.splice(k, 1); }
-          const avail = srcKind === "deck"
-            ? g[side].deck.length
-            : dropForPick.filter(id => !eff.filter || eff.filter === "any" || getCard(id)?.type === eff.filter).length;
+          const typeOk = (id: string) => !eff.filter || eff.filter === "any" || getCard(id)?.type === eff.filter;
+          const availHand = g[side].hand.filter(typeOk).length;
+          const availDrop = dropForPick.filter(typeOk).length;
+          const avail = srcKind === "deck" ? g[side].deck.length : srcKind === "hand" ? availHand : srcKind === "handDrop" ? availHand + availDrop : availDrop;
           if (cands.length === 0) { log(g, `${card.name}: ไม่มีการ์ดบนสนามที่จะรับ Soul`); break; }
-          if (avail === 0) { log(g, `${card.name}: ไม่มี${srcKind === "deck" ? "การ์ดบนกองเด็ค" : "การ์ดที่ตรงเงื่อนไขในสุสาน"}ให้นำเข้า Soul`); break; }
+          if (avail === 0) { log(g, `${card.name}: ไม่มี${srcKind === "deck" ? "การ์ดบนกองเด็ค" : srcKind === "hand" ? "การ์ดที่ตรงเงื่อนไขบนมือ" : srcKind === "handDrop" ? "การ์ดที่ตรงเงื่อนไขบนมือหรือในสุสาน" : "การ์ดที่ตรงเงื่อนไขในสุสาน"}ให้นำเข้า Soul`); break; }
           const restOfSkillA = skill.effects.slice(ei + 1);
           const restSkillsA: AutoSkill[] = [...(restOfSkillA.length > 0 ? [{ ...skill, effects: restOfSkillA }] : []), ...skills.slice(si + 1)];
           g.pendingSoul = {
@@ -711,7 +761,7 @@ function runSkills(
             candidates: cands.map(c => c.uid),
             cont: restSkillsA.length > 0 ? { skills: restSkillsA, fcUid: ctx.fc?.uid, firstIsRest: false } : null,
           };
-          log(g, `${card.name}: ${nameOf(side)} เลือกการ์ดที่จะรับ Soul ${cnt} ใบจาก${srcKind === "deck" ? "บนกองเด็ค" : "สุสาน"}`);
+          log(g, `${card.name}: ${nameOf(side)} เลือกการ์ดที่จะรับ Soul ${cnt} ใบจาก${soulSrcLabel(srcKind)}`);
           return;
         }
         case "chooseRemoveSoul": {
@@ -2112,7 +2162,8 @@ export function passCounter(state: GameState, side: Side): Result {
 }
 
 // เลือกการ์ดที่จะถอด Soul (targetUid = null คือไม่ถอด: ข้ามเอฟเฟกต์ที่ขึ้นกับการถอดของสกิลนี้)
-export function resolveSoulChoice(state: GameState, side: Side, targetUid: string | null): Result {
+export type SoulPick = { zone: "hand" | "drop"; index: number };
+export function resolveSoulChoice(state: GameState, side: Side, targetUid: string | null, picks?: SoulPick[]): Result {
   const ps = state.pendingSoul;
   if (!ps || ps.side !== side) return { state, ok: false, msg: "ไม่มีการเลือกถอด Soul ที่รอคุณอยู่" };
   if (targetUid !== null && !ps.candidates.includes(targetUid)) return { state, ok: false, msg: "การ์ดใบนี้ถอด Soul ไม่ได้ (Soul ไม่พอ)" };
@@ -2131,6 +2182,30 @@ export function resolveSoulChoice(state: GameState, side: Side, targetUid: strin
       // นำการ์ดจากสุสาน/บนกองเด็คเข้า Soul ของการ์ดที่เลือก
       let got: string[] = [];
       if (ps.src === "deck") { for (let i = 0; i < ps.n && p.deck.length > 0; i++) got.push(p.deck.shift()!); }
+      else if (ps.src === "hand" || ps.src === "handDrop") {
+        // ผู้เล่นเลือกใบเองจากมือ (และสุสานถ้า handDrop) — ถ้าไม่ได้ส่งมา (เช่นบอท) เลือกให้อัตโนมัติ: มือก่อน แล้วสุสานใบล่าสุด
+        const typeOk = (id: string) => !ps.filter || ps.filter === "any" || getCard(id)?.type === ps.filter;
+        const selfIdx = card?.type === "Spell" || card?.type === "Impact" ? p.dropZone.lastIndexOf(ps.cardId) : -1;
+        let use = picks;
+        if (!use) {
+          use = [];
+          p.hand.forEach((id, i) => { if (use!.length < ps.n && typeOk(id)) use!.push({ zone: "hand", index: i }); });
+          if (ps.src === "handDrop") for (let i = p.dropZone.length - 1; i >= 0 && use.length < ps.n; i--) if (i !== selfIdx && typeOk(p.dropZone[i])) use.push({ zone: "drop", index: i });
+        }
+        const seen = new Set<string>();
+        for (const pk of use) {
+          const arr = pk.zone === "hand" ? p.hand : p.dropZone;
+          const key = `${pk.zone}:${pk.index}`;
+          if (pk.zone === "drop" && ps.src !== "handDrop") return { state, ok: false, msg: "เวทนี้ไม่ได้ให้เลือกการ์ดจากสุสาน" };
+          if (!Number.isInteger(pk.index) || pk.index < 0 || pk.index >= arr.length || seen.has(key) || (pk.zone === "drop" && pk.index === selfIdx) || !typeOk(arr[pk.index]))
+            return { state, ok: false, msg: "เลือกการ์ดที่นำเข้า Soul ไม่ถูกต้อง (ใบนั้นใช้ไม่ได้หรือซ้ำกัน)" };
+          seen.add(key);
+        }
+        if (use.length > ps.n) return { state, ok: false, msg: `เลือกได้ไม่เกิน ${ps.n} ใบ` };
+        if (use.length === 0) return { state, ok: false, msg: "ต้องเลือกการ์ดที่จะนำเข้า Soul อย่างน้อย 1 ใบ (หรือกด “ไม่ใส่ Soul”)" };
+        got = use.map(pk => (pk.zone === "hand" ? p.hand : p.dropZone)[pk.index]);
+        [...use].sort((a, b) => b.index - a.index).forEach(pk => (pk.zone === "hand" ? p.hand : p.dropZone).splice(pk.index, 1));
+      }
       else {
         // ไม่หยิบเวท/Impact ที่กำลังใช้อยู่ (อยู่ในสุสานแล้ว) มาเป็น Soul ของตัวเอง
         const selfType = card?.type;
@@ -2141,8 +2216,8 @@ export function resolveSoulChoice(state: GameState, side: Side, targetUid: strin
       }
       if (got.length > 0) {
         chosen.soul.push(...got);
-        log(g, `${card?.name ?? "เวท"} นำการ์ด${ps.src === "deck" ? "จากบนกองเด็ค" : "จากสุสาน"} ${got.length} ใบเข้า Soul ของ ${cardOfFc(chosen)?.name ?? "การ์ด"} (รวม ${chosen.soul.length})`);
-        fx(g, { k: "soulIn", side, uid: chosen.uid, pos: posOf(g, side, chosen), n: got.length, from: ps.src === "deck" ? "deck" : "drop" });
+        log(g, `${card?.name ?? "เวท"} นำการ์ดจาก${soulSrcLabel(ps.src)} ${got.length} ใบเข้า Soul ของ ${cardOfFc(chosen)?.name ?? "การ์ด"} (รวม ${chosen.soul.length})`);
+        fx(g, { k: "soulIn", side, uid: chosen.uid, pos: posOf(g, side, chosen), n: got.length, from: ps.src === "deck" ? "deck" : "drop" }); // มือ/สุสาน ใช้เอฟเฟกต์เดียวกับสุสาน
         recalcAuras(g);
       } else log(g, `${card?.name ?? "เวท"}: ไม่มีการ์ดให้นำเข้า Soul แล้ว`);
     } else if (chosen) mRemoveSoul(g, side, chosen, ps.n);

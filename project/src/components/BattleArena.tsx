@@ -354,6 +354,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const [, setImgTick] = useState(0);
   const dragRef = useRef<Drag>(null);
   const [inspectMode, setInspectMode] = useState(false);
+  const [soulTarget, setSoulTarget] = useState<string | null>(null); // เลือกการ์ดที่จะรับ Soul แล้ว (ขั้นที่ 2: เลือกใบจากมือ/สุสาน)
+  const [soulPicks, setSoulPicks] = useState<SoulPick[]>([]);
   const [soulView, setSoulView] = useState<{ title: string; ids: string[]; flagId?: string } | null>(null); // หน้าต่างดูการ์ดใน Soul
   const [flagInfo, setFlagInfo] = useState<Flag | null>(null);
   const [hidden, setHidden] = useState<string[]>([]);
@@ -547,6 +549,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   useEffect(() => { if (game.winner) playSfx(game.winner === mySide ? "win" : "lose", 300); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.winner]);
   useEffect(() => { if (notice) playSfx("error"); }, [notice]);
+  useEffect(() => { setSoulTarget(null); setSoulPicks([]); }, [game.pendingSoul?.cardId, game.pendingSoul?.src, game.pendingSoul?.n]);
   useEffect(() => { setLookSel({ hand: [], drop: [], bottom: [] }); }, [game.pendingLook?.cardId, game.pendingLook?.cards.join(",")]);
 
   const hideUnits = (uids: string[], ms: number) => {
@@ -1423,7 +1426,44 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     const src = cardOf(ps.cardId);
     const cands = [...me.monsters, ...(me.item ? [me.item] : [])].filter(m => ps.candidates.includes(m.uid));
     const adding = ps.mode === "add";
-    const fromTxt = ps.src === "deck" ? "บนกองเด็ค" : "สุสาน";
+    const fromTxt = ps.src === "deck" ? "บนกองเด็ค" : ps.src === "hand" ? "มือ" : ps.src === "handDrop" ? "มือหรือสุสาน" : "สุสาน";
+    const manual = adding && (ps.src === "hand" || ps.src === "handDrop"); // ผู้เล่นเลือกใบเองจากมือ/สุสาน
+    if (manual && soulTarget) {
+      const tFc = cands.find(m => m.uid === soulTarget);
+      const tCard = tFc ? cardOf(tFc.cardId) : undefined;
+      const selfIdx = src && (src.type === "Spell" || src.type === "Impact") ? me.dropZone.lastIndexOf(ps.cardId) : -1;
+      const typeOk = (id: string) => !ps.filter || ps.filter === "any" || cardOf(id)?.type === ps.filter;
+      const isOn = (zone: "hand" | "drop", index: number) => soulPicks.some(x => x.zone === zone && x.index === index);
+      const toggle = (zone: "hand" | "drop", index: number) => setSoulPicks(prev => isOn(zone, index) ? prev.filter(x => !(x.zone === zone && x.index === index)) : prev.length >= ps.n ? prev : [...prev, { zone, index }]);
+      const grid = (zone: "hand" | "drop", ids: string[]) => (
+        <div className="flex flex-wrap gap-2 justify-center">
+          {ids.map((id, i) => {
+            const c = cardOf(id);
+            if (!c || !typeOk(id) || (zone === "drop" && i === selfIdx)) return null;
+            return <CardView key={`${zone}-${i}`} card={c} flag={flagOf(me.flagId)} size="sm" onClick={() => toggle(zone, i)} onInspect={() => openInspect(c, me.flagId)} className={isOn(zone, i) ? "ring-4 ring-violet-400" : "hover:ring-2 hover:ring-violet-300"} />;
+          })}
+        </div>
+      );
+      return (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border-2 border-violet-400 rounded-2xl p-5 max-w-3xl w-full max-h-[94vh] overflow-y-auto">
+            <h3 className="font-display text-xl font-bold text-violet-300 mb-1">เลือกการ์ดจาก{fromTxt}เข้า Soul ของ {tCard?.name ?? "การ์ดที่เลือก"}{src ? ` — ${src.name}` : ""}</h3>
+            <p className="text-sm text-slate-400 mb-3">เลือกได้ไม่เกิน {ps.n} ใบ (เลือกแล้ว {soulPicks.length}/{ps.n}) กดการ์ดเพื่อเลือก/ยกเลิก</p>
+            <div className="text-sm font-bold text-slate-200 mb-1">มือ ({me.hand.length})</div>
+            {grid("hand", me.hand)}
+            {ps.src === "handDrop" && (<>
+              <div className="text-sm font-bold text-slate-200 mt-4 mb-1">สุสาน ({me.dropZone.length})</div>
+              {grid("drop", me.dropZone)}
+            </>)}
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => { setSoulTarget(null); setSoulPicks([]); }} className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">← เลือกการ์ดใหม่</button>
+              <button disabled={soulPicks.length === 0} onClick={() => act("ใส่ Soul ไม่ได้", st => resolveSoulChoice(st, mySide, soulTarget, soulPicks))} className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 rounded-xl font-bold">นำเข้า Soul ({soulPicks.length})</button>
+            </div>
+            <button onClick={() => act("ผิดพลาด", st => resolveSoulChoice(st, mySide, null))} className="w-full mt-2 py-2 text-sm text-slate-300 hover:text-white">ไม่ใส่ Soul</button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
         <div className="bg-slate-900 border-2 border-violet-400 rounded-2xl p-5 max-w-3xl w-full max-h-[94vh] overflow-y-auto">
@@ -1435,9 +1475,9 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               if (!c) return null;
               return (
                 <div key={m.uid} className="flex flex-col items-center gap-2">
-                  <CardView card={c} flag={flagOf(me.flagId)} size="md" stats={statsOf(m)} onClick={() => act("ถอด Soul ไม่ได้", st => resolveSoulChoice(st, mySide, m.uid))} onInspect={() => openInspect(c, me.flagId, m)} className="hover:ring-4 hover:ring-violet-400" />
+                  <CardView card={c} flag={flagOf(me.flagId)} size="md" stats={statsOf(m)} onClick={() => manual ? setSoulTarget(m.uid) : act("ถอด Soul ไม่ได้", st => resolveSoulChoice(st, mySide, m.uid))} onInspect={() => openInspect(c, me.flagId, m)} className="hover:ring-4 hover:ring-violet-400" />
                   <span className="chip !text-violet-300">SOUL {m.soul.length}</span>
-                  <button onClick={() => act(adding ? "ใส่ Soul ไม่ได้" : "ถอด Soul ไม่ได้", st => resolveSoulChoice(st, mySide, m.uid))} className="btn btn-primary !py-1 !text-xs">{adding ? "ใส่ Soul ให้การ์ดใบนี้" : "ถอด Soul การ์ดใบนี้"}</button>
+                  <button onClick={() => manual ? setSoulTarget(m.uid) : act(adding ? "ใส่ Soul ไม่ได้" : "ถอด Soul ไม่ได้", st => resolveSoulChoice(st, mySide, m.uid))} className="btn btn-primary !py-1 !text-xs">{adding ? (manual ? "เลือกการ์ดใบนี้ → เลือกใบที่จะนำเข้า" : "ใส่ Soul ให้การ์ดใบนี้") : "ถอด Soul การ์ดใบนี้"}</button>
                 </div>
               );
             })}

@@ -64,6 +64,20 @@ export function effectText(e: AutoEffect): string {
     case "restAttacker": return `Rest ผู้โจมตี`;
     case "addSoul": return `นำการ์ดบนเด็ค ${v} ใบเข้า Soul ของการ์ดนี้`;
     case "removeSoul": return `ถอด Soul ${v} ใบของการ์ดนี้ลงสุสาน`;
+    case "requireOnField": {
+      const nm = (e.refName ?? "").split(",").map(x => x.trim()).filter(Boolean);
+      const zt = (e.reqZones && e.reqZones.length ? e.reqZones : ["field"]).map(z => z === "field" ? "สนาม" : z === "hand" ? "มือ" : "สุสาน").join("หรือ");
+      return nm.length ? `ถ้าเรามี ${nm.map(x => `“${x}”`).join(" และ ")} ใน${zt} จึงทำความสามารถถัดไปได้` : "เงื่อนไข: (ยังไม่ได้ใส่ชื่อการ์ด)";
+    }
+    case "namedToHand": {
+      const nm = (e.refName ?? "").trim();
+      const z = e.fromZone === "deck" ? "กองเด็ค" : e.fromZone === "dropDeck" ? "สุสานหรือกองเด็ค" : "สุสาน";
+      return `นำการ์ด${nm ? ` “${nm}”` : "ที่กำหนด"} ${v} ใบจาก${z}ขึ้นมือ${e.fromZone === "deck" || e.fromZone === "dropDeck" ? " (ถ้าค้นจากเด็คจะสับเด็ค)" : ""}`;
+    }
+    case "chooseAddSoul": {
+      const src = e.soulSrc === "deck" ? "บนกองเด็ค" : e.soulSrc === "hand" ? "มือ" : e.soulSrc === "handDrop" ? "มือหรือสุสาน" : "สุสาน";
+      return `เลือกการ์ดบนสนามของเรา 1 ใบ แล้วนำ${e.soulSrc === "deck" ? "" : filterText(e.filter)} ${v} ใบจาก${src}เข้า Soul ของการ์ดที่เลือก`;
+    }
     case "dropToSoul": return `นำ${filterText(e.filter)} ${v} ใบจากสุสานเข้า Soul`;
     case "soulToHand": return `ถอด Soul ${v} ใบของการ์ดนี้ขึ้นมือ`;
     case "bounceOpponentMonster": return `ดึงมอนสเตอร์ศัตรู ${v} ตัวกลับมือ`;
@@ -196,6 +210,9 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
   { label: "ไม่สามารถถูกยกเลิกความสามารถได้", skill: { trigger: "continuous", effects: [{ type: "unnullifiable", value: 1 }] } },
   { label: "Soulguard", skill: { trigger: "continuous", effects: [{ type: "soulguard", value: 1 }] } },
   { label: "Lifelink 1 (ตายแล้วโดนดาเมจ)", skill: { trigger: "continuous", effects: [{ type: "lifelink", value: 1 }] } },
+  { label: "ร่าย: ถ้ามีการ์ด X ในสนาม → เลือกการ์ดจากมือ/สุสานเข้า Soul 1", skill: { trigger: "onCast", effects: [{ type: "requireOnField", value: 1, refName: "" }, { type: "chooseAddSoul", value: 1, soulSrc: "handDrop" }] } },
+  { label: "ร่าย: นำการ์ด X จากสุสาน/เด็คขึ้นมือ", skill: { trigger: "onCast", effects: [{ type: "namedToHand", value: 1, refName: "", fromZone: "dropDeck" }] } },
+  { label: "ร่าย: ถ้ามีการ์ด X (สนาม/มือ/สุสาน) → นำการ์ด X ขึ้นมือ", skill: { trigger: "onCast", effects: [{ type: "requireOnField", value: 1, refName: "", reqZones: ["field", "hand", "drop"] }, { type: "namedToHand", value: 1, refName: "", fromZone: "dropDeck" }] } },
   { label: "ต้นเทิร์น: สุสาน→Soul 1", skill: { trigger: "onTurnStart", effects: [{ type: "dropToSoul", value: 1 }] } },
   { label: "ลงสนาม: สุสาน→Soul 2", skill: { trigger: "onCall", effects: [{ type: "dropToSoul", value: 2 }] } },
   { label: "ร่าย: สุสาน→Soul ของ Soulguard 2", skill: { trigger: "onCast", effects: [{ type: "dropToSoul", value: 2 }] } },

@@ -20,12 +20,14 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
         </select>
       )}
       {eff.type === "chooseAddSoul" && (
-        <select value={eff.soulSrc ?? "drop"} onChange={e => onChange({ ...eff, soulSrc: e.target.value as "drop" | "deck" })} className={sel} title="แหล่งที่นำการ์ดเข้า Soul">
-          <option value="drop">จากสุสาน</option>
+        <select value={eff.soulSrc ?? "drop"} onChange={e => onChange({ ...eff, soulSrc: e.target.value as "drop" | "deck" | "hand" | "handDrop" })} className={sel} title="แหล่งที่นำการ์ดเข้า Soul">
+          <option value="drop">จากสุสาน (ใบล่าสุดก่อน)</option>
+          <option value="hand">จากมือ (เลือกใบเอง)</option>
+          <option value="handDrop">จากมือหรือสุสาน (เลือกใบเอง)</option>
           <option value="deck">จากบนกองเด็ค</option>
         </select>
       )}
-      {(eff.type === "dropToSoul" || eff.type === "recoverFromDrop" || eff.type === "dropToDeckBottom" || (eff.type === "chooseAddSoul" && (eff.soulSrc ?? "drop") === "drop")) && (
+      {(eff.type === "dropToSoul" || eff.type === "recoverFromDrop" || eff.type === "dropToDeckBottom" || (eff.type === "chooseAddSoul" && (eff.soulSrc ?? "drop") !== "deck")) && (
         <select value={eff.filter ?? "any"} onChange={e => onChange({ ...eff, filter: e.target.value as CardFilter })} className={sel} title="เลือกชนิดการ์ดที่จะดึงจากสุสาน (เอาใบที่ลงสุสานล่าสุดก่อน)">
           {DROP_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
@@ -38,6 +40,39 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
       )}
       {eff.type !== "condBuff" && eff.type !== "soulGrant" && eff.type !== "soulCond" && eff.type !== "destroyWeaker" && eff.type !== "shuffleDeck" && !(eff.type === "dropToDeckBottom" && eff.allCards) && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
       <button onClick={onRemove} className="p-1 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={12} /></button>
+      {eff.type === "namedToHand" && (
+        <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
+          <span>นำการ์ดชื่อ</span>
+          <input value={eff.refName ?? ""} onChange={e => onChange({ ...eff, refName: e.target.value })} placeholder="ชื่อการ์ดที่จะนำขึ้นมือ (พิมพ์บางส่วนได้)" className={`${num} !py-0.5 text-xs w-64`} />
+          <span>จาก</span>
+          <select value={eff.fromZone ?? "drop"} onChange={e => onChange({ ...eff, fromZone: e.target.value as "drop" | "deck" | "dropDeck" })} className={`${sel} !py-0.5 text-xs`}>
+            <option value="drop">สุสาน</option>
+            <option value="deck">กองเด็ค (ค้นแล้วสับเด็ค)</option>
+            <option value="dropDeck">สุสานก่อน ถ้าไม่พอค่อยกองเด็ค</option>
+          </select>
+          <span>ขึ้นมือ (จำนวนใบตามช่องค่า)</span>
+          <p className="basis-full text-slate-500">ทำงานทันทีโดยไม่ต้องเลือก (ถ้ามีหลายใบที่ชื่อตรง เอาใบที่ลงสุสานล่าสุด / ใบบนสุดของเด็คก่อน) · อยากให้ทำเฉพาะตอนมีการ์ดบางใบ ให้วาง “เงื่อนไข: ถ้ามีการ์ดที่กำหนด…” ไว้ก่อนเอฟเฟกต์นี้ · เวทที่กำลังร่ายไม่ถูกนับเป็นการ์ดในสุสานที่เก็บขึ้นมือได้</p>
+        </div>
+      )}
+      {eff.type === "requireOnField" && (
+        <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
+          <span>ต้องมีการ์ดชื่อ</span>
+          <input value={eff.refName ?? ""} onChange={e => onChange({ ...eff, refName: e.target.value })} placeholder="เช่น Albis Wis (หลายใบคั่นด้วย , ต้องมีครบทุกใบ)" className={`${num} !py-0.5 text-xs w-72`} />
+          <span>อยู่ใน</span>
+          {([["field", "สนาม"], ["hand", "มือ"], ["drop", "สุสาน"]] as const).map(([z, label]) => {
+            const cur = eff.reqZones && eff.reqZones.length ? eff.reqZones : (["field"] as const);
+            const on = cur.includes(z);
+            return (
+              <button key={z} type="button" onClick={() => {
+                const next = on ? cur.filter(x => x !== z) : [...cur, z];
+                onChange({ ...eff, reqZones: next.length ? [...next] : ["field"] });
+              }} className={`px-2 py-0.5 rounded-full border text-xs ${on ? "bg-cyan-700 border-cyan-400 text-white" : "bg-slate-800 border-slate-600 text-slate-300 hover:border-cyan-500"}`}>{label}</button>
+            );
+          })}
+          <span>(เจอในโซนใดโซนหนึ่งที่เลือก = มี)</span>
+          <p className="basis-full text-slate-500">เอฟเฟกต์นี้ทำหน้าที่เป็นเงื่อนไขกั้น: วางไว้ก่อนเอฟเฟกต์ที่อยากให้ทำได้เฉพาะตอนมีการ์ดนั้น (เช่น ตามด้วย “เลือกการ์ดบนสนาม → นำการ์ดจากมือ/สุสานเข้า Soul”) ถ้าไม่มีการ์ดนั้นในโซนที่เลือก เอฟเฟกต์ที่เหลือของสกิลนี้จะไม่ทำงาน (เวทที่กำลังร่ายไม่นับเป็นการ์ดในสุสาน) · ชื่อพิมพ์บางส่วนได้ ไม่สนตัวพิมพ์เล็กใหญ่ · เอฟเฟกต์ที่อยู่ก่อนหน้าเงื่อนไขทำงานตามปกติ</p>
+        </div>
+      )}
       {eff.type === "destroyWeaker" && (() => {
         const stats = eff.cmpStats && eff.cmpStats.length ? eff.cmpStats : (["power"] as const);
         const toggle = (k: "power" | "critical" | "defense") => {
