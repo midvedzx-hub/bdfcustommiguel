@@ -255,10 +255,7 @@ export interface Card {
   critical: number;
   callCost: number;
   callCostType: "Gauge" | "Life";
-  monsterImpact?: boolean;         // มอนสเตอร์ไม้ตาย (Monster + Impact): ลงเป็นมอนสเตอร์ได้ และใช้เป็น Impact ใน Final Phase ได้ (นับเป็นทั้ง Monster และ Impact)
-  impactCost?: number;             // ค่าใช้จ่ายตอนใช้เป็น Impact (แยกจาก Call Cost ตอนลงเป็นมอนสเตอร์)
-  impactCostType?: "Gauge" | "Life";
-  impactCostExtra?: number;        // จ่ายอีกอย่างเพิ่ม
+  monsterImpact?: boolean;         // มอนสเตอร์ไม้ตาย (Impact Monster): ลงสนามด้วยการ "Impact Call" ใน Final Phase เท่านั้น (เทิร์นละ 1 ใบ, จ่าย Call Cost ปกติ, นับเป็นการร่าย Impact) หรือถูกเอฟเฟกต์เรียกลงสนามได้ทุกเฟส
   transformCost?: number;          // มีค่า = มอนสเตอร์ใบนี้ Transform ได้ (จ่ายแล้วกลายเป็นไอเทมของเรา) ไม่ใส่ = Transform ไม่ได้
   transformCostType?: "Gauge" | "Life";
   transformCostExtra?: number;     // จ่ายอีกอย่างเพิ่ม (เหมือน callCostExtra)
@@ -324,7 +321,7 @@ export interface CustomKeyword {
   help?: string;
 }
 
-export interface SpellWindow { casterSide: "host" | "guest"; cardId: string; negated: boolean }
+export interface SpellWindow { casterSide: "host" | "guest"; cardId: string; negated: boolean; impactCall?: { position: number; ignoreSize?: boolean } } // impactCall = กำลัง Impact Call มอนสเตอร์ไม้ตาย (การ์ดยังไม่ลงสนาม รอผ่านจังหวะ Counter)
 export interface PendingLook {
   side: "host" | "guest";
   cardId: string;          // การ์ดที่ใช้ความสามารถนี้
@@ -425,6 +422,7 @@ export interface PlayerState {
   buddyIds?: string[];        // Buddy ทั้งหมดของผู้เล่น (1-4 ตัว)
   buddiesCalled?: string[];   // Buddy ที่ Buddy Call ไปแล้ว (ตัวละครั้งเดียวต่อเกม)
   buddyCalledThisGame: boolean; // true เมื่อ Buddy ทุกตัว Buddy Call ครบแล้ว
+  impactCalledTurn?: number; // เทิร์นที่ Impact Call มอนสเตอร์ไม้ตายไปแล้ว (ทำได้เทิร์นละ 1 ใบ; การลงด้วยเอฟเฟกต์ไม่นับ)
   soulguardOff?: boolean; // ปิดการใช้ Soulguard อัตโนมัติ (ผู้เล่นเลือกไม่ใช้ได้)
 }
 
@@ -558,11 +556,4 @@ export function matchesType(card: Pick<Card, "type" | "monsterImpact"> | undefin
   if (!filter || filter === "any" || filter === "all") return true;
   if (!card) return false;
   return card.type === filter || (filter === "Impact" && isMonsterImpact(card));
-}
-// ค่าใช้จ่ายตอนใช้เป็น Impact (ใช้กับ payCost ที่รับ Call Cost)
-export function impactCostAsCall(card: Card): Card {
-  return { ...card, callCost: card.impactCost ?? 0, callCostType: card.impactCostType ?? "Gauge", callCostExtra: card.impactCostExtra };
-}
-export function impactCostLabel(card: Pick<Card, "impactCost" | "impactCostType" | "impactCostExtra">): string {
-  return callCostLabel({ callCost: card.impactCost ?? 0, callCostType: card.impactCostType ?? "Gauge", callCostExtra: card.impactCostExtra });
 }

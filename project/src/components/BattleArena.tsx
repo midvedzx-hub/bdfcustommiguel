@@ -5,12 +5,12 @@ import {
   Copy, LogIn, Users, RefreshCw, Wrench, X, Shield, Star, AlertTriangle, Link2, Eye,
 } from "lucide-react";
 import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet, FieldCard } from "@/types";
-import { TRIGGER_LABELS, customTextList, callCostLabel, canTransform, transformCostLabel, isMonsterImpact, impactCostLabel, matchesType } from "@/types";
+import { TRIGGER_LABELS, customTextList, callCostLabel, canTransform, transformCostLabel, isMonsterImpact, matchesType } from "@/types";
 import { DEFAULT_RULES, deckBuddies } from "@/types";
 import type { SoulPick } from "@/game/engine";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
-  callMonster, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
+  callMonster, impactCall, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
   goToAttack, goToFinal, mulligan, transformCard, legalTargets, statsOf, counterOptions, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxSetPhase, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
@@ -264,7 +264,7 @@ export function botStep(s: GameState): GameState {
         if (!card) continue;
         const free = [1, 0, 2].filter(p => !state.guest.monsters.some(m => m.position === p));
         const counterOnly = hasCounter(card) && !card.autoSkills.some(k => k.trigger === "onCast");
-        if (card.type === "Monster" && free.length > 0) {
+        if (card.type === "Monster" && !isMonsterImpact(card) && free.length > 0) {
           const r = callMonster(state, "guest", i, free[0]);
           if (r.ok) state = r.state;
         } else if (card.type === "Item" && !state.guest.item && !counterOnly) {
@@ -290,6 +290,18 @@ export function botStep(s: GameState): GameState {
     case "attack":
       return botAttack(s) ?? goToFinal(s, "guest").state;
     case "final": {
+      // Impact Call มอนสเตอร์ไม้ตาย (เทิร์นละ 1 ใบ) แล้วโจมตีด้วยมอนสเตอร์ไม้ตายที่ Stand อยู่
+      if (s.guest.impactCalledTurn !== s.turn) {
+        const free = [1, 0, 2].filter(p => !s.guest.monsters.some(m => m.position === p));
+        for (let i = 0; i < s.guest.hand.length && free.length > 0; i++) {
+          const c = getCard(s.guest.hand[i]);
+          if (!isMonsterImpact(c)) continue;
+          const r = impactCall(s, "guest", i, free[0]);
+          if (r.ok) return r.state;
+        }
+      }
+      const atk = botAttack(s);
+      if (atk) return atk;
       for (let i = 0; i < s.guest.hand.length; i++) {
         const c = getCard(s.guest.hand[i]);
         if (c?.type === "Impact" && c.autoSkills.some(k => k.trigger === "onCast")) {
@@ -384,8 +396,13 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const [targetSel, setTargetSel] = useState<string[]>([]);
   useEffect(() => { setTargetSel([]); }, [game.pendingTarget?.cardId, game.pendingTarget?.effType, game.pendingTarget?.candidates.join(",")]);
   const busy = !!game.battle || !!sw || !!game.pendingLook || !!game.pendingSoul || !!game.pendingTarget;
-  const canAttackNow = isMyTurn && game.phase === attackPhaseName && !busy;
+  // Final Phase: มีเฉพาะมอนสเตอร์ไม้ตายที่ Stand อยู่เท่านั้นที่โจมตีได้
+  const finalAttack = isMyTurn && game.phase === "final" && !busy && me.monsters.some(m => m.state === "stand" && isMonsterImpact(cardOfFc(m)));
+  const canAttackNow = isMyTurn && !busy && (game.phase === attackPhaseName || finalAttack);
+  const canAtk = (fc: { state: string; cardId: string }, isItem = false) =>
+    canAttackNow && fc.state === "stand" && (game.phase !== "final" || (!isItem && isMonsterImpact(getCard(fc.cardId))));
   const canPlayNow = isMyTurn && game.phase === "main" && !busy;
+  const canImpactCallNow = isMyTurn && game.phase === "final" && !busy;
   // Move: ตอนเริ่ม Attack Phase ของทั้งสองฝั่ง ก่อนมีการโจมตี (ฝั่งป้องกันย้ายได้ในช่วงที่ระบบเปิดให้)
   const canMoveNow = started && !game.winner && !busy && game.phase === attackPhaseName && game.attacksThisTurn === 0 &&
     (isMyTurn || game.moveWindow === mySide);
@@ -532,7 +549,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       } else if (mine && game.phase === "attack") {
         nb = { text: "ATTACK PHASE", sub: "เลือกผู้โจมตี แล้วเลือกเป้าหมาย", color: "#dc2626" };
       } else if (mine && game.phase === "final") {
-        nb = { text: "FINAL PHASE", sub: "ใช้ Impact ได้ แล้วจบเทิร์น", color: "#a21caf" };
+        nb = { text: "FINAL PHASE", sub: "ช่วงสุดท้าย: Impact / Impact Call มอนสเตอร์ไม้ตาย แล้วจบเทิร์น", color: "#a21caf" };
       } else if (!mine && (game.phase === "attack" || game.phase === "final")) {
         nb = { text: LABEL[game.phase], sub: "ฝั่งตรงข้าม", color: game.phase === "attack" ? "#9f1239" : "#6b21a8" };
       }
@@ -596,7 +613,15 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   }, [mode, game]);
 
   /* ---------------- Actions ---------------- */
-  const tryCall = (i: number, pos: number) => { act("ลงมอนสเตอร์ไม่ได้", s => callMonster(s, mySide, i, pos, { ignoreSize: sandbox })); setHandSel(null); };
+  const tryCall = (i: number, pos: number) => {
+    const c = cardOf(me.hand[i] ?? "");
+    if (isMonsterImpact(c)) {
+      // มอนสเตอร์ไม้ตาย: Main Phase ลงไม่ได้ ต้อง Impact Call ใน Final Phase (Sandbox ลงด้วยมือได้เหมือนถูกเอฟเฟกต์เรียก)
+      if (game.phase === "final") act("Impact Call ไม่ได้", s => impactCall(s, mySide, i, pos, { ignoreSize: sandbox, free: sandbox }));
+      else act("ลงมอนสเตอร์ไม่ได้", s => callMonster(s, mySide, i, pos, { ignoreSize: sandbox, byEffect: sandbox }));
+    } else act("ลงมอนสเตอร์ไม่ได้", s => callMonster(s, mySide, i, pos, { ignoreSize: sandbox }));
+    setHandSel(null);
+  };
   const tryCast = (i: number) => { act("ร่ายไม่ได้", s => castSpell(s, mySide, i)); setHandSel(null); };
   const tryTransform = (src: { zone: "hand"; index: number } | { zone: "field"; uid: string }) => {
     act("Transform ไม่ได้", s => transformCard(s, mySide, src));
@@ -719,7 +744,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     const c = cardOf(me.hand[d.index] ?? "");
     if (!c) return;
     if (c.type === "Item") tryEquip(d.index);
-    else if (c.type === "Spell" || c.type === "Impact" || (isMonsterImpact(c) && game.phase === "final")) tryCast(d.index);
+    else if (c.type === "Spell" || c.type === "Impact") tryCast(d.index);
+    else if (isMonsterImpact(c)) setNotice({ title: "วางไม่ได้", msg: "มอนสเตอร์ไม้ตายต้อง Impact Call ลงช่องมอนสเตอร์ใน Final Phase (ลากไปวางที่ช่องมอนสเตอร์)" });
     else setNotice({ title: "วางไม่ได้", msg: "ช่องนี้ใช้ติดตั้งไอเทม หรือร่ายเวท/Impact" });
   }
   function handleDropOnSet() {
@@ -744,6 +770,9 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     const fighterLegal = legal.some(t => t.kind === "fighter");
     const buddyList = deckBuddies(p).map(id => cardOf(id)).filter((c): c is Card => !!c);
     const calledBuddies = p.buddiesCalled ?? (p.buddyCalledThisGame && p.buddyId ? [p.buddyId] : []);
+    // บัดดี้ที่เป็นมอนสเตอร์ไม้ตาย: หงายหน้าอยู่ = Stand วางแนวนอน · หลัง Buddy Call = Rest วางแนวตั้ง
+    const buddyTilt = (c: Card): CSSProperties | undefined =>
+      isMonsterImpact(c) && !calledBuddies.includes(c.id) ? { transform: "rotate(90deg) scale(0.72)" } : undefined;
     const buddyMsg = (c: Card) => c.type === "Item" ? (calledBuddies.includes(c.id) ? "Buddy (ไอเทม) ตัวนี้ถูก Buddy Call ไปแล้ว" : "Buddy ของคุณเป็นไอเทม: ติดตั้งลงช่องไอเทมคือ Buddy Call จะได้ Buddy Gift (Life +1) ครั้งเดียวต่อเกม") : calledBuddies.includes(c.id)
       ? "Buddy ตัวนี้ถูก Buddy Call ไปแล้ว (ทำได้ตัวละครั้งเดียวต่อเกม)"
       : buddyList.length > 1
@@ -767,7 +796,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       const m = p.monsters.find(x => x.position === pos);
       const card = m ? cardOfFc(m) ?? null : null;
       const isTarget = !isMine && legal.some(t => t.kind === "monster" && t.position === pos);
-      const callable = isMine && canPlayNow && handSel !== null && !m && cardOf(me.hand[handSel] ?? "")?.type === "Monster";
+      const selHand = isMine && handSel !== null ? cardOf(me.hand[handSel] ?? "") : undefined;
+      const callable = isMine && handSel !== null && !m && selHand?.type === "Monster" && (isMonsterImpact(selHand) ? canImpactCallNow : canPlayNow);
       const moveTarget = isMine && canMoveNow && moveSel !== null && !m;
       const selected = isMine && !!m && atkSels.includes(m.uid);
       const glow = isTarget ? "glow-target" : (callable || moveTarget) ? "glow-slot" : selected ? "glow-sel" : "";
@@ -789,7 +819,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             if (!isMine && atkSels.length > 0) return tryAttack({ kind: "monster", position: pos });
             if (m && card) {
               if (isMine && canMoveThis && moveMode) return setMoveSel(moveSel === m.uid ? null : m.uid);
-              if (isMine && canAttackNow && m.state === "stand") {
+              if (isMine && canAtk(m)) {
                 if (linkMode) return setAtkSels(atkSels.includes(m.uid) ? atkSels.filter(u => u !== m.uid) : [...atkSels, m.uid]);
                 return setAtkSels(atkSels.length === 1 && atkSels[0] === m.uid ? [] : [m.uid]);
               }
@@ -798,9 +828,9 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               // ไม่มีการกระทำที่ทำได้ -> เปิดดูการ์ด พร้อมบอกเหตุผล
               let note = whyBlocked();
               if (!note && isMine) {
-                if (m.state === "rest") note = `${card.name} อยู่ในสถานะ Rest (โจมตีไปแล้วหรือถูก Rest) จะ Stand ตอนต้นเทิร์นของคุณ`;
-                else if (game.rules.useAttackPhase && game.phase !== "attack") note = `โจมตีได้เฉพาะ Attack Phase (ตอนนี้คือ ${game.phase === "draw" ? "Draw" : game.phase === "charge" ? "Charge & Draw" : game.phase === "main" ? "Main" : "Final"}) — กดปุ่ม 'ไป Attack Phase'`;
-                else if (game.phase === "final") note = "ผ่านช่วงโจมตีมาแล้ว ตอนนี้เป็น Final Phase";
+                if (m.state === "rest") note = `${card.name} อยู่ในสถานะ Rest${isMonsterImpact(card) ? " (วางแนวตั้ง)" : ""} (โจมตีไปแล้วหรือถูก Rest) จะ Stand ตอนต้นเทิร์นของคุณ`;
+                else if (game.rules.useAttackPhase && game.phase !== "attack" && !(game.phase === "final" && isMonsterImpact(card))) note = `โจมตีได้เฉพาะ Attack Phase (ตอนนี้คือ ${game.phase === "draw" ? "Draw" : game.phase === "charge" ? "Charge & Draw" : game.phase === "main" ? "Main" : "Final"}) — กดปุ่ม 'ไป Attack Phase'`;
+                else if (game.phase === "final") note = isMonsterImpact(card) ? `${card.name} เป็นมอนสเตอร์ไม้ตาย โจมตีได้ใน Final Phase ตอนอยู่ในสถานะ Stand (วางแนวนอน)` : "ผ่านช่วงโจมตีมาแล้ว ตอนนี้เป็น Final Phase — มีแต่มอนสเตอร์ไม้ตายที่โจมตีได้";
               } else if (!note && !isMine && game.phase === attackPhaseName && canAttackNow) note = "เลือกผู้โจมตีของคุณก่อน (คลิกมอนสเตอร์ที่ Stand) แล้วค่อยเลือกเป้าหมาย";
               return openInspect(card, p.flagId, m, note);
             }
@@ -819,14 +849,14 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               )}
               <div
                 className="transition-transform duration-500 relative"
-                style={{ transform: m.state === "rest" ? "rotate(90deg)" : "none" }}
+                style={{ transform: (isMonsterImpact(card) ? m.state === "stand" : m.state === "rest") ? "rotate(90deg)" : "none" }}
                 onMouseEnter={() => setHovered({ card, flagId: p.flagId, stats: statsOf(m), soul: m.soul.length })}
               >
                 <SoulStack n={m.soul.length} />
                 <CardView
                   card={card} flag={flag} width="var(--cw)" hideText stats={statsOf(m)} soul={m.soul.length} sizeValue={sizeOfFc(m)}
                   onInspect={() => openInspect(card, p.flagId, m)}
-                  draggable={isMine && ((canAttackNow && m.state === "stand") || canMoveThis)}
+                  draggable={isMine && (canAtk(m) || canMoveThis)}
                   onDragStart={() => { dragRef.current = { kind: "unit", uid: m.uid }; if (canAttackNow && !atkSels.includes(m.uid)) setAtkSels([m.uid]); }}
                   onDragEnd={() => { dragRef.current = null; }}
                 >
@@ -974,7 +1004,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 const itemCard = cardOfFc(p.item);
                 if (inspectMode && itemCard) return openInspect(itemCard, p.flagId, p.item);
                 if (!isMine && atkSels.length > 0) return;
-                if (isMine && canAttackNow && p.item.state === "stand") {
+                if (isMine && canAtk(p.item, true)) {
                   if (linkMode) return setAtkSels(atkSels.includes(p.item.uid) ? atkSels.filter(u => u !== p.item!.uid) : [...atkSels, p.item.uid]);
                   return setAtkSels(atkSels.length === 1 && atkSels[0] === p.item.uid ? [] : [p.item.uid]);
                 }
@@ -996,7 +1026,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                   <SoulStack n={p.item.soul.length} />
                   <CardView card={cardOfFc(p.item)!} flag={flag} width="calc(var(--mh) * 0.22)" hideText stats={statsOf(p.item)} soul={p.item.soul.length}
                     onInspect={() => openInspect(cardOfFc(p.item!)!, p.flagId, p.item)}
-                    draggable={isMine && canAttackNow && p.item.state === "stand"}
+                    draggable={isMine && canAtk(p.item, true)}
                     onDragStart={() => { dragRef.current = { kind: "unit", uid: p.item!.uid }; if (!atkSels.includes(p.item!.uid)) setAtkSels([p.item!.uid]); }}
                     onDragEnd={() => { dragRef.current = null; }}>
                     {sandbox && p.item && (
@@ -1013,14 +1043,14 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             {/* Buddy */}
             <div className="flex items-center justify-center" style={{ width: "calc(var(--mh) * 0.23)", aspectRatio: "63 / 88", border: "2px dashed #f59e0b88", borderRadius: 8 }}>
               {buddyList.length === 1 ? (
-                <div className={calledBuddies.includes(buddyList[0].id) ? "opacity-40" : ""} onMouseEnter={() => setHovered({ card: buddyList[0], flagId: p.flagId })}>
+                <div className={calledBuddies.includes(buddyList[0].id) ? "opacity-40" : ""} style={buddyTilt(buddyList[0])} onMouseEnter={() => setHovered({ card: buddyList[0], flagId: p.flagId })}>
                   <CardView card={buddyList[0]} flag={flag} width="calc(var(--mh) * 0.22)" hideText onClick={() => openInspect(buddyList[0], p.flagId, null, buddyMsg(buddyList[0]))} onInspect={() => openInspect(buddyList[0], p.flagId)} />
                 </div>
               ) : buddyList.length > 1 ? (
                 // Buddy 2-4 ตัว: วางเป็นตาราง 2 คอลัมน์ในช่องบัดดี้ (ตัวที่ Buddy Call แล้วจางลง)
                 <div className="grid w-full h-full content-center justify-items-center" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: 2, padding: 2 }}>
                   {buddyList.map(b => (
-                    <div key={b.id} className={calledBuddies.includes(b.id) ? "opacity-40" : ""} onMouseEnter={() => setHovered({ card: b, flagId: p.flagId })}>
+                    <div key={b.id} className={calledBuddies.includes(b.id) ? "opacity-40" : ""} style={buddyTilt(b)} onMouseEnter={() => setHovered({ card: b, flagId: p.flagId })}>
                       <CardView card={b} flag={flag} width="calc(var(--mh) * 0.105)" hideText onClick={() => openInspect(b, p.flagId, null, buddyMsg(b))} onInspect={() => openInspect(b, p.flagId)} />
                     </div>
                   ))}
@@ -1068,7 +1098,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                   if (game.phase === "draw") return openInspect(card, p.flagId, null, "ตอนนี้เป็น Draw Phase — กำลังจั่วการ์ดประจำเทิร์น (กดปุ่ม 'Draw' ถ้ายังไม่จั่ว) จากนั้นจึงถึง Charge & Draw");
                   if (game.phase === "charge" && chargePick) return doCharge(i);
                   if (game.phase === "charge") return openInspect(card, p.flagId, null, "ตอนนี้เป็นช่วง Charge & Draw — กดปุ่ม 'Charge & Draw' แล้วเลือกการ์ดเพื่อใส่เกจ หรือกด 'ข้าม' เพื่อเข้า Main Phase ก่อนจึงลงการ์ดได้");
-                  if (game.phase === "final" && card.type !== "Impact" && !isMonsterImpact(card)) return openInspect(card, p.flagId, null, "ตอนนี้เป็น Final Phase ใช้ได้เฉพาะ Impact (ลงมอนสเตอร์/ร่ายเวทได้เฉพาะ Main Phase)");
+                  if (game.phase === "final" && card.type !== "Impact" && !isMonsterImpact(card)) return openInspect(card, p.flagId, null, "ตอนนี้เป็น Final Phase (ช่วงสุดท้าย) ใช้ได้เฉพาะไม้ตาย (Impact) และ Impact Call มอนสเตอร์ไม้ตาย — ลงมอนสเตอร์/ร่ายเวทได้เฉพาะ Main Phase");
+                  if (game.phase === "main" && isMonsterImpact(card)) return openInspect(card, p.flagId, null, "มอนสเตอร์ไม้ตายลงสนามใน Main Phase ไม่ได้ — ต้อง Impact Call ใน Final Phase (เทิร์นละ 1 ใบ)");
                   setHandSel(sel ? null : i);
                 }}
               />
@@ -1095,17 +1126,21 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         <CardView card={card} flag={flagOf(me.flagId)} size="md" onClick={() => openInspect(card, me.flagId)} />
         <div className="flex-1 min-w-0">
           <div className="font-display font-bold text-cyan-300">{card.name}</div>
-          <div className="text-xs text-slate-400 mb-2">Cost {callCostLabel(card)}{card.type === "Monster" ? ` · Size ${card.size}` : ""}{hasCounter(card) ? " · มี Counter Act" : ""} · ลากการ์ดไปวางบนสนามได้{reqMatch && reqMatch.missing.length > 0 ? ` · ยังขาดบนสนาม: ${reqMatch.missing.join(", ")}` : reqMatch ? " · เงื่อนไขครบ (การ์ดเงื่อนไขจะเข้า Soul)" : ""}</div>
+          <div className="text-xs text-slate-400 mb-2">Cost {callCostLabel(card)}{card.type === "Monster" ? ` · Size ${card.size}` : ""}{isMonsterImpact(card) ? " · มอนสเตอร์ไม้ตาย" : ""}{hasCounter(card) ? " · มี Counter Act" : ""} · ลากการ์ดไปวางบนสนามได้{reqMatch && reqMatch.missing.length > 0 ? ` · ยังขาดบนสนาม: ${reqMatch.missing.join(", ")}` : reqMatch ? " · เงื่อนไขครบ (การ์ดเงื่อนไขจะเข้า Soul)" : ""}</div>
           <div className="flex flex-wrap gap-2 items-center">
-            {card.type === "Monster" && game.phase !== "final" && empty.map(pos => (
+            {card.type === "Monster" && !isMonsterImpact(card) && game.phase !== "final" && empty.map(pos => (
               <button key={pos} onClick={() => tryCall(handSel, pos)} className={`${btn} bg-cyan-600 hover:bg-cyan-500`}>ลงช่อง{POSITION_NAMES[pos]}</button>
             ))}
-            {card.type === "Monster" && game.phase !== "final" && empty.length === 0 && <button onClick={() => tryCall(handSel, 1)} className={`${btn} bg-slate-700`}>ลงมอนสเตอร์</button>}
+            {card.type === "Monster" && !isMonsterImpact(card) && game.phase !== "final" && empty.length === 0 && <button onClick={() => tryCall(handSel, 1)} className={`${btn} bg-slate-700`}>ลงมอนสเตอร์</button>}
+            {isMonsterImpact(card) && game.phase === "final" && empty.map(pos => (
+              <button key={pos} onClick={() => tryCall(handSel, pos)} className={`${btn} bg-rose-600 hover:bg-rose-500`}>🔥 Impact Call ช่อง{POSITION_NAMES[pos]}</button>
+            ))}
+            {isMonsterImpact(card) && game.phase === "final" && empty.length === 0 && <button onClick={() => tryCall(handSel, 1)} className={`${btn} bg-slate-700`}>🔥 Impact Call</button>}
+            {isMonsterImpact(card) && game.phase !== "final" && <span className="text-xs text-rose-300 self-center">มอนสเตอร์ไม้ตายลงสนามได้เฉพาะ Impact Call ใน Final Phase (เทิร์นละ 1 ใบ)</span>}
             {card.type === "Spell" && <button onClick={() => tryCast(handSel)} className={`${btn} ${counterOnly ? "bg-slate-700" : "bg-sky-600 hover:bg-sky-500"}`}>{hasSetKeyword(card) ? "ร่าย → วางลงช่อง Set" : "ร่ายเวท"}</button>}
             {canTransform(card) && <button onClick={() => tryTransform({ zone: "hand", index: handSel })} className={`${btn} bg-fuchsia-600 hover:bg-fuchsia-500`}>🔄 Transform (จ่าย {transformCostLabel(card)})</button>}
             {card.type === "Item" && <button onClick={() => tryEquip(handSel)} className={`${btn} bg-emerald-600 hover:bg-emerald-500`}>ติดตั้งไอเทม</button>}
             {card.type === "Impact" && <button onClick={() => tryCast(handSel)} className={`${btn} bg-rose-600 hover:bg-rose-500`}>ใช้ Impact (Final Phase)</button>}
-            {isMonsterImpact(card) && <button onClick={() => tryCast(handSel)} className={`${btn} bg-rose-600 hover:bg-rose-500`}>🔥 ใช้เป็น Impact (Final Phase · จ่าย {impactCostLabel(card)})</button>}
             {freeOpts.some(o => o.zone === "hand" && o.index === handSel) && <button onClick={() => { const o = freeOpts.find(x => x.zone === "hand" && x.index === handSel); if (o) { doFreeCounter(o); setHandSel(null); } }} className={`${btn} bg-sky-600 hover:bg-sky-500`}>⚡ ใช้ Counter ทันที</button>}
             {(hasCounter(card) || (card.type === "Spell" && hasSetKeyword(card))) && <button onClick={() => trySet(handSel)} className={`${btn} bg-violet-600 hover:bg-violet-500`}>{card.type === "Spell" && hasSetKeyword(card) ? "Set (ลงช่อง Set)" : "Set (วางคว่ำ)"}</button>}
             {sandbox && (<>
@@ -1147,9 +1182,9 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     else if (game.phase === "charge") hint = chargePick ? "เลือกการ์ดในมือ 1 ใบเพื่อใส่เกจ (แล้วจั่ว 1)" : "Charge & Draw: ใส่การ์ดจากมือลงเกจแล้วจั่ว 1 ใบ (ข้ามได้)";
     else if (game.phase === "main") hint = handSel !== null ? "เลือกช่องว่างเพื่อลงมอนสเตอร์ หรือใช้ปุ่มด้านล่าง" : "Main: ลงมอนสเตอร์ / ติดตั้งไอเทม / ร่ายเวท / Set แล้วกด 'ไป Attack'";
     else if (game.phase === "attack") hint = moveSel ? "เลือก \"ช่องว่าง\" ที่จะ Move ไป" : atkSels.length > 0 ? `เลือกเป้าหมาย (${atkSels.length > 1 ? `Link Attack ${atkSels.length} ตัว — ` : ""}ช่องศัตรูที่เรืองแสงแดง หรือ Life/Flag) หรือลากผู้โจมตีไปวางบนเป้า` : game.attacksThisTurn === 0 && movableMonsters(game, mySide).length > 0 ? "Attack: มีมอนสเตอร์ [Move] — คลิกเพื่อ Move ไปช่องว่างก่อนโจมตีได้ หรือคลิกมอนสเตอร์ที่ Stand เพื่อโจมตี" : "Attack: คลิกมอนสเตอร์ที่ Stand เพื่อเลือกผู้โจมตี (เปิด Link Attack เพื่อเลือกหลายตัว)";
-    else if (game.phase === "final") hint = "Final: ใช้ Impact ได้ แล้วกดจบเทิร์น";
+    else if (game.phase === "final") hint = me.impactCalledTurn === game.turn ? "Final (ช่วงสุดท้าย): Impact Call ไปแล้ว 1 ใบ — มอนสเตอร์ไม้ตายที่ Stand โจมตีได้ แล้วกดจบเทิร์น" : "Final (ช่วงสุดท้าย): ใช้ไม้ตาย (Impact) หรือ Impact Call มอนสเตอร์ไม้ตายได้เทิร์นละ 1 ใบ แล้วกดจบเทิร์น";
 
-    const standCount = [...me.monsters, ...(me.item ? [me.item] : [])].filter(m => m.state === "stand").length;
+    const standCount = [...me.monsters, ...(me.item ? [me.item] : [])].filter(m => canAtk(m, m === me.item) || (m.state === "stand" && game.phase !== "final")).length;
     const b = "px-3 py-1.5 rounded-lg text-sm font-bold";
     return (
       <div className="rounded-xl bg-slate-900/80 border border-slate-800 px-3 py-2 flex flex-wrap items-center justify-center gap-2" style={{ width: "min(100%, max(var(--mw), 760px))" }}>

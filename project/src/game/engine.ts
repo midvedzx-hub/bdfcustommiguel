@@ -2,7 +2,7 @@ import { condBuffAmounts, deckBuddies, SOUL_GRANT_KEYWORDS } from "@/types";
 import type {
   GameState, PlayerState, Card, Flag, Deck, FieldCard, AutoEffectType, AutoTrigger, RuleSet, AttackTarget, FxEvent, FxInput, AutoSkill, CounterTiming, AutoEffect,
 } from "@/types";
-import { DEFAULT_RULES, callCostAmounts, canTransform, transformCostAmounts, isMonsterImpact, matchesType, impactCostAsCall } from "@/types";
+import { DEFAULT_RULES, callCostAmounts, canTransform, transformCostAmounts, isMonsterImpact, matchesType } from "@/types";
 import { uid } from "@/storage";
 import { skillLines } from "@/game/helpers";
 
@@ -331,8 +331,8 @@ function shuffleInPlace<T>(a: T[]) {
     [a[i], a[j]] = [a[j], a[i]];
   }
 }
-// การ์ดที่ใช้ "ร่าย" แล้วลงสุสาน (เวท / Impact / มอนสเตอร์ไม้ตายตอนใช้เป็น Impact)
-const isCastLike = (c?: Card | null) => !!c && (c.type === "Spell" || c.type === "Impact" || isMonsterImpact(c));
+// การ์ดที่ใช้ "ร่าย" แล้วลงสุสาน (เวท / Impact) — มอนสเตอร์ไม้ตายที่ Impact Call ลงสนามเป็นมอนสเตอร์ ไม่ลงสุสาน
+const isCastLike = (c?: Card | null) => !!c && (c.type === "Spell" || c.type === "Impact");
 
 function soulSrcLabel(src?: string): string {
   return src === "deck" ? "บนกองเด็ค" : src === "hand" ? "มือ" : src === "handDrop" ? "มือหรือสุสาน" : "สุสาน";
@@ -1131,62 +1131,59 @@ function takeCallRequires(p: PlayerState, uids: string[]): string[] {
   return taken;
 }
 
-export function callMonster(state: GameState, side: Side, handIndex: number, position: number, opts?: { ignoreSize?: boolean }): Result {
-  const err = guardTurn(state, side, "main");
-  if (err) return { state, ok: false, msg: err };
-  const g = structuredClone(state);
+// ตรวจเงื่อนไขการลงสนาม (ช่อง / การ์ดเงื่อนไข / Size / เด็คสำหรับ Call Cost) — ใช้ร่วมกันทั้งการลงปกติและ Impact Call
+type CallPlan = { absorbUids: string[]; soulN: number };
+function checkCall(g: GameState, side: Side, card: Card, position: number, ignoreSize?: boolean): string | CallPlan {
   const p = g[side];
-  const cardId = p.hand[handIndex];
-  const card = cardId ? getCard(cardId) : undefined;
-  if (!card) return { state, ok: false, msg: "ไม่พบการ์ดใบนี้ในมือ" };
-  if (card.type !== "Monster") return { state, ok: false, msg: `${card.name} ไม่ใช่มอนสเตอร์ จึงลงช่องมอนสเตอร์ไม่ได้` };
   // ต้องมีการ์ดที่กำหนด (callRequires) บนสนามก่อน ลงแล้วการ์ดเหล่านั้นเข้า Soul ของการ์ดนี้
   const reqNames = (card.callRequires ?? []).map(n => n.trim()).filter(Boolean);
   let absorbUids: string[] = [];
   if (reqNames.length > 0) {
     const m = matchCallRequires(p, reqNames);
-    if (m.missing.length > 0) return { state, ok: false, msg: `ลง ${card.name} ไม่ได้ — ต้องมีการ์ดเหล่านี้บนสนามก่อน: ${m.missing.map(n => `“${n}”`).join(", ")}` };
+    if (m.missing.length > 0) return `ลง ${card.name} ไม่ได้ — ต้องมีการ์ดเหล่านี้บนสนามก่อน: ${m.missing.map(n => `“${n}”`).join(", ")}`;
     absorbUids = m.uids;
   }
   // ช่องที่การ์ดเงื่อนไขอยู่จะว่างหลังถูกนำเข้า Soul จึงลงทับช่องนั้นได้
   if (p.monsters.some(m => m.position === position && !absorbUids.includes(m.uid)))
-    return { state, ok: false, msg: `ช่อง${POSITION_NAMES[position]}มีมอนสเตอร์อยู่แล้ว` };
+    return `ช่อง${POSITION_NAMES[position]}มีมอนสเตอร์อยู่แล้ว`;
 
   // Size 0 วางได้เสมอ ไม่นับรวมขีดจำกัด Size (การ์ดเงื่อนไขที่ออกจากสนามไม่นับ Size)
   const currentSize = totalMonsterSize(p) - p.monsters.filter(m => absorbUids.includes(m.uid)).reduce((sum, m) => sum + sizeOfFc(m), 0);
   const callSize = Math.max(0, card.size + sizeModWhenCalled(g, side, card)); // สกิลลด Size ของตัวเอง (ถ้าเงื่อนไขครบ) นับตอนลงสนามด้วย
-  if (!opts?.ignoreSize && callSize > 0 && currentSize + callSize > g.rules.maxSize)
-    return { state, ok: false, msg: `Size เกิน: ในสนามมี Size รวม ${currentSize} + ${card.name} (Size ${callSize}) = ${currentSize + callSize} เกินขีดจำกัด ${g.rules.maxSize}` };
+  if (!ignoreSize && callSize > 0 && currentSize + callSize > g.rules.maxSize)
+    return `Size เกิน: ในสนามมี Size รวม ${currentSize} + ${card.name} (Size ${callSize}) = ${currentSize + callSize} เกินขีดจำกัด ${g.rules.maxSize}`;
 
   const soulN = Math.max(0, card.callSoulFromDeck ?? 0);
   if (soulN > 0 && p.deck.length < soulN)
-    return { state, ok: false, msg: `เด็คไม่พอสำหรับ Call Cost: ต้องนำการ์ดบนเด็ค ${soulN} ใบเข้า Soul แต่เด็คเหลือ ${p.deck.length} ใบ` };
+    return `เด็คไม่พอสำหรับ Call Cost: ต้องนำการ์ดบนเด็ค ${soulN} ใบเข้า Soul แต่เด็คเหลือ ${p.deck.length} ใบ`;
+  return { absorbUids, soulN };
+}
 
-  const costErr = payCost(g, side, card);
-  if (costErr) return { state, ok: false, msg: costErr };
-
-  p.hand.splice(handIndex, 1);
+// วางมอนสเตอร์ลงสนามจริง (หลังจ่ายค่าใช้จ่ายและเอาออกจากมือแล้ว): Soul, Buddy Call (Buddy Gift), เอฟเฟกต์ "เมื่อลงสนาม"
+function placeCalled(g: GameState, side: Side, cardId: string, card: Card, position: number, plan: CallPlan, how: "call" | "impact" = "call") {
+  const p = g[side];
   const fc = newFieldCard(cardId, position);
-  if (soulN > 0) {
-    fc.soul = p.deck.splice(0, soulN);
-    log(g, `${card.name} ได้ Soul ${soulN} ใบจากเด็ค (Call Cost)`);
+  if (plan.soulN > 0) {
+    fc.soul = p.deck.splice(0, plan.soulN);
+    log(g, `${card.name} ได้ Soul ${plan.soulN} ใบจากเด็ค (Call Cost)`);
   }
   let absorbedN = 0;
-  if (absorbUids.length > 0) {
-    const names = takeCallRequires(p, absorbUids);
+  if (plan.absorbUids.length > 0) {
+    const names = takeCallRequires(p, plan.absorbUids);
     absorbedN = names.length;
     fc.soul.push(...names);
     log(g, `${card.name} นำ ${names.map(id => getCard(id)?.name ?? "การ์ด").join(", ")} จากสนามเข้า Soul`);
   }
   p.monsters.push(fc);
-  log(g, `${card.name} ลงสนาม (ช่อง${POSITION_NAMES[position]})`);
+  // มอนสเตอร์ไม้ตายแสดงเป็นแนวนอนเมื่อ Stand (ลงสนามมาในสถานะ Stand พร้อมโจมตีได้ทันที)
+  log(g, how === "impact" ? `🔥 Impact Call! ${card.name} ลงสนาม (ช่อง${POSITION_NAMES[position]})` : `${card.name} ลงสนาม (ช่อง${POSITION_NAMES[position]})`);
 
-  // Buddy Call: Buddy แต่ละตัว (ช่องบัดดี้มีได้ 1-4 ตัว) ทำได้ตัวละ 1 ครั้งต่อเกม
+  // Buddy Call: Buddy แต่ละตัว (ช่องบัดดี้มีได้ 1-4 ตัว) ทำได้ตัวละ 1 ครั้งต่อเกม — ได้ Buddy Gift เมื่อลงสนามสำเร็จเท่านั้น
   const myBuddies = deckBuddies(p);
   const calledBuddies = p.buddiesCalled ?? (p.buddyCalledThisGame && p.buddyId ? [p.buddyId] : []);
   const isBuddyCall = myBuddies.includes(cardId) && !calledBuddies.includes(cardId);
   fx(g, { k: "call", side, uid: fc.uid, pos: position, buddy: isBuddyCall });
-  if (soulN + absorbedN > 0) fx(g, { k: "soulIn", side, uid: fc.uid, pos: position, n: soulN + absorbedN });
+  if (plan.soulN + absorbedN > 0) fx(g, { k: "soulIn", side, uid: fc.uid, pos: position, n: plan.soulN + absorbedN });
   if (isBuddyCall) {
     p.buddiesCalled = [...calledBuddies, cardId];
     p.buddyCalledThisGame = myBuddies.every(b => p.buddiesCalled!.includes(b));
@@ -1196,7 +1193,68 @@ export function callMonster(state: GameState, side: Side, handIndex: number, pos
   applyEffects(g, side, card, "onCall", { fc });
   if (isBuddyCall) applyEffects(g, side, card, "onBuddyCall", { fc });
   recalcAuras(g);
+  return fc;
+}
+
+// ลงมอนสเตอร์ปกติใน Main Phase — มอนสเตอร์ไม้ตายลงด้วยวิธีนี้ไม่ได้ (ต้อง Impact Call ใน Final Phase)
+// byEffect = ถูกเอฟเฟกต์เรียกลงสนาม (ข้ามข้อจำกัดของมอนสเตอร์ไม้ตาย ลงได้ทุกเฟสและไม่จำกัดจำนวน; ใช้กับโหมด Sandbox ด้วย)
+export function callMonster(state: GameState, side: Side, handIndex: number, position: number, opts?: { ignoreSize?: boolean; byEffect?: boolean }): Result {
+  const card0 = getCard(state[side].hand[handIndex]);
+  if (card0 && isMonsterImpact(card0) && !opts?.byEffect)
+    return { state, ok: false, msg: `${card0.name} เป็นมอนสเตอร์ไม้ตาย — ลงใน Main Phase ไม่ได้ ต้อง Impact Call ใน Final Phase (เทิร์นละ 1 ใบ)` };
+  const err = guardTurn(state, side, "main", !!opts?.byEffect);
+  if (err) return { state, ok: false, msg: err };
+  const g = structuredClone(state);
+  const p = g[side];
+  const cardId = p.hand[handIndex];
+  const card = cardId ? getCard(cardId) : undefined;
+  if (!card) return { state, ok: false, msg: "ไม่พบการ์ดใบนี้ในมือ" };
+  if (card.type !== "Monster") return { state, ok: false, msg: `${card.name} ไม่ใช่มอนสเตอร์ จึงลงช่องมอนสเตอร์ไม่ได้` };
+  const plan = checkCall(g, side, card, position, opts?.ignoreSize);
+  if (typeof plan === "string") return { state, ok: false, msg: plan };
+
+  const costErr = payCost(g, side, card);
+  if (costErr) return { state, ok: false, msg: costErr };
+
+  p.hand.splice(handIndex, 1);
+  placeCalled(g, side, cardId, card, position, plan);
   return { state: g, ok: true, msg: `${card.name} ลงสนามสำเร็จ` };
+}
+
+// Impact Call (มอนสเตอร์ไม้ตาย): ทำได้เฉพาะ Final Phase เทิร์นละ 1 ใบ ตามกติกาการลงมอนสเตอร์ทุกอย่าง (Call Cost / Size / ช่อง)
+// และนับเป็นการร่าย Impact ด้วย — ฝั่งตรงข้ามใช้ Counter ตอบโต้ได้ ถ้าถูกยกเลิกการ์ดจะลงสุสาน (ค่าใช้จ่ายที่จ่ายไปแล้วไม่คืน)
+export function impactCall(state: GameState, side: Side, handIndex: number, position: number, opts?: { ignoreSize?: boolean; free?: boolean }): Result {
+  const card0 = getCard(state[side].hand[handIndex]);
+  if (!card0) return { state, ok: false, msg: "ไม่พบการ์ดใบนี้ในมือ" };
+  if (!isMonsterImpact(card0)) return { state, ok: false, msg: `${card0.name} ไม่ใช่มอนสเตอร์ไม้ตาย` };
+  const err = guardTurn(state, side, "final");
+  if (err) return { state, ok: false, msg: err === "Impact ใช้ได้เฉพาะ Final Phase" ? "Impact Call มอนสเตอร์ไม้ตายได้เฉพาะ Final Phase" : err };
+  if (!opts?.free && state[side].impactCalledTurn === state.turn)
+    return { state, ok: false, msg: "เทิร์นนี้ Impact Call ไปแล้ว 1 ใบ — Impact Call ได้เทิร์นละ 1 ใบเท่านั้น (การเรียกลงด้วยเอฟเฟกต์ไม่จำกัด)" };
+
+  const g = structuredClone(state);
+  const p = g[side];
+  const cardId = p.hand[handIndex];
+  const card = getCard(cardId)!;
+  if (cardLimitReached(g, side, card)) return { state, ok: false, msg: cardLimitMsg(card) };
+  const plan = checkCall(g, side, card, position, opts?.ignoreSize);
+  if (typeof plan === "string") return { state, ok: false, msg: plan };
+  const costErr = payCost(g, side, card);
+  if (costErr) return { state, ok: false, msg: `Impact Call ${card.name} ไม่ได้ — ${costErr}` };
+  noteCardUse(g, side, card);
+
+  p.hand.splice(handIndex, 1);
+  p.impactCalledTurn = g.turn;
+  log(g, `${nameOf(side)} Impact Call ${card.name}! (นับเป็นการร่าย Impact)`);
+  fx(g, { k: "cast", side, cardId, label: "IMPACT!" });
+  // เปิดจังหวะ Counter ให้ฝั่งตรงข้ามก่อนการ์ดลงสนาม (เหมือนการร่าย Impact)
+  g.spellWindow = { casterSide: side, cardId, negated: false, impactCall: { position, ignoreSize: opts?.ignoreSize } };
+  if (g.rules.enableCounter && counterOptions(g, other(side)).length > 0) {
+    log(g, `รอ ${nameOf(other(side))} เลือกว่าจะใช้ Counter กับ Impact Call ${card.name} หรือไม่...`);
+    return { state: g, ok: true, msg: "รอ Counter" };
+  }
+  resolveSpell(g);
+  return { state: g, ok: true, msg: `Impact Call ${card.name} สำเร็จ` };
 }
 
 // การ์ดที่มีคีย์เวิร์ด Set (แบบ engine, ป้าย kw เก่า, หรือคีย์เวิร์ดกำหนดเองชื่อ "Set")
@@ -1456,7 +1514,6 @@ function mDestroySet(g: GameState, side: Side, index: number): boolean {
 function castTrigger(card: Card): AutoTrigger | null {
   const sk = card.autoSkills ?? [];
   if (sk.some(s => s.trigger === "onCast")) return "onCast";
-  if (isMonsterImpact(card)) return null; // มอนสเตอร์ไม้ตายใช้เป็น Impact: ทำเฉพาะสกิล "เมื่อร่าย" (สกิล "เมื่อลงสนาม" เป็นของตอนลงเป็นมอนสเตอร์)
   if (sk.some(s => s.trigger === "onCall")) return "onCall";
   return null;
 }
@@ -1465,8 +1522,8 @@ const isCounterOnly = (card: Card) =>
 
 export function castSpell(state: GameState, side: Side, handIndex: number): Result {
   const card0 = getCard(state[side].hand[handIndex]);
-  const isImpact = card0?.type === "Impact" || isMonsterImpact(card0); // มอนสเตอร์ไม้ตายใช้เป็น Impact ได้ใน Final Phase
-  const err = guardTurn(state, side, isImpact ? "final" : "main");
+  if (card0 && isMonsterImpact(card0)) return { state, ok: false, msg: `${card0.name} เป็นมอนสเตอร์ไม้ตาย — ใช้ Impact Call ลงช่องมอนสเตอร์ใน Final Phase แทนการร่าย` };
+  const err = guardTurn(state, side, card0?.type === "Impact" ? "final" : "main");
   if (err) return { state, ok: false, msg: err };
 
   // เวท Counter ล้วน: ห้ามแค่ทิ้งลงสุสานเฉย ๆ — ใช้ผลทันทีถ้าทำได้ ไม่งั้นแจ้งและไม่เสียการ์ด
@@ -1485,8 +1542,7 @@ export function castSpell(state: GameState, side: Side, handIndex: number): Resu
   const cardId = p.hand[handIndex];
   const card = cardId ? getCard(cardId) : undefined;
   if (!card) return { state, ok: false, msg: "ไม่พบการ์ดใบนี้ในมือ" };
-  if (card.type !== "Spell" && card.type !== "Impact" && !isMonsterImpact(card)) return { state, ok: false, msg: `${card.name} ไม่ใช่เวทมนตร์/Impact` };
-  const asMonsterImpact = isMonsterImpact(card); // ใช้เป็น Impact: จ่าย Impact Cost (ไม่ใช่ Call Cost) และการ์ดลงสุสานหลังใช้
+  if (card.type !== "Spell" && card.type !== "Impact") return { state, ok: false, msg: `${card.name} ไม่ใช่เวทมนตร์/Impact` };
 
   // เวทที่มีคีย์เวิร์ด Set: วางลงช่อง Set (ไม่ลงสุสาน) คงผลต่อเนื่อง — ตรวจก่อนทุกอย่าง แม้การ์ดจะมีสกิล Counter ด้วย
   if (card.type === "Spell" && hasSetKeyword(card)) {
@@ -1496,14 +1552,14 @@ export function castSpell(state: GameState, side: Side, handIndex: number): Resu
   }
 
   if (cardLimitReached(g, side, card)) return { state, ok: false, msg: cardLimitMsg(card) };
-  const costErr = payCost(g, side, asMonsterImpact ? impactCostAsCall(card) : card);
-  if (costErr) return { state, ok: false, msg: `${asMonsterImpact ? "ใช้ Impact" : "ร่าย"} ${card.name} ไม่ได้ — ${costErr}` };
+  const costErr = payCost(g, side, card);
+  if (costErr) return { state, ok: false, msg: `ร่าย ${card.name} ไม่ได้ — ${costErr}` };
   noteCardUse(g, side, card);
 
   p.hand.splice(handIndex, 1);
   p.dropZone.push(cardId);
-  log(g, asMonsterImpact ? `${card.name} ถูกใช้เป็น Impact (มอนสเตอร์ไม้ตาย)!` : `${card.name} ถูกร่าย!`);
-  fx(g, { k: "cast", side, cardId, label: card.type === "Impact" || asMonsterImpact ? "IMPACT!" : "SPELL!" });
+  log(g, `${card.name} ถูกร่าย!`);
+  fx(g, { k: "cast", side, cardId, label: card.type === "Impact" ? "IMPACT!" : "SPELL!" });
   // เปิดจังหวะ Counter ให้ฝั่งตรงข้ามก่อนเวทมีผล (ถ้ามี Counter ที่ใช้กับเวทได้)
   g.spellWindow = { casterSide: side, cardId, negated: false };
   if (g.rules.enableCounter && counterOptions(g, other(side)).length > 0) {
@@ -1711,7 +1767,12 @@ export function legalTargets(state: GameState, side: Side, attackerUid: string, 
 export function declareAttack(
   state: GameState, side: Side, attackerUid: string, target?: AttackTarget, linkUids: string[] = []
 ): Result {
-  const err = guardTurn(state, side, "attack");
+  // มอนสเตอร์ไม้ตายโจมตีได้ทั้งใน Attack Phase และ Final Phase (ใน Final Phase โจมตีได้เฉพาะมอนสเตอร์ไม้ตาย)
+  const atkUids = [...new Set([attackerUid, ...linkUids])];
+  const allImpact = atkUids.every(u => { const f = findFc(state[side], u); return !!f && f !== state[side].item && isMonsterImpact(cardOfFc(f)); });
+  const err = state.phase === "final" && allImpact ? guardTurn(state, side, "final")
+    : state.phase === "final" && !baseGuard(state, side) && !state.battle && !state.moveWindow ? "Final Phase มีเฉพาะมอนสเตอร์ไม้ตายเท่านั้นที่โจมตีได้"
+    : guardTurn(state, side, "attack");
   if (err) return { state, ok: false, msg: err };
   const lim = state.rules.firstTurnAttacks;
   if (state.turn === 1 && lim > 0 && state.attacksThisTurn >= lim)
@@ -1994,6 +2055,25 @@ function resolveSpell(g: GameState) {
   if (!w) return;
   const card = getCard(w.cardId);
   if (!card) return;
+  if (w.impactCall) {
+    // Impact Call: ถ้าถูกยกเลิกการ์ดลงสุสาน ไม่ลงสนาม (ไม่คืนค่าใช้จ่าย)
+    const p = g[w.casterSide];
+    if (w.negated) {
+      p.dropZone.push(w.cardId);
+      log(g, `Impact Call ${card.name} ถูกยกเลิก — การ์ดลงสุสาน`);
+      return;
+    }
+    const plan = checkCall(g, w.casterSide, card, w.impactCall.position, w.impactCall.ignoreSize);
+    if (typeof plan === "string") {
+      p.dropZone.push(w.cardId);
+      log(g, `Impact Call ${card.name} ลงสนามไม่สำเร็จ (${plan}) — การ์ดลงสุสาน`);
+      return;
+    }
+    const fc = placeCalled(g, w.casterSide, w.cardId, card, w.impactCall.position, plan, "impact");
+    // นับเป็นการร่าย Impact: สกิล "เมื่อร่าย" ของมอนสเตอร์ไม้ตายทำงานด้วย
+    if ((card.autoSkills ?? []).some(sk => sk.trigger === "onCast")) applyEffects(g, w.casterSide, card, "onCast", { fc });
+    return;
+  }
   if (w.negated) { log(g, `${card.name} ถูกยกเลิก ไม่มีผล`); return; }
   const trig = castTrigger(card);
   if (!trig) { log(g, `${card.name} ไม่มีผลที่ทำงานตอนร่าย`); return; }
@@ -2575,7 +2655,10 @@ export function sandboxSetPhase(state: GameState, phase: "charge" | "main" | "at
   const g = structuredClone(state);
   const cleared: string[] = [];
   if (g.battle) { g.battle = null; cleared.push("การต่อสู้ที่รอ Counter"); }
-  if (g.spellWindow) { g.spellWindow = null; cleared.push("จังหวะ Counter ของเวท"); }
+  if (g.spellWindow) {
+    if (g.spellWindow.impactCall) g[g.spellWindow.casterSide].dropZone.push(g.spellWindow.cardId); // การ์ด Impact Call ที่ค้างอยู่ลงสุสาน
+    g.spellWindow = null; cleared.push("จังหวะ Counter ของเวท");
+  }
   if (g.moveWindow) { g.moveWindow = null; cleared.push("ช่วง Move"); }
   if (g.pendingLook || g.pendingSoul || g.pendingTarget) { g.pendingLook = null; g.pendingSoul = null; g.pendingTarget = null; cleared.push("การเลือกที่ค้างอยู่"); }
   const names: Record<string, string> = { charge: "Charge & Draw", main: "Main Phase", attack: "Attack Phase", final: "Final Phase" };

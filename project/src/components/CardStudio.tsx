@@ -2,7 +2,7 @@ import { useState, useRef, useLayoutEffect, useEffect } from "react";
 import { Plus, Save, Trash2, Download, Upload, Edit3, Copy, Zap, Search, Layers, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, GripVertical } from "lucide-react";
 import { ScreenShell, EmptyState } from "@/components/ui";
 import type { Card, Flag, CardType, AutoTrigger, AutoEffectType, AutoEffect, AutoSkill } from "@/types";
-import { TRIGGER_LABELS, EFFECT_LABELS, DROP_FILTERS, callCostLabel, transformCostLabel, deckBuddies, isMonsterImpact, impactCostLabel } from "@/types";
+import { TRIGGER_LABELS, EFFECT_LABELS, DROP_FILTERS, callCostLabel, transformCostLabel, deckBuddies, isMonsterImpact } from "@/types";
 import type { CardFilter } from "@/types";
 import { getCards, saveCards, getFlags, saveFlags, getDecks, saveDecks, uid, downloadJSON, parseImport, applyImport, exportCards } from "@/storage";
 import type { ParsedImport } from "@/storage";
@@ -411,29 +411,18 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                   <label className="flex items-center gap-2 text-sm font-semibold text-slate-100 cursor-pointer">
                     <input type="checkbox" checked={!!editing.monsterImpact}
                       onChange={e => setEditing(e.target.checked
-                        ? { ...editing, monsterImpact: true, impactCost: editing.impactCost ?? 2, impactCostType: editing.impactCostType ?? "Gauge" }
-                        : { ...editing, monsterImpact: undefined, impactCost: undefined, impactCostType: undefined, impactCostExtra: undefined })} />
-                    มอนสเตอร์ไม้ตาย (Monster + Impact) — ลงเป็นมอนสเตอร์ได้ และใช้เป็น Impact ใน Final Phase ได้
+                        ? { ...editing, monsterImpact: true }
+                        : { ...editing, monsterImpact: undefined })} />
+                    มอนสเตอร์ไม้ตาย (Impact Monster)
                   </label>
                   {editing.monsterImpact && (
-                    <div className="grid grid-cols-3 gap-3 mt-3">
-                      <div>
-                        <label className="text-xs text-slate-400">Impact Cost</label>
-                        <input type="number" min={0} max={9} value={editing.impactCost ?? 0} onChange={e => setEditing({ ...editing, impactCost: Math.max(0, Math.min(9, parseInt(e.target.value) || 0)) })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 mt-1 focus:border-cyan-500 outline-none" />
-                      </div>
-                      <div>
-                        <label className="text-xs text-slate-400">จ่ายด้วย</label>
-                        <select value={editing.impactCostType ?? "Gauge"} onChange={e => setEditing({ ...editing, impactCostType: e.target.value as "Gauge" | "Life" })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 mt-1 focus:border-cyan-500 outline-none">
-                          <option value="Gauge">Gauge</option>
-                          <option value="Life">Life</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-xs text-slate-400">จ่ายเพิ่มด้วย {(editing.impactCostType ?? "Gauge") === "Life" ? "Gauge" : "Life"}</label>
-                        <input type="number" min={0} max={9} value={editing.impactCostExtra ?? 0} onChange={e => setEditing({ ...editing, impactCostExtra: Math.max(0, Math.min(9, parseInt(e.target.value) || 0)) })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 mt-1 focus:border-cyan-500 outline-none" />
-                      </div>
-                      <div className="col-span-3 text-[11px] text-rose-300">ใช้เป็น Impact จ่าย: {impactCostLabel(editing)} (แยกจาก Call Cost ตอนลงเป็นมอนสเตอร์) · เอฟเฟกต์ตอนใช้เป็น Impact ใส่เป็นสกิล “เมื่อร่าย” ส่วนเอฟเฟกต์ตอนลงเป็นมอนสเตอร์ใส่เป็น “เมื่อลงสนาม” · หลังใช้เป็น Impact การ์ดลงสุสาน</div>
-                    </div>
+                    <ul className="mt-2 text-[11px] text-rose-300 list-disc pl-5 space-y-0.5 leading-relaxed">
+                      <li>ลงสนามในช่วงหลัก (Main Phase) ตามปกติไม่ได้ — ต้อง “Impact Call” ใน Final Phase เทิร์นละ 1 ใบ โดยใช้กติกาการลงมอนสเตอร์เหมือนเดิม (จ่าย Call Cost, Size, ช่องว่าง) และนับเป็นการร่าย Impact (ฝั่งตรงข้ามใช้ Counter ได้)</li>
+                      <li>ถ้าถูกเอฟเฟกต์เรียกลงสนาม จะลงได้ทุกเฟสและไม่จำกัดจำนวนต่อเทิร์น</li>
+                      <li>เป็น Buddy ได้ — ลงสนามสำเร็จจะได้ Buddy Gift (Life +1)</li>
+                      <li>โจมตีได้ทั้งใน Attack Phase และ Final Phase</li>
+                      <li>บนสนามวางแนวนอน = Stand · วางแนวตั้ง = Rest (กลับด้านกับมอนสเตอร์ปกติ)</li>
+                    </ul>
                   )}
                 </div>
               )}

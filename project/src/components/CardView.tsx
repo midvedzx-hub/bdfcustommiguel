@@ -277,7 +277,7 @@ export function CardView({
           <span className="flex items-center justify-center rounded-full" style={{ width: "2.3em", height: "2.3em", color: accent, border: `0.12em solid ${accent}`, background: "rgba(0,0,0,.45)", boxShadow: `0 0 0.5em ${accent}88` }}>
             <TypeIcon type={card.type} />
           </span>
-          <span className="text-white font-semibold leading-none" style={{ fontSize: "0.58em", marginTop: "0.35em" }}>{isMonsterImpact(card) ? "Monster/Impact" : (TYPE_LABEL[card.type] ?? card.type)}</span>
+          <span className="text-white font-semibold leading-none" style={{ fontSize: "0.58em", marginTop: "0.35em" }}>{isMonsterImpact(card) ? "มอนสเตอร์ไม้ตาย" : (TYPE_LABEL[card.type] ?? card.type)}</span>
         </div>
 
         {/* Item: Defense (ฟ้า, แสดงเมื่อ > 0) บน · Critical กลาง · Power (แดง) ล่าง เรียงแนวตั้งด้านซ้ายแบบเดียวกับมอนสเตอร์ */}
