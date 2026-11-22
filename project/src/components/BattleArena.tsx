@@ -12,7 +12,7 @@ import { keywordValue,
   callMonster, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
   goToAttack, goToFinal, mulligan, transformCard, legalTargets, statsOf, counterOptions, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
-  sandboxMoveCard, sandboxSetPhase, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
+  sandboxMoveCard, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, cardOfFc, matchCallRequires, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
   type AttackTarget, type CounterOption, type Result,
   setSoulguardAuto, closeMoveWindow, movableMonsters, recalcAuras, hasSetKeyword, activeSetCards, sandboxDestroySet, sandboxMoveSet, resolveLook, resolveSoulChoice, resolveTargetChoice, targetEffectLabel,
@@ -355,7 +355,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const [inspectMode, setInspectMode] = useState(false);
   const [flagInfo, setFlagInfo] = useState<Flag | null>(null);
   const [hidden, setHidden] = useState<string[]>([]);
-  const [banner, setBanner] = useState<{ key: number; text: string; sub?: string; color: string; back?: boolean } | null>(null);
+  const [banner, setBanner] = useState<{ key: number; text: string; sub?: string; color: string } | null>(null);
   const bannerTimer = useRef<number | undefined>(undefined);
   const prevPhase = useRef({ turn: 0, phase: "", started: false });
   const [inspect, setInspect] = useState<{ card: Card; flagId?: string; fc?: FieldCard | null; note?: string } | null>(null);
@@ -512,25 +512,15 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     prevPhase.current = { turn: game.turn, phase: game.phase, started };
     if (game.winner || !started) return;
     const mine = game.currentTurn === mySide;
-    let nb: { text: string; sub?: string; color: string; back?: boolean } | null = null;
-    const ORDER: Record<string, number> = { draw: 0, charge: 1, main: 2, attack: 3, final: 4 };
-    const LABEL: Record<string, string> = { charge: "CHARGE & DRAW", main: "MAIN PHASE", attack: "ATTACK PHASE", final: "FINAL PHASE" };
+    let nb: { text: string; sub?: string; color: string } | null = null;
     if (!prev.started || game.turn !== prev.turn) {
       nb = mine
         ? { text: "เทิร์นของคุณ", sub: `TURN ${game.turn}`, color: "#0891b2" }
         : { text: "เทิร์นฝั่งตรงข้าม", sub: `TURN ${game.turn}`, color: "#be123c" };
-    } else if (game.phase !== prev.phase) {
-      if ((ORDER[game.phase] ?? 0) < (ORDER[prev.phase] ?? 0)) {
-        nb = { text: `◀ ${LABEL[game.phase] ?? game.phase.toUpperCase()}`, sub: "ย้อนกลับเฟส (Sandbox)", color: "#475569", back: true };
-      } else if (mine && game.phase === "main") {
-        nb = { text: "MAIN PHASE", sub: "ลงมอนสเตอร์ ร่ายเวท จัดทัพ", color: "#059669" };
-      } else if (mine && game.phase === "attack") {
-        nb = { text: "ATTACK PHASE", sub: "เลือกผู้โจมตี แล้วเลือกเป้าหมาย", color: "#dc2626" };
-      } else if (mine && game.phase === "final") {
-        nb = { text: "FINAL PHASE", sub: "ใช้ Impact ได้ แล้วจบเทิร์น", color: "#a21caf" };
-      } else if (!mine && (game.phase === "attack" || game.phase === "final")) {
-        nb = { text: LABEL[game.phase], sub: "ฝั่งตรงข้าม", color: game.phase === "attack" ? "#9f1239" : "#6b21a8" };
-      }
+    } else if (mine && game.phase !== prev.phase && game.phase === "attack") {
+      nb = { text: "ATTACK PHASE", sub: "เลือกผู้โจมตี แล้วเลือกเป้าหมาย", color: "#dc2626" };
+    } else if (mine && game.phase !== prev.phase && game.phase === "final") {
+      nb = { text: "FINAL PHASE", sub: "ใช้ Impact ได้ แล้วจบเทิร์น", color: "#a21caf" };
     }
     if (nb) {
       playSfx("turn");
@@ -844,7 +834,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     return (
       <div
         data-fx={`mat:${side}`}
-        className="relative rounded-2xl overflow-hidden transition-shadow duration-500"
+        className={`relative rounded-2xl overflow-hidden transition-shadow duration-500 ${active ? "mat-active" : ""}`}
         style={{
           width: "var(--mw)", height: "var(--mh)",
           background: `radial-gradient(ellipse at 50% 90%, ${color}55, transparent 60%), repeating-linear-gradient(45deg, #9aa0ab 0 6px, #8d93a0 6px 12px)`,
@@ -854,7 +844,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       >
         {/* Life track */}
         <div data-fx={`life:${side}`} style={{ ...place(10, 0, 81, 8.5, mirror), background: "linear-gradient(180deg,#7f1d1d,#5b1414)", borderRadius: mirror ? "0 0 10px 10px" : "10px 10px 0 0" }}
-          className={`flex items-center gap-[1%] px-[1.2%] ${fighterLegal ? "glow-target cursor-crosshair" : "cursor-pointer"}`} title="กดเพื่อดูความสามารถของ Flag"
+          className={`flex items-center gap-[1%] px-[1.2%] ${fighterLegal ? "glow-target cursor-crosshair" : "cursor-pointer"} ${p.life <= 3 ? "life-danger" : ""}`} title="กดเพื่อดูความสามารถของ Flag"
           onClick={() => { if (!isMine && atkSels.length > 0) tryAttack({ kind: "fighter" }); else if (flag) setFlagInfo(flag); }}
           onDragOver={draggingAttack ? (e) => e.preventDefault() : undefined}
           onDrop={draggingAttack ? (e) => { e.preventDefault(); handleDropAttack({ kind: "fighter" }); } : undefined}>
@@ -906,7 +896,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         </RectZone>
 
         {/* Set */}
-        <RectZone style={place(2, 66, 24, 29, mirror)} onDrop={isMine ? handleDropOnSet : undefined} label={p.setZone.length === 0 ? "เซ็ท" : undefined}>
+        <RectZone fx={`set:${side}`} style={place(2, 66, 24, 29, mirror)} onDrop={isMine ? handleDropOnSet : undefined} label={p.setZone.length === 0 ? "เซ็ท" : undefined}>
           <div className="flex gap-1 items-center justify-center flex-wrap">
             {p.setZone.map((id, i) => {
               const c = cardOf(id);
@@ -1021,7 +1011,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     const hw = isMine ? "calc(var(--cw) * 0.95)" : "calc(var(--cw) * 0.5)";
     const overlap = p.hand.length > 8 ? "-0.4" : p.hand.length > 6 ? "-0.2" : "0.08";
     return (
-      <div className="flex justify-center items-end px-2" style={{ minHeight: isMine ? "calc(var(--cw) * 1.3)" : "calc(var(--cw) * 0.45)", paddingTop: isMine ? "1rem" : 0 }}>
+      <div data-fx={`hand:${isMine ? mySide : oppSide}`} className="flex justify-center items-end px-2" style={{ minHeight: isMine ? "calc(var(--cw) * 1.3)" : "calc(var(--cw) * 0.45)", paddingTop: isMine ? "1rem" : 0 }}>
         {p.hand.length === 0 && <span className="text-slate-600 text-xs py-3">ไม่มีการ์ดในมือ</span>}
         {p.hand.map((cid, i) => {
           const style: CSSProperties = { marginLeft: i === 0 ? 0 : `calc(${hw} * ${overlap})` };
@@ -1182,21 +1172,6 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           <button onClick={doEndTurn} className={`${b} bg-amber-600 hover:bg-amber-500 transition ${game.phase === "final" ? "btn-nudge" : ""}`}>จบเทิร์น</button>
         )}
         {(atkSels.length > 0 || moveSel) && <button onClick={() => { setAtkSels([]); setMoveSel(null); }} className={`${b} bg-slate-700 hover:bg-slate-600 flex items-center gap-1`}><X size={14} /> ยกเลิกเลือก</button>}
-        {sandbox && started && !game.winner && game.phase !== "draw" && (() => {
-          const seq = ["charge", "main", "attack", "final"] as const;
-          const names: Record<string, string> = { charge: "Charge", main: "Main", attack: "Attack", final: "Final" };
-          const idx = seq.indexOf(game.phase as typeof seq[number]);
-          return (
-            <div className="basis-full flex items-center justify-center gap-1.5 flex-wrap" title="Sandbox: ตั้งเฟสของเทิร์นปัจจุบัน (ไม่รันเอฟเฟกต์ของเฟส)">
-              <span className="text-[11px] text-cyan-300 mr-1">🛠 เฟส</span>
-              <button disabled={idx <= 0} onClick={() => doAction(s => sandboxSetPhase(s, seq[idx - 1]))} className="px-2 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 disabled:opacity-30 transition">◀ ย้อนเฟส</button>
-              {seq.map(ph => (
-                <button key={ph} onClick={() => doAction(s => sandboxSetPhase(s, ph))}
-                  className={`phase-pill px-2.5 py-1 rounded-full text-xs font-bold border ${game.phase === ph ? "phase-pill-on bg-cyan-500 text-slate-900 border-cyan-200" : "bg-slate-800 text-slate-300 border-slate-600 hover:border-cyan-400"}`}>{names[ph]}</button>
-              ))}
-            </div>
-          );
-        })()}
         {hint && <div className="basis-full text-center text-xs text-slate-300">{hint}</div>}
       </div>
     );
@@ -1973,7 +1948,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       </aside>
 
       <FxLayer game={game} cardOf={cardOf} flagOf={flagOf} onHide={hideUnits} />
-      {banner && <Banner key={banner.key} text={banner.text} sub={banner.sub} color={banner.color} back={banner.back} />}
+      {banner && <Banner key={banner.key} text={banner.text} sub={banner.sub} color={banner.color} />}
       {renderMenus()}
       {renderMulligan()}
       {moveWindowMine && !game.battle && !game.winner && (

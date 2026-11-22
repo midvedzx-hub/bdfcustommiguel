@@ -23,7 +23,11 @@ function sfxFor(ev: FxEvent, at: number, impact: number) {
     case "charge": playSfx("charge", at); break;
     case "draw": playSfx("draw", at); break;
     case "negate": playSfx("negate", at); break;
-    case "shuffle": playSfx("draw", at); break;
+    case "buff": playSfx("charge", at); break;
+    case "restFx": case "nullifyFx": playSfx("negate", at); break;
+    case "pay": playSfx("charge", at); break;
+    case "discard": playSfx("draw", at); break;
+    case "moveFx": playSfx("whoosh", at); break;
   }
 }
 interface Pt { x: number; y: number; w: number; h: number }
@@ -278,9 +282,10 @@ export function FxLayer({ game, cardOf, flagOf, onHide }: {
           if (!c) break;
           idx++;
           const w = c.type === "Impact" ? 240 : 170, h = Math.round(c.type === "Impact" ? w * 63 / 88 : w * 88 / 63);
-          const drop = pointOf(`drop:${ev.side}`);
+          const isSet = ev.label === "SET!";
+          const drop = (isSet ? pointOf(`set:${ev.side}`) : null) ?? pointOf(`drop:${ev.side}`);
           const cx = window.innerWidth / 2 - 80, cy = window.innerHeight / 2;
-          const color = ev.label === "COUNTER!" ? "#38bdf8" : ev.label === "IMPACT!" ? "#fb7185" : "#fbbf24";
+          const color = ev.label.startsWith("COUNTER") ? "#38bdf8" : ev.label === "IMPACT!" ? "#fb7185" : isSet ? "#a78bfa" : "#fbbf24";
           const startY = ev.side === "host" ? 120 : -120;
           const toX = drop ? drop.x - cx : 0, toY = drop ? drop.y - cy : 0;
           push(done => (
@@ -295,6 +300,7 @@ export function FxLayer({ game, cardOf, flagOf, onHide }: {
             </Anim>
           ));
           float(cx, cy + h / 2 + 26, ev.label, color, at + 150, 40);
+          if (isSet && drop) { ring(drop.x, drop.y, 130, "#a78bfa", at + 1250, 700); flash(drop.x, drop.y, 140, "#8b5cf6", at + 1280); pulse(`set:${ev.side}`, at + 1250, "#8b5cf6"); }
           break;
         }
         case "charge": {
@@ -308,29 +314,118 @@ export function FxLayer({ game, cardOf, flagOf, onHide }: {
         case "draw": {
           idx++;
           pulse(`deck:${ev.side}`, at, "#22d3ee");
+          const from = pointOf(`deck:${ev.side}`), to = pointOf(`hand:${ev.side}`);
+          if (from && to) {
+            for (let i = 0; i < Math.min(ev.n, 5); i++) {
+              const cw = Math.max(34, Math.round(from.w * 0.62)), ch = Math.round(cw * 88 / 63);
+              const dx = to.x - from.x + (i - (Math.min(ev.n, 5) - 1) / 2) * 26, dy = to.y - from.y;
+              push(done => (
+                <Anim onDone={done} style={{ left: from.x - cw / 2, top: from.y - ch / 2, width: cw, height: ch, filter: "drop-shadow(0 0 8px #22d3ee)" }}
+                  frames={[
+                    { transform: "translate(0,0) scale(.8) rotate(0deg)", opacity: 0.9, offset: 0 },
+                    { transform: `translate(${dx * 0.5}px,${dy * 0.35 - 30}px) scale(1.05) rotate(${i % 2 ? 10 : -10}deg)`, opacity: 1, offset: 0.5 },
+                    { transform: `translate(${dx}px,${dy}px) scale(.7) rotate(0deg)`, opacity: 0, offset: 1 },
+                  ]} opts={{ duration: 650, delay: at + i * 130, easing: "cubic-bezier(.3,.7,.3,1)" }}>
+                  <CardView faceDown width={`${cw}px`} />
+                </Anim>
+              ));
+            }
+          }
           break;
         }
-        case "shuffle": {
-          const p = pointOf(`deck:${ev.side}`);
+        case "pay": {
+          const p = pointOf(`gauge:${ev.side}`), d = pointOf(`drop:${ev.side}`);
           if (!p) break;
           idx++;
-          shake(`deck:${ev.side}`, at, 5);
-          shake(`deck:${ev.side}`, at + 380, 8);
-          pulse(`deck:${ev.side}`, at, "#22d3ee");
-          // ไพ่สลับตำแหน่งวนเป็นปีก
-          for (let i = 0; i < 5; i++) {
-            const dir = i % 2 === 0 ? 1 : -1;
+          float(p.x, p.y, `−${ev.n} GAUGE`, "#fb923c", at, 22);
+          pulse(`gauge:${ev.side}`, at, "#f97316");
+          if (d) orbs(p, d, ev.n, at, "#f59e0b");
+          break;
+        }
+        case "buff": {
+          const p = pointOf(slotId(ev.side, ev.pos));
+          if (!p) break;
+          idx++;
+          const col = ev.stat === "power" ? "#fbbf24" : ev.stat === "critical" ? "#fb7185" : "#60a5fa";
+          const icon = ev.stat === "power" ? "⚔" : ev.stat === "critical" ? "✦" : "🛡";
+          const up = ev.amount >= 0;
+          float(p.x, p.y - p.h * 0.1, `${icon} ${up ? "+" : "−"}${Math.abs(ev.amount)}`, up ? col : "#94a3b8", at, 26);
+          ring(p.x, p.y, p.w * 0.9, col, at, 700);
+          pulse(slotId(ev.side, ev.pos), at, col);
+          break;
+        }
+        case "restFx": {
+          const p = pointOf(slotId(ev.side, ev.pos));
+          if (!p) break;
+          idx++;
+          float(p.x, p.y - p.h * 0.1, "REST", "#94a3b8", at, 26);
+          float(p.x + p.w * 0.25, p.y - p.h * 0.28, "z z z", "#cbd5e1", at + 200, 18);
+          pulse(slotId(ev.side, ev.pos), at, "#64748b");
+          break;
+        }
+        case "nullifyFx": {
+          const p = pointOf(slotId(ev.side, ev.pos));
+          if (!p) break;
+          idx++;
+          float(p.x, p.y - p.h * 0.1, "NULLIFY!", "#e879f9", at, 26);
+          ring(p.x, p.y, p.w * 1.1, "#d946ef", at, 700);
+          ring(p.x, p.y, p.w * 0.7, "#f0abfc", at + 150, 600);
+          shake(slotId(ev.side, ev.pos), at, 6);
+          break;
+        }
+        case "discard": {
+          idx++;
+          const from = pointOf(`${ev.from}:${ev.side}`), d = pointOf(`drop:${ev.side}`);
+          if (!from || !d) break;
+          for (let i = 0; i < Math.min(ev.n, 4); i++) {
+            const cw = Math.max(34, Math.round(from.w * 0.6)), ch = Math.round(cw * 88 / 63);
+            const dx = d.x - from.x, dy = d.y - from.y;
             push(done => (
-              <Anim onDone={done} style={{ left: p.x - 12, top: p.y - 17, width: 24, height: 34, borderRadius: 4, background: "linear-gradient(135deg,#0e7490,#164e63)", border: "1px solid #67e8f9" }}
+              <Anim onDone={done} style={{ left: from.x - cw / 2, top: from.y - ch / 2, width: cw, height: ch, filter: "drop-shadow(0 0 8px #fb7185)" }}
                 frames={[
-                  { transform: "translate(0,0) rotate(0deg)", opacity: 0 },
-                  { transform: `translate(${dir * 34}px,-8px) rotate(${dir * 18}deg)`, opacity: 1, offset: 0.3 },
-                  { transform: `translate(${-dir * 34}px,6px) rotate(${-dir * 18}deg)`, opacity: 1, offset: 0.65 },
-                  { transform: "translate(0,0) rotate(0deg)", opacity: 0 },
-                ]} opts={{ duration: 800, delay: at + i * 90, easing: "ease-in-out" }} />
+                  { transform: "translate(0,0) scale(1) rotate(0deg)", opacity: 1 },
+                  { transform: `translate(${dx * 0.6}px,${dy * 0.6 - 20}px) scale(.9) rotate(${i % 2 ? 18 : -18}deg)`, opacity: 1, offset: 0.55 },
+                  { transform: `translate(${dx}px,${dy}px) scale(.4) rotate(40deg)`, opacity: 0 },
+                ]} opts={{ duration: 800, delay: at + i * 140, easing: "ease-in" }}>
+                <CardView faceDown width={`${cw}px`} />
+              </Anim>
             ));
           }
-          float(p.x, p.y - 36, "SHUFFLE", "#67e8f9", at + 100, 20);
+          float(from.x, from.y - 20, `ทิ้ง ${ev.n}`, "#fb7185", at, 20);
+          break;
+        }
+        case "moveFx": {
+          const a = pointOf(slotId(ev.side, ev.from)), b = pointOf(slotId(ev.side, ev.to));
+          const c = cardOf(ev.cardId);
+          if (!a || !b || !c) break;
+          idx++;
+          onHide([ev.uid], 900);
+          const cw = Math.max(48, Math.round(a.w * 0.62)), ch = Math.round(cw * 88 / 63);
+          const dx = b.x - a.x, dy = b.y - a.y;
+          push(done => (
+            <Anim onDone={done} style={{ left: a.x - cw / 2, top: a.y - ch / 2, width: cw, height: ch, filter: "drop-shadow(0 0 12px #22d3ee)" }}
+              frames={[
+                { transform: "translate(0,0) scale(1)", opacity: 1 },
+                { transform: `translate(${dx * 0.5}px,${dy * 0.5 - 24}px) scale(1.15)`, opacity: 1, offset: 0.5 },
+                { transform: `translate(${dx}px,${dy}px) scale(1)`, opacity: 1 },
+              ]} opts={{ duration: 780, delay: at, easing: "cubic-bezier(.4,.1,.2,1)" }}>
+              <CardView card={c} flag={flagOf(game[ev.side].flagId)} width={`${cw}px`} hideText />
+            </Anim>
+          ));
+          for (let i = 0; i < 4; i++) {
+            push(done => (
+              <Anim onDone={done} style={{ left: a.x - 8, top: a.y - 8, width: 16, height: 16, borderRadius: "50%", background: "radial-gradient(circle,#fff,#22d3ee 60%,transparent)" }}
+                frames={[{ transform: "translate(0,0) scale(1)", opacity: 0.9 }, { transform: `translate(${dx * (0.2 + i * 0.22)}px,${dy * (0.2 + i * 0.22)}px) scale(.2)`, opacity: 0 }]}
+                opts={{ duration: 520, delay: at + i * 90, easing: "ease-out" }} />
+            ));
+          }
+          ring(b.x, b.y, b.w * 0.9, "#22d3ee", at + 700, 600);
+          break;
+        }
+        case "standFx": {
+          idx++;
+          [0, 1, 2].forEach(pos => { const p = pointOf(slotId(ev.side, pos)); if (p) { pulse(slotId(ev.side, pos), at + pos * 110, "#22d3ee"); ring(p.x, p.y, p.w * 0.7, "#67e8f9", at + pos * 110, 500); } });
+          if (pointOf(`item:${ev.side}`)) pulse(`item:${ev.side}`, at + 330, "#22d3ee");
           break;
         }
         case "negate": {
@@ -348,89 +443,11 @@ export function FxLayer({ game, cardOf, flagOf, onHide }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.fxSeq]);
 
-  /* ---------- เอฟเฟกต์จากการเปลี่ยนแปลงของสถานะ (ไม่ต้องมี event จาก engine) ----------
-   * ค่าสถานะมอนสเตอร์เพิ่ม/ลด · Rest/Stand · Nullify · เกจ / เด็ค / สุสาน เพิ่มลด  */
-  const snap = useRef<Snap | null>(null);
-  useLayoutEffect(() => {
-    const cur = takeSnap(game);
-    const prev = snap.current;
-    snap.current = cur;
-    if (!prev || cur.turn < prev.turn) return;
-    const newEvs = (game.fx ?? []).filter(e => e.id > prev.fxSeq);
-    if (newEvs.length > 14) return; // ซิงค์กระโดดข้ามหลายเหตุการณ์
-    const hasAttack = newEvs.some(e => e.k === "attack");
-    const newTurn = cur.turn !== prev.turn;
-    const add = (n: (done: () => void) => ReactNode) => { const key = ++keySeq.current; setItems(p => [...p, { key, node: n }]); };
-    const fl = (x: number, y: number, text: string, color: string, delay: number, size = 20) => add(done => (
-      <Anim onDone={done} style={{ left: x, top: y, color, fontSize: size, fontWeight: 900, textShadow: `0 0 8px ${color}, 0 2px 3px #000`, whiteSpace: "nowrap", fontFamily: "Kanit, sans-serif" }}
-        frames={[
-          { transform: "translate(-50%,-50%) translateY(10px) scale(.4)", opacity: 0 },
-          { transform: "translate(-50%,-50%) translateY(-2px) scale(1.25)", opacity: 1, offset: 0.2 },
-          { transform: "translate(-50%,-50%) translateY(-16px) scale(1)", opacity: 1, offset: 0.7 },
-          { transform: "translate(-50%,-50%) translateY(-46px) scale(.9)", opacity: 0 },
-        ]} opts={{ duration: 1100, delay, easing: "ease-out" }}>{text}</Anim>
-    ));
-    let n = 0;
-    const MAX = 12;
-    (["host", "guest"] as Side[]).forEach(side => {
-      const a = prev.sides[side], b = cur.sides[side];
-      // การ์ดบนสนาม
-      Object.entries(b.cards).forEach(([uid, c]) => {
-        const o = a.cards[uid];
-        if (!o || n >= MAX) return;
-        const where = c.pos < 0 ? `item:${side}` : `slot:${side}:${c.pos}`;
-        const pt = pointOf(where);
-        if (!pt) return;
-        const stat = (d: number, label: string, color: string) => {
-          if (d === 0 || n >= MAX) return;
-          fl(pt.x, pt.y - pt.h * 0.1 + n * 4, `${d > 0 ? "+" : "−"}${Math.abs(d)} ${label}`, color, n * 120, 20);
-          pulse(where, n * 120, color);
-          n++;
-        };
-        stat(c.pw - o.pw, "POWER", "#f87171");
-        stat(c.df - o.df, "DEF", "#7dd3fc");
-        stat(c.cr - o.cr, "CRIT", "#fde047");
-        if (!hasAttack && !newTurn && c.rest !== o.rest && n < MAX) { fl(pt.x, pt.y + pt.h * 0.25, c.rest ? "REST" : "STAND", c.rest ? "#cbd5e1" : "#86efac", n * 120, 16); n++; }
-        if (c.nul && !o.nul && n < MAX) { fl(pt.x, pt.y, "NULLIFY", "#c084fc", n * 120, 22); pulse(where, n * 120, "#a855f7"); n++; }
-        if (!c.nul && o.nul && n < MAX && !newTurn) { fl(pt.x, pt.y, "ความสามารถกลับมา", "#a7f3d0", n * 120, 14); n++; }
-      });
-      // เกจ / เด็ค / สุสาน / ช่อง Set
-      const zone = (id: string, d: number, label: string, color: string, skip: boolean) => {
-        if (d === 0 || skip || n >= MAX) return;
-        const pt = pointOf(id);
-        if (!pt) return;
-        pulse(id, n * 100, color);
-        fl(pt.x, pt.y - 6, `${d > 0 ? "+" : "−"}${Math.abs(d)} ${label}`, color, n * 100, 16);
-        n++;
-      };
-      const hasCharge = newEvs.some(e => e.k === "charge" && e.side === side);
-      const hasDraw = newEvs.some(e => e.k === "draw" && e.side === side);
-      zone(`gauge:${side}`, b.gauge - a.gauge, "GAUGE", b.gauge > a.gauge ? "#fcd34d" : "#fb923c", hasCharge && b.gauge > a.gauge);
-      zone(`deck:${side}`, b.deck - a.deck, "DECK", "#67e8f9", hasDraw && b.deck < a.deck);
-      zone(`drop:${side}`, b.drop - a.drop, "DROP", "#c4b5fd", false);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game]);
-
   return (
     <>
       {items.map(it => <FxHost key={it.key} item={it} onDone={() => remove(it.key)} />)}
     </>
   );
-}
-
-interface Snap { turn: number; fxSeq: number; sides: Record<Side, { gauge: number; deck: number; drop: number; cards: Record<string, { pw: number; df: number; cr: number; rest: boolean; nul: boolean; pos: number }> }> }
-function takeSnap(g: GameState): Snap {
-  const mk = (side: Side) => {
-    const p = g[side];
-    const cards: Snap["sides"][Side]["cards"] = {};
-    [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
-      const st = statsOf(fc);
-      cards[fc.uid] = { pw: st.power, df: st.defense, cr: st.critical, rest: fc.state === "rest", nul: !!fc.nullified, pos: p.item?.uid === fc.uid ? -1 : fc.position };
-    });
-    return { gauge: p.gaugePile.length, deck: p.deck.length, drop: p.dropZone.length, cards };
-  };
-  return { turn: g.turn, fxSeq: g.fxSeq ?? 0, sides: { host: mk("host"), guest: mk("guest") } };
 }
 
 function FxHost({ item, onDone }: { item: Item; onDone: () => void }) {
@@ -440,10 +457,10 @@ function FxHost({ item, onDone }: { item: Item; onDone: () => void }) {
 }
 
 /* แบนเนอร์ตัวใหญ่กลางจอ: เปลี่ยนเทิร์น / เฟส */
-export function Banner({ text, sub, color, back }: { text: string; sub?: string; color: string; back?: boolean }) {
+export function Banner({ text, sub, color }: { text: string; sub?: string; color: string }) {
   return (
     <div className="fixed inset-x-0 z-[90] pointer-events-none flex justify-center" style={{ top: "38%" }}>
-      <div className={`${back ? "banner-sweep-back" : "banner-sweep"} w-full flex flex-col items-center justify-center py-4`} style={{ background: `linear-gradient(90deg, transparent, ${color}dd 18%, ${color}dd 82%, transparent)`, boxShadow: `0 0 40px ${color}88`, borderTop: "2px solid rgba(255,255,255,.7)", borderBottom: "2px solid rgba(255,255,255,.7)" }}>
+      <div className="banner-sweep w-full flex flex-col items-center justify-center py-4" style={{ background: `linear-gradient(90deg, transparent, ${color}dd 18%, ${color}dd 82%, transparent)`, boxShadow: `0 0 40px ${color}88`, borderTop: "2px solid rgba(255,255,255,.7)", borderBottom: "2px solid rgba(255,255,255,.7)" }}>
         <div className="banner-text font-display font-extrabold text-white text-4xl md:text-5xl" style={{ textShadow: "0 3px 12px rgba(0,0,0,.6)", transform: "skewX(14deg)" }}>{text}</div>
         {sub && <div className="font-display text-white/90 text-sm md:text-base mt-1" style={{ transform: "skewX(14deg)" }}>{sub}</div>}
       </div>

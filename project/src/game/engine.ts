@@ -131,10 +131,13 @@ function mCharge(g: GameState, side: Side, n: number, canLose = true): number {
 
 function mPayGauge(g: GameState, side: Side, n: number) {
   const p = g[side];
+  let paid = 0;
   for (let i = 0; i < n && p.gaugePile.length > 0; i++) {
     p.dropZone.push(p.gaugePile.shift()!);
+    paid++;
   }
   syncGauge(p);
+  if (paid > 0) fx(g, { k: "pay", side, n: paid });
 }
 
 function mLife(g: GameState, side: Side, delta: number) {
@@ -211,6 +214,8 @@ function nullifyMonster(g: GameState, m: FieldCard, srcName: string) {
   const nm = c?.name ?? "มอนสเตอร์";
   if (isNullifyProof(c)) { log(g, `${srcName} Nullify ${nm} ไม่ได้ — ความสามารถของ ${nm} ไม่สามารถถูกยกเลิกได้`); return; }
   m.nullified = true;
+  const owner: Side = g.host.monsters.includes(m) ? "host" : "guest";
+  fx(g, { k: "nullifyFx", side: owner, uid: m.uid, pos: posOf(g, owner, m) });
   log(g, `${srcName} Nullify! ความสามารถของ ${nm} ถูกยกเลิกจนจบเทิร์น`);
 }
 
@@ -358,7 +363,7 @@ function applyTargetEffect(g: GameState, side: Side, card: Card, type: AutoEffec
     const nm = cardOfFc(m)?.name ?? "มอนสเตอร์";
     switch (type) {
       case "destroyOpponentMonster": mDestroyMonster(g, opp, uid); break;
-      case "restOpponent": m.state = "rest"; log(g, `${card.name} Rest ${nm}`); break;
+      case "restOpponent": m.state = "rest"; fx(g, { k: "restFx", side: opp, uid, pos: posOf(g, opp, m) }); log(g, `${card.name} Rest ${nm}`); break;
       case "nullifyOpponentMonster": nullifyMonster(g, m, card.name); break;
       case "bounceOpponentMonster": mLeaveField(g, opp, uid, "hand"); break;
       case "opponentMonsterToDrop": mLeaveField(g, opp, uid, "drop"); break;
@@ -497,7 +502,7 @@ function runSkills(
           break;
         }
         case "restOpponent": {
-          g[opp].monsters.filter(m => m.state === "stand").slice(0, n).forEach(m => { m.state = "rest"; });
+          g[opp].monsters.filter(m => m.state === "stand").slice(0, n).forEach(m => { m.state = "rest"; fx(g, { k: "restFx", side: opp, uid: m.uid, pos: posOf(g, opp, m) }); });
           log(g, `${card.name} Rest มอนสเตอร์ศัตรู`);
           break;
         }
@@ -507,6 +512,7 @@ function runSkills(
             const idx = Math.floor(Math.random() * h.length);
             g[opp].dropZone.push(h.splice(idx, 1)[0]);
           }
+          fx(g, { k: "discard", side: opp, n, from: "hand" });
           log(g, `${card.name} ทำให้ศัตรูทิ้งการ์ด`);
           break;
         }
@@ -528,12 +534,11 @@ function runSkills(
           if (held) pz.dropZone.push(card.id);
           g[side].deck.push(...got.reverse()); // ใส่ใต้กอง: คงลำดับเดิมของสุสาน (ใบเก่าอยู่ก่อน)
           log(g, `${card.name} นำการ์ดจากสุสาน ${got.length} ใบใส่ใต้กองเด็ค${eff.shuffleAfter ? " และสับเด็ค" : ""}`);
-          if (eff.shuffleAfter) { shuffleInPlace(g[side].deck); fx(g, { k: "shuffle", side }); }
+          if (eff.shuffleAfter) shuffleInPlace(g[side].deck);
           break;
         }
         case "shuffleDeck": {
           shuffleInPlace(g[side].deck);
-          fx(g, { k: "shuffle", side });
           log(g, `${card.name}: ${nameOf(side)} สับเด็ค`);
           break;
         }
@@ -552,6 +557,7 @@ function runSkills(
             if (eff.type === "buffPower") target.tempPower += eff.value;
             if (eff.type === "buffCritical") target.tempCritical += eff.value;
             if (eff.type === "buffDefense") target.tempDefense += eff.value;
+            fx(g, { k: "buff", side, uid: target.uid, pos: posOf(g, side, target), stat: eff.type === "buffPower" ? "power" : eff.type === "buffCritical" ? "critical" : "defense", amount: eff.value });
           });
           log(g, `${card.name} ${eff.type === "buffPower" ? "Power" : eff.type === "buffCritical" ? "Critical" : "Defense"} +${eff.value}`);
           break;
@@ -781,6 +787,7 @@ function startTurn(g: GameState, skipDraw: boolean) {
   const p = g[side];
   p.monsters.forEach(m => { m.state = "stand"; m.attacks = 0; });
   if (p.item) { p.item.state = "stand"; p.item.attacks = 0; }
+  if (p.monsters.length > 0 || p.item) fx(g, { k: "standFx", side });
   g.attacksThisTurn = 0;
   g.battle = null;
   g.moveWindow = null;
@@ -1569,8 +1576,10 @@ export function moveMonster(state: GameState, side: Side, monsterUid: string, po
   if (m.position === position) return { state, ok: false, msg: "มอนสเตอร์อยู่ช่องนั้นอยู่แล้ว" };
   if (p.monsters.some(x => x.position === position))
     return { state, ok: false, msg: `Move ย้ายได้เฉพาะไปยัง "ช่องมอนสเตอร์ที่ว่าง" แต่ช่อง${POSITION_NAMES[position]}มีมอนสเตอร์อยู่` };
+  const fromPos = m.position;
   m.position = position;
   m.movedTurn = g.turn;
+  fx(g, { k: "moveFx", side, uid: m.uid, cardId: m.cardId, from: fromPos, to: position });
   log(g, `${card.name} Move ไปช่อง${POSITION_NAMES[position]}`);
   return { state: g, ok: true, msg: "Move" };
 }
@@ -2412,7 +2421,6 @@ export function sandboxShuffleDeck(state: GameState, side: Side): GameState {
     [d[i], d[j]] = [d[j], d[i]];
   }
   log(g, `[Sandbox] ${nameOf(side)} สับเด็ค`);
-  fx(g, { k: "shuffle", side });
   return g;
 }
 
@@ -2445,22 +2453,6 @@ export function sandboxMoveToPosition(state: GameState, side: Side, monsterUid: 
   const occ = p.monsters.find(mo => mo.position === pos);
   if (occ) occ.position = m.position;
   m.position = pos;
-  return g;
-}
-
-// Sandbox: ตั้งเฟสของเทิร์นปัจจุบัน (ย้อนกลับ/ข้ามได้) — ไม่รันเอฟเฟกต์ของเฟสนั้น ล้างหน้าต่างที่ค้างอยู่ (Counter / Move / เลือกเป้าหมาย)
-export function sandboxSetPhase(state: GameState, phase: "charge" | "main" | "attack" | "final"): GameState {
-  if (state.winner || state.phase === phase) return state;
-  const g = structuredClone(state);
-  const cleared: string[] = [];
-  if (g.battle) { g.battle = null; cleared.push("การต่อสู้ที่รอ Counter"); }
-  if (g.spellWindow) { g.spellWindow = null; cleared.push("จังหวะ Counter ของเวท"); }
-  if (g.moveWindow) { g.moveWindow = null; cleared.push("ช่วง Move"); }
-  if (g.pendingLook || g.pendingSoul || g.pendingTarget) { g.pendingLook = null; g.pendingSoul = null; g.pendingTarget = null; cleared.push("การเลือกที่ค้างอยู่"); }
-  const names: Record<string, string> = { charge: "Charge & Draw", main: "Main Phase", attack: "Attack Phase", final: "Final Phase" };
-  log(g, `🛠 [Sandbox] ${nameOf(g.currentTurn)} ตั้งเฟสเป็น ${names[phase]}${cleared.length ? ` (ล้าง: ${cleared.join(", ")})` : ""}`);
-  g.phase = phase;
-  recalcAuras(g);
   return g;
 }
 

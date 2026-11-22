@@ -449,7 +449,13 @@ export type FxEvent = { id: number } & (
   | { k: "charge"; side: "host" | "guest"; n: number }
   | { k: "draw"; side: "host" | "guest"; n: number }
   | { k: "negate"; side: "host" | "guest" }
-  | { k: "shuffle"; side: "host" | "guest" }
+  | { k: "buff"; side: "host" | "guest"; uid: string; pos: number; stat: "power" | "critical" | "defense"; amount: number }
+  | { k: "restFx"; side: "host" | "guest"; uid: string; pos: number }
+  | { k: "nullifyFx"; side: "host" | "guest"; uid: string; pos: number }
+  | { k: "pay"; side: "host" | "guest"; n: number }
+  | { k: "discard"; side: "host" | "guest"; n: number; from: "hand" | "deck" }
+  | { k: "moveFx"; side: "host" | "guest"; uid: string; cardId: string; from: number; to: number }
+  | { k: "standFx"; side: "host" | "guest" }
 );
 export type FxInput = FxEvent extends infer E ? (E extends FxEvent ? Omit<E, "id"> : never) : never;
 
