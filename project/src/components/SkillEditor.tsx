@@ -110,6 +110,17 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
           <p className="basis-full text-slate-500">ใช้กับการ์ดมอนสเตอร์ที่มีสกิล “Counter (ใช้จากมือ/ช่อง Set)” หรือ “เมื่อการ์ดนี้ออกจาก Soul” · ตอนใช้ผู้เล่นเลือกช่องที่จะลงได้เอง (ช่องไหนก็ได้ที่ว่างและ Size ไม่เกิน) การ์ดลงสนามเป็นมอนสเตอร์แทนที่จะลงสุสาน และเอฟเฟกต์ “เมื่อลงสนาม” / Buddy Call ทำงานตามปกติ · แบบ Counter ใช้ได้เฉพาะจากมือ (Set คว่ำไม่ได้) · แบบ “ออกจาก Soul” ใช้ได้ภายในเทิร์นนั้น จากมือหรือสุสานที่การ์ดไปอยู่ (ถูกถอด Soul / เจ้าของ Soul ถูกทำลายหรือออกจากสนาม) · ถ้าเป็นมอนสเตอร์ไม้ตายจะไม่นับเป็น Impact Call</p>
         </div>
       )}
+      {eff.type === "dropCallFree" && (
+        <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
+          <span>เมื่ออยู่ในสุสาน เลือก Call ได้</span>
+          <select value={eff.dropCallTurns ?? "both"} onChange={e => onChange({ ...eff, dropCallTurns: e.target.value as "both" | "mine" | "opp" })} className={`${sel} !py-0.5 text-xs`}>
+            <option value="both">ตอนเริ่มเทิร์นของทุกฝ่าย (เรา + ศัตรู)</option>
+            <option value="mine">เฉพาะตอนเริ่มเทิร์นของเรา</option>
+            <option value="opp">เฉพาะตอนเริ่มเทิร์นของศัตรู</option>
+          </select>
+          <p className="basis-full text-slate-500">ใช้กับการ์ดมอนสเตอร์ · ใส่ในสกิลทริกเกอร์ “ถาวร (คีย์เวิร์ด)” · ตอนเริ่มเทิร์นเกมจะถามผู้เล่นว่าจะ Call หรือไม่ และเลือกช่องที่จะลง (ไม่จ่าย Call Cost แต่ยังต้องผ่านเงื่อนไขช่องว่าง / Size / การ์ดที่ต้องมีบนสนาม) · เฉพาะใบที่ลงได้จริงเท่านั้นที่จะถูกถาม · ถ้าอยู่ในสุสานหลายใบจะถามทีละใบ · ถ้า Call ตอนเทิร์นศัตรู ฝั่งเรากดเลือกเองในช่วงนั้น</p>
+        </div>
+      )}
       {eff.type === "namedToHand" && (
         <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
           <span>นำการ์ดชื่อ</span>

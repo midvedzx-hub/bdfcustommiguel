@@ -925,6 +925,7 @@ function startTurn(g: GameState, skipDraw: boolean) {
   g.pendingLook = null;
   g.pendingSoul = null;
   g.pendingTarget = null;
+  g.pendingFreeCall = null;
   // ลำดับเทิร์น: Stand → Draw → Charge & Draw → Main → Attack → Final (ข้าม Draw เฉพาะเมื่อปิดกติกา "ผู้เล่นคนแรกจั่วด้วย")
   g.phase = skipDraw ? "charge" : "draw";
   log(g, `— เทิร์น ${g.turn}: ${nameOf(side)} (Stand${skipDraw ? " · เทิร์นแรกไม่จั่ว" : ""}) —`);
@@ -935,6 +936,69 @@ function startTurn(g: GameState, skipDraw: boolean) {
   });
   fireSet(g, side, "onTurnStart");
   recalcAuras(g);
+  queueDropFreeCalls(g);
+}
+
+// ---- dropCallFree: การ์ดในสุสานที่ Call ได้โดยไม่จ่าย Call Cost ตอนเริ่มเทิร์น ----
+const FREE_CALL_POSITIONS = [1, 0, 2]; // ลองช่องกลางก่อน
+function dropCallTurnsOf(card: Card): "both" | "mine" | "opp" | null {
+  let found: "both" | "mine" | "opp" | null = null;
+  (card.autoSkills ?? []).forEach(sk => sk.effects.forEach(e => { if (e.type === "dropCallFree") found = e.dropCallTurns ?? "both"; }));
+  return found;
+}
+export function freeCallPositions(state: GameState, side: Side, cardId: string): number[] {
+  const card = getCard(cardId);
+  if (!card || card.type !== "Monster") return [];
+  const g = structuredClone(state);
+  return FREE_CALL_POSITIONS.filter(pos => typeof checkCall(g, side, card, pos) !== "string");
+}
+function queueDropFreeCalls(g: GameState) {
+  if (g.winner || g.pendingLook || g.pendingSoul || g.pendingTarget) return;
+  const turnSide = g.currentTurn;
+  const queue: { side: Side; cardId: string }[] = [];
+  ([turnSide, other(turnSide)] as Side[]).forEach(s => {
+    g[s].dropZone.forEach(id => {
+      const c = getCard(id);
+      if (!c || c.type !== "Monster") return;
+      const when = dropCallTurnsOf(c);
+      if (!when) return;
+      if (when === "mine" && s !== turnSide) return;
+      if (when === "opp" && s === turnSide) return;
+      if (freeCallPositions(g, s, id).length === 0) return; // ลงไม่ได้ตอนนี้ (ช่อง/Size) ไม่ต้องถาม
+      queue.push({ side: s, cardId: id });
+    });
+  });
+  g.pendingFreeCall = queue.length > 0 ? { queue } : null;
+  if (queue.length > 0) log(g, `การ์ดในสุสาน ${queue.length} ใบ Call ได้โดยไม่จ่าย Call Cost — รอผู้เล่นตัดสินใจ`);
+}
+
+// ตัดสินใจ Call การ์ดจากสุสาน (position = ช่องที่จะลง, null = ไม่ Call) — ผู้ตัดสินใจคือคนแรกในคิว
+export function resolveFreeCall(state: GameState, side: Side, position: number | null): Result {
+  const pf = state.pendingFreeCall;
+  if (!pf || pf.queue.length === 0) return { state, ok: false, msg: "ไม่มีการ์ดที่รอ Call จากสุสาน" };
+  const head = pf.queue[0];
+  if (head.side !== side) return { state, ok: false, msg: `กำลังรอ${nameOf(head.side)}ตัดสินใจ` };
+  const g = structuredClone(state);
+  const q = g.pendingFreeCall!.queue;
+  q.shift();
+  const p = g[side];
+  const card = getCard(head.cardId);
+  if (position !== null) {
+    const idx = p.dropZone.indexOf(head.cardId);
+    if (!card || idx < 0) return { state, ok: false, msg: "การ์ดใบนี้ไม่อยู่ในสุสานแล้ว" };
+    const plan = checkCall(g, side, card, position);
+    if (typeof plan === "string") return { state, ok: false, msg: plan };
+    p.dropZone.splice(idx, 1);
+    log(g, `${nameOf(side)} Call ${card.name} จากสุสานโดยไม่จ่าย Call Cost!`);
+    placeCalled(g, side, head.cardId, card, position, plan);
+  } else {
+    log(g, `${nameOf(side)} ไม่ Call ${card?.name ?? "การ์ด"} จากสุสาน`);
+  }
+  // คิวถัดไป: ตัดใบที่ลงไม่ได้แล้วออก (เช่น ช่องเต็มหลัง Call ใบก่อนหน้า)
+  g.pendingFreeCall = { queue: q.filter(x => g[x.side].dropZone.includes(x.cardId) && freeCallPositions(g, x.side, x.cardId).length > 0) };
+  if (g.pendingFreeCall.queue.length === 0) g.pendingFreeCall = null;
+  recalcAuras(g);
+  return { state: g, ok: true, msg: position !== null ? "Call การ์ดจากสุสาน" : "ไม่ Call" };
 }
 
 export function createInitialState(
@@ -1040,6 +1104,7 @@ function baseGuard(state: GameState, side: Side, ignoreTurn = false): string | n
   if (state.pendingLook) return `กำลังรอ${nameOf(state.pendingLook.side)}เลือกการ์ดหลังดูกอง`;
   if (state.pendingSoul) return `กำลังรอ${nameOf(state.pendingSoul.side)}เลือกการ์ดที่จะถอด Soul`;
   if (state.pendingTarget) return `กำลังรอ${nameOf(state.pendingTarget.side)}เลือกเป้าหมายมอนสเตอร์`;
+  if (state.pendingFreeCall?.queue.length) return `กำลังรอ${nameOf(state.pendingFreeCall.queue[0].side)}ตัดสินใจว่าจะ Call การ์ดจากสุสานโดยไม่จ่าย Call Cost หรือไม่`;
   if (state.spellWindow) return "กำลังรอฝั่งตรงข้ามตัดสินใจ Counter ต่อเวทที่ร่าย";
   if (!ignoreTurn && state.currentTurn !== side) return "ยังไม่ใช่เทิร์นของคุณ";
   return null;
@@ -1114,7 +1179,7 @@ export function goToFinal(state: GameState, side: Side): Result {
 }
 
 export function endTurn(state: GameState): GameState {
-  if (state.battle || state.moveWindow || state.spellWindow || state.pendingLook || state.pendingSoul || state.pendingTarget || !mulliganDone(state)) return state;
+  if (state.battle || state.moveWindow || state.spellWindow || state.pendingLook || state.pendingSoul || state.pendingTarget || state.pendingFreeCall || !mulliganDone(state)) return state;
   const g = structuredClone(state);
   if (g.winner) return g;
   (["host", "guest"] as Side[]).forEach(s => {
@@ -1835,7 +1900,7 @@ export function movableMonsters(state: GameState, side: Side): FieldCard[] {
 export function moveMonster(state: GameState, side: Side, monsterUid: string, position: number): Result {
   if (state.winner) return { state, ok: false, msg: "เกมจบแล้ว" };
   if (!mulliganDone(state)) return { state, ok: false, msg: "ต้องรอให้ทั้งสองฝั่งเลือก Mulligan ให้เสร็จก่อน" };
-  if (state.battle || state.spellWindow || state.pendingLook || state.pendingSoul || state.pendingTarget) return { state, ok: false, msg: "กำลังรอการตัดสินใจ (Counter / เลือกการ์ด) ก่อน" };
+  if (state.battle || state.spellWindow || state.pendingLook || state.pendingSoul || state.pendingTarget || state.pendingFreeCall) return { state, ok: false, msg: "กำลังรอการตัดสินใจ (Counter / เลือกการ์ด) ก่อน" };
   if (!moveWindowOpen(state))
     return { state, ok: false, msg: `Move ใช้ได้ตอนเริ่ม ${state.rules.useAttackPhase ? "Attack Phase" : "Main Phase"} ก่อนมีการโจมตีเท่านั้น (ของทั้งสองฝั่ง)` };
   if (state.currentTurn !== side && state.moveWindow !== side)
@@ -2082,7 +2147,7 @@ export function soulCallOffers(state: GameState, side: Side): SoulCallOffer[] {
 // ใช้ความสามารถ "เมื่อการ์ดนี้ออกจาก Soul → คอลลงช่องที่เลือก" (จ่าย Call Cost เฉพาะเมื่อสกิลตั้งไว้)
 export function useSoulCall(state: GameState, side: Side, offerIndex: number, position: number): Result {
   if (state.winner) return { state, ok: false, msg: "เกมจบแล้ว" };
-  if (state.battle || state.spellWindow || state.pendingLook || state.pendingSoul || state.pendingTarget || state.moveWindow)
+  if (state.battle || state.spellWindow || state.pendingLook || state.pendingSoul || state.pendingTarget || state.pendingFreeCall || state.moveWindow)
     return { state, ok: false, msg: "กำลังรอการตัดสินใจอื่นอยู่ — ทำให้เสร็จก่อนแล้วค่อยคอล (ตัวเลือกยังอยู่ตลอดเทิร์นนี้)" };
   const offer = soulCallOffers(state, side).find(o => o.index === offerIndex);
   if (!offer) return { state, ok: false, msg: "ความสามารถนี้ใช้ไม่ได้แล้ว (หมดเทิร์น การ์ดย้ายที่ หรือไม่มีช่องว่าง)" };
@@ -2417,7 +2482,7 @@ const usableAnytime = (card: Card, trig: AutoTrigger) =>
 
 export function freeCounterOptions(state: GameState, side: Side): CounterOption[] {
   if (!state.rules.enableCounter || state.winner || !mulliganDone(state)) return [];
-  if (state.battle || state.spellWindow || state.pendingLook || state.pendingSoul || state.pendingTarget || state.moveWindow) return [];
+  if (state.battle || state.spellWindow || state.pendingLook || state.pendingSoul || state.pendingTarget || state.pendingFreeCall || state.moveWindow) return [];
   const p = state[side];
   const out: CounterOption[] = [];
   p.hand.forEach((id, i) => {
@@ -2449,7 +2514,7 @@ export function useCounterAnytime(state: GameState, side: Side, opt: CounterOpti
   if (state.winner) return { state, ok: false, msg: "เกมจบแล้ว" };
   if (!mulliganDone(state)) return { state, ok: false, msg: "ต้องรอให้ทั้งสองฝั่งเลือก Mulligan ให้เสร็จก่อน" };
   if (state.battle || state.spellWindow) return { state, ok: false, msg: "กำลังอยู่ในจังหวะ Counter ของการโจมตี/เวท — ใช้ผ่านหน้าต่าง Counter" };
-  if (state.pendingLook || state.pendingSoul || state.pendingTarget || state.moveWindow) return { state, ok: false, msg: "กำลังรอการตัดสินใจ (เลือกการ์ด / Move) ก่อน" };
+  if (state.pendingLook || state.pendingSoul || state.pendingTarget || state.pendingFreeCall || state.moveWindow) return { state, ok: false, msg: "กำลังรอการตัดสินใจ (เลือกการ์ด / Move) ก่อน" };
   if (!freeCounterOptions(state, side).some(o => sameOption(o, opt)))
     return { state, ok: false, msg: "ใช้ Counter ใบนี้ไม่ได้ในตอนนี้ (เกจ/Life/Soul ไม่พอ ใช้ไปแล้วในเทิร์นนี้ หรือสกิลมีผลเฉพาะตอนศัตรูโจมตี/ร่ายเวท)" };
   const g = structuredClone(state);

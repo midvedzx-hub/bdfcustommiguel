@@ -69,6 +69,7 @@ export type AutoEffectType =
   | "soulGrant"               // ถาวร: ถ้าการ์ดนี้อยู่ใน Soul ของการ์ด (ชื่อ ...) การ์ดนั้นจะได้รับความสามารถทั้งหมดของการ์ดนี้
   | "soulCond"                // ถาวร: ถ้าโซลของการ์ดนี้มีการ์ด (คุณสมบัติ/ชื่อที่กำหนด) อย่างน้อย X ใบ → การ์ดนี้ได้ Power/Critical/Defense เพิ่ม และ/หรือได้คีย์เวิร์ด (Penetrate / Double Attack ...)
   | "namedToHand"             // นำการ์ดที่ชื่อตรง (refName) จากสุสาน / บนกองเด็ค ขึ้นมือ N ใบ (เช่น หลังร่าย)
+  | "dropCallFree"            // อยู่ในสุสาน: ตอนเริ่มเทิร์นของทุกฝ่าย (หรือเลือกเฉพาะเทิร์นเรา/ศัตรู) เลือก Call การ์ดนี้ลงสนามโดยไม่จ่าย Call Cost ได้
   | "requireOnField"          // เงื่อนไข: ต้องมีการ์ดที่กำหนด (refName) อยู่ในสนามของเรา จึงทำเอฟเฟกต์ถัดไปของสกิลนี้ ถ้าไม่มีก็ข้าม
   | "selfToSoul"              // Counter Act ฯลฯ: นำการ์ดใบนี้ (บนสนาม) เข้า Soul ของการ์ดอื่นของเราที่มีคุณสมบัติ/ชื่อที่กำหนด
   | "chooseAddSoul"           // เลือกการ์ดบนสนามของเรา แล้วนำการ์ดจากสุสาน/บนกองเด็คเข้า Soul ของการ์ดที่เลือก (เช่น ตอนร่ายเวท)
@@ -153,6 +154,7 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "criticalPerSoul", label: "Critical เพิ่มต่อ Soul 1 ใบ (ถาวร)", hint: "เช่น 1" },
   { value: "soulGrant", label: "อยู่ใน Soul → ให้ความสามารถทั้งหมดแก่เจ้าของโซล", hint: "ไม่ต้องใส่ค่า" },
   { value: "soulCond", label: "บัฟ/คีย์เวิร์ดตามโซล (ถ้าโซลมีการ์ด X ใบ…)", hint: "จำนวนการ์ดในโซลขั้นต่ำ (X)" },
+  { value: "dropCallFree", label: "เมื่ออยู่ในสุสาน: ตอนเริ่มเทิร์น Call การ์ดนี้ได้โดยไม่จ่าย Call Cost", hint: "ใส่ 1 (เลือกเทิร์นด้านล่าง)" },
   { value: "requireOnField", label: "เงื่อนไข: ถ้ามีการ์ดที่กำหนด (ในสนาม/มือ/สุสาน) จึงทำเอฟเฟกต์ถัดไป", hint: "ไม่ต้องใส่ (ใส่ชื่อด้านล่าง)" },
   { value: "namedToHand", label: "นำการ์ดที่กำหนด (ตามชื่อ) จากสุสาน/เด็คขึ้นมือ", hint: "จำนวนใบ" },
   { value: "selfToSoul", label: "นำการ์ดใบนี้เข้า Soul ของการ์ดอื่นที่มีคุณสมบัติ…", hint: "ไม่ต้องใส่ค่า" },
@@ -196,6 +198,7 @@ export interface AutoEffect {
   targetMatch?: "attr" | "name";           // soulCond: ผู้ได้รับ = การ์ดอื่นของเราที่มีคุณสมบัติ/ชื่อ targetText (ว่าง = การ์ดใบนี้เอง)
   targetText?: string;                     // soulCond: ข้อความผู้ได้รับ คั่นหลายค่าด้วย , (ตรงอย่างใดอย่างหนึ่ง)
   // destroyWeaker: เทียบค่าของการ์ดศัตรูกับ "ตัวที่กำหนด" (ต้องอยู่ในสนามเรา)
+  dropCallTurns?: "both" | "mine" | "opp";          // dropCallFree: ตอนเริ่มเทิร์นของใคร (ค่าเริ่มต้น both = ทุกฝ่าย)
   cmpStats?: ("power" | "critical" | "defense")[]; // ค่าที่ใช้เทียบ (ไม่เลือก = Power)
   cmpMode?: "all" | "any";                          // all = น้อยกว่าทุกค่าที่เลือก (ค่าเริ่มต้น) · any = น้อยกว่าอย่างใดอย่างหนึ่ง
   refName?: string;                                 // ชื่อการ์ดที่กำหนดว่าต้องอยู่ในสนามเรา (ว่าง = การ์ดใบที่ถือสกิลนี้เอง)
@@ -462,6 +465,7 @@ export interface GameState {
   battle: BattleState | null;
   spellWindow?: SpellWindow | null; // รอฝั่งตรงข้ามตัดสินใจ Counter ต่อเวทที่เพิ่งร่าย
   pendingLook?: PendingLook | null; // รอผู้เล่นเลือกการ์ดหลังดูกอง
+  pendingFreeCall?: { queue: { side: "host" | "guest"; cardId: string }[] } | null; // รอผู้เล่นตัดสินใจ Call การ์ดจากสุสานโดยไม่จ่าย Call Cost (dropCallFree) — คนแรกในคิวคือผู้ตัดสินใจ
   pendingSoul?: PendingSoul | null; // รอผู้เล่นเลือกการ์ดที่จะถอด Soul
   pendingTarget?: PendingTarget | null; // รอผู้เล่นเลือกเป้าหมายมอนสเตอร์ศัตรู
   moveWindow?: "host" | "guest" | null; // ฝั่งป้องกันกำลังเลือก Move ตอนเริ่ม Attack Phase // การโจมตีที่กำลังรอ Counter

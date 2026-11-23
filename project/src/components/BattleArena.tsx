@@ -11,7 +11,7 @@ import type { SoulPick } from "@/game/engine";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
   callMonster, impactCall, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
-  goToAttack, goToFinal, mulligan, transformCard, legalTargets, statsOf, counterOptions, callSelfSlots, impactCastProblem, effCostCard, soulCallOffers, useSoulCall, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
+  goToAttack, goToFinal, mulligan, freeCallPositions, resolveFreeCall, transformCard, legalTargets, statsOf, counterOptions, callSelfSlots, impactCastProblem, effCostCard, soulCallOffers, useSoulCall, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxSetPhase, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, cardOfFc, matchCallRequires, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
@@ -225,6 +225,12 @@ export function botStep(s: GameState): GameState {
     const best = ps.mode === "add" ? pool[0] : pool.sort((a, b) => b.soul.length - a.soul.length)[0];
     return resolveSoulChoice(s, "guest", best ? best.uid : null).state;
   }
+  if (s.pendingFreeCall?.queue.length) {
+    const head = s.pendingFreeCall.queue[0];
+    if (head.side === "host") return s; // รอมนุษย์ตัดสินใจ Call จากสุสาน
+    const pos = freeCallPositions(s, "guest", head.cardId);
+    return resolveFreeCall(s, "guest", pos.length > 0 ? pos[0] : null).state; // บอท Call เสมอถ้าลงได้
+  }
   if (s.pendingTarget) {
     if (s.pendingTarget.side === "host") return s; // รอมนุษย์เลือกเป้าหมาย
     const pt = s.pendingTarget;
@@ -406,7 +412,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const oppTargetPick = !!game.pendingTarget && game.pendingTarget.side !== mySide;
   const [targetSel, setTargetSel] = useState<string[]>([]);
   useEffect(() => { setTargetSel([]); }, [game.pendingTarget?.cardId, game.pendingTarget?.effType, game.pendingTarget?.candidates.join(",")]);
-  const busy = !!game.battle || !!sw || !!game.pendingLook || !!game.pendingSoul || !!game.pendingTarget;
+  const busy = !!game.battle || !!sw || !!game.pendingLook || !!game.pendingSoul || !!game.pendingTarget || !!game.pendingFreeCall;
   // Final Phase: มีเฉพาะมอนสเตอร์ไม้ตายที่ Stand อยู่เท่านั้นที่โจมตีได้
   const finalAttack = isMyTurn && game.phase === "final" && !busy && me.monsters.some(m => m.state === "stand" && isMonsterImpact(cardOfFc(m)));
   const canAttackNow = isMyTurn && !busy && (game.phase === attackPhaseName || finalAttack);
@@ -1433,6 +1439,30 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     );
   }
 
+  function renderFreeCallModal() {
+    const head = game.pendingFreeCall?.queue[0];
+    if (!head || head.side !== mySide || game.winner) return null;
+    const c = cardOf(head.cardId);
+    if (!c) return null;
+    const positions = freeCallPositions(game, mySide, head.cardId);
+    const turnTxt = game.currentTurn === mySide ? "ตอนเริ่มเทิร์นของคุณ" : "ตอนเริ่มเทิร์นของศัตรู";
+    return (
+      <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+        <div className="bg-slate-900 text-slate-100 border-2 border-emerald-400 rounded-2xl p-5 max-w-md w-full">
+          <h3 className="font-display text-xl font-bold text-emerald-300 mb-1">Call จากสุสานโดยไม่จ่าย Call Cost</h3>
+          <p className="text-sm text-slate-300 mb-3">{turnTxt}: {c.name} ในสุสานของคุณ Call ลงสนามได้โดยไม่ต้องจ่าย Call Cost ต้องการ Call ไหม?</p>
+          <div className="flex justify-center mb-4"><CardView card={c} flag={flagOf(me.flagId)} size="md" onInspect={() => openInspect(c, me.flagId)} /></div>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {positions.map(pos => (
+              <button key={pos} onClick={() => act("Call ไม่ได้", st => resolveFreeCall(st, mySide, pos))} className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold">Call ช่อง{POSITION_NAMES[pos]}</button>
+            ))}
+          </div>
+          <button onClick={() => act("ผิดพลาด", st => resolveFreeCall(st, mySide, null))} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">ไม่ Call</button>
+        </div>
+      </div>
+    );
+  }
+
   function renderFreeCounterModal() {
     if (!showFreeCounter || game.winner) return null;
     if (freeOpts.length === 0) return null;
@@ -2222,6 +2252,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       )}
       {renderCounterModal()}
       {renderFreeCounterModal()}
+      {renderFreeCallModal()}
       {flagInfo && <FlagInfoDialog flag={flagInfo} buddies={(flagInfo.buddyIds ?? []).map(id => cardOf(id)).filter((c): c is Card => !!c)} onClose={() => setFlagInfo(null)} />}
       {renderSoulCallModal()}
       {renderSlotPick()}

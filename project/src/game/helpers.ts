@@ -64,6 +64,10 @@ export function effectText(e: AutoEffect): string {
     case "restAttacker": return `Rest ผู้โจมตี`;
     case "addSoul": return `นำการ์ดบนเด็ค ${v} ใบเข้า Soul ของการ์ดนี้`;
     case "removeSoul": return `ถอด Soul ${v} ใบของการ์ดนี้ลงสุสาน`;
+    case "dropCallFree": {
+      const w = e.dropCallTurns === "mine" ? "ตอนเริ่มเทิร์นของเรา" : e.dropCallTurns === "opp" ? "ตอนเริ่มเทิร์นของศัตรู" : "ตอนเริ่มเทิร์นของทุกฝ่าย";
+      return `เมื่อการ์ดนี้อยู่ในสุสาน ${w} สามารถ Call การ์ดนี้ลงสนามโดยไม่จ่าย Call Cost ได้`;
+    }
     case "requireOnField": {
       const nm = (e.refName ?? "").split(",").map(x => x.trim()).filter(Boolean);
       const zt = (e.reqZones && e.reqZones.length ? e.reqZones : ["field"]).map(z => z === "field" ? "สนาม" : z === "hand" ? "มือ" : "สุสาน").join("หรือ");

@@ -84,6 +84,7 @@ const META: Record<string, { g: Group; q: string }> = {
   chooseRemoveSoul: { g: G_SOUL, q: "เลือก ถอด soul การ์ดที่เลือก" },
   chooseAddSoul: { g: G_SOUL, q: "เลือก เพิ่ม soul จากมือ สุสาน บนกอง" },
   soulGrant: { g: G_SOUL, q: "อยู่ใน soul ให้ความสามารถ เจ้าของโซล soulbound" },
+  selfToSoul: { g: G_SOUL, q: "นำการ์ดนี้เข้า soul ของการ์ดอื่น ตัวเองเข้าโซล counter act คุณสมบัติ ชื่อ" },
 
   recoverFromDrop: { g: G_ZONE, q: "เก็บ สุสานขึ้นมือ recover salvage" },
   dropToDeckBottom: { g: G_ZONE, q: "สุสานกลับใต้เด็ค สับเด็ค shuffle deck bottom" },
