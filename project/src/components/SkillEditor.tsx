@@ -63,6 +63,15 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
       {eff.type === "noStandOpponentMonster" && (
         <p className="basis-full text-xs text-slate-500 pl-1">เลือกมอนสเตอร์ศัตรู (ถ้ามีมากกว่าจำนวนที่ระบุ จะให้ผู้เล่นเลือกเอง) · ตัวที่ถูกห้ามจะ Stand กลับไม่ได้จนจบเทิร์นนี้ เช่น Stand กลับจาก Double Attack หรือจากเอฟเฟกต์ Stand · ถ้าอยากให้พ่วงกับ Nullify / Rest ตัวเดียวกัน ให้ติ๊กช่อง “ไม่สามารถ Stand ได้” ในเอฟเฟกต์นั้นแทน</p>
       )}
+      {eff.type === "callCostAura" && (
+        <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
+          <span>ลด Call Cost ของการ์ดที่มีชื่อ</span>
+          <input value={eff.redName ?? ""} onChange={e => onChange({ ...eff, redName: e.target.value })} placeholder="เช่น Albis Wis (หลายชื่อคั่นด้วย , พิมพ์บางส่วนได้)" className={`${num} !py-0.5 text-xs w-64`} />
+          <span>หรือคุณสมบัติ</span>
+          <input value={eff.redAttr ?? ""} onChange={e => onChange({ ...eff, redAttr: e.target.value })} placeholder="เช่น Dragon (หลายค่าคั่นด้วย ,)" className={`${num} !py-0.5 text-xs w-56`} />
+          <p className="basis-full text-slate-500">ใช้กับสกิลแบบ “ถาวร” · ช่องตัวเลขด้านบน = ลดกี่หน่วย · มีผลตราบที่การ์ดใบนี้อยู่ในสนามของเรา (ถ้าถูก Nullify จะไม่มีผล) กับการ์ดของเราที่ตรงชื่อ <b>หรือ</b> คุณสมบัติ — ตอนลงสนาม / ร่ายเวท / Impact Call / Counter ที่ต้องจ่าย Call Cost · ลดจากค่าหลักของ Call Cost ต่ำสุด 0 · หลายใบลดซ้อนกันได้ · เงื่อนไขตรวจจากชื่อ/คุณสมบัติบนการ์ดที่จะจ่าย Cost (ใบนี้เองก็ได้ถ้าตรง)</p>
+        </div>
+      )}
       {eff.type === "callCostReduce" && (
         <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
           <span>เมื่อมีการ์ดชื่อ</span>

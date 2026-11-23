@@ -40,6 +40,7 @@ const META: Record<string, { g: Group; q: string }> = {
   powerPerSoul: { g: G_BUFF, q: "power ต่อ soul ตามจำนวนโซล ถาวร" },
   criticalPerSoul: { g: G_BUFF, q: "critical ต่อ soul ตามจำนวนโซล ถาวร" },
   condBuff: { g: G_BUFF, q: "เงื่อนไข condition ถ้ามีการ์ด บัฟถาวร" },
+  callCostAura: { g: G_BUFF, q: "ลด call cost การ์ดอื่น ออร่า aura ขณะอยู่ในสนาม คุณสมบัติ ชื่อ ลดต้นทุน" },
   callCostReduce: { g: G_BUFF, q: "ลด call cost ค่าลง ลดต้นทุน" },
   soulCond: { g: G_BUFF, q: "soul โซล ถ้ามีการ์ด X ใบ บัฟ คีย์เวิร์ด เงื่อนไขโซล" },
 

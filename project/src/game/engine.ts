@@ -1497,6 +1497,21 @@ function callCostReduction(g: GameState, side: Side, card: Card): number {
       if (met) n += Math.max(0, Math.floor(e.value || 0));
     });
   });
+  // ออร่า: การ์ดบนสนามของเรา (ที่ความสามารถยังไม่ถูก Nullify) ที่ลด Call Cost ของการ์ดที่ชื่อ/คุณสมบัติตรงเงื่อนไข
+  fieldCardsOf(g[side]).forEach(f => {
+    const fcCard = cardOfFc(f);
+    if (!fcCard) return;
+    [...(fcCard.autoSkills ?? []), ...(f.grantedSkills ?? []), ...(f.tempGrantedSkills ?? [])].forEach(sk => {
+      if (sk.trigger !== "continuous" || !skillWorks(f, sk)) return;
+      sk.effects.forEach(e => {
+        if (e.type !== "callCostAura") return;
+        const names = splitAlts(e.redName);
+        const attrs = splitAlts(e.redAttr);
+        if (names.length === 0 && attrs.length === 0) return;
+        if (names.some(a => altHas(card.name, a)) || attrs.some(a => altHas(card.attribute, a))) n += Math.max(0, Math.floor(e.value || 0));
+      });
+    });
+  });
   return n;
 }
 // การ์ดที่ Call Cost ถูกลดแล้ว (ใช้คำนวณ/แสดงค่าใช้จ่ายจริง)

@@ -127,6 +127,12 @@ export function effectText(e: AutoEffect): string {
       const w = [...nm, ...at].join(" หรือ ") || "(ยังไม่ได้ใส่เงื่อนไข)";
       return `ถ้ามีการ์ด${w} อยู่ในสนาม Call Cost ของการ์ดนี้ลดลง ${v} หน่วย`;
     }
+    case "callCostAura": {
+      const nm = (e.redName ?? "").split(",").map(x => x.trim()).filter(Boolean).map(x => `ชื่อ “${x}”`);
+      const at = (e.redAttr ?? "").split(",").map(x => x.trim()).filter(Boolean).map(x => `คุณสมบัติ “${x}”`);
+      const w = [...nm, ...at].join(" หรือ ") || "(ยังไม่ได้ใส่เงื่อนไข)";
+      return `ถ้าการ์ดนี้อยู่ในสนาม Call Cost ของการ์ดที่มี${w} ลดลง ${v} หน่วย`;
+    }
     case "callSelf": return `คอลการ์ดใบนี้ลงช่องใดก็ได้ (${e.payCallCost ? "จ่าย Call Cost" : "ไม่ต้องจ่าย Call Cost"})`;
     case "lookTop": {
       const opts: string[] = [];
@@ -251,6 +257,7 @@ export const SKILL_TEMPLATES: { label: string; skill: AutoSkill }[] = [
   { label: "ร่าย: ถอด Soul 1 → จั่ว 1", skill: { trigger: "onCast", effects: [{ type: "removeSoul", value: 1 }, { type: "draw", value: 1 }] } },
   { label: "เมื่อร่าย: มอนสเตอร์ศัตรูที่เลือกไม่สามารถ Stand ได้ (รวมช่วง Stand เทิร์นถัดไป)", skill: { trigger: "onCast", effects: [{ type: "noStandOpponentMonster", value: 1, noStandMode: "next" }] } },
   { label: "Counter 【Act】: Nullify มอนสเตอร์ศัตรู 1 ตัว และตัวที่เลือกไม่สามารถ Stand ได้ในเทิร์นนี้", skill: { trigger: "onCounterAct", effects: [{ type: "nullifyOpponentMonster", value: 1, noStand: true }] } },
+  { label: "ถาวร: ขณะการ์ดนี้อยู่ในสนาม Call Cost ของการ์ดชื่อ X หรือคุณสมบัติ Y ลด 1", skill: { trigger: "continuous", effects: [{ type: "callCostAura", value: 1, redName: "", redAttr: "" }] } },
   { label: "ถาวร: ถ้ามีการ์ดชื่อ X หรือคุณสมบัติ Y ในสนาม → Call Cost ลด 1", skill: { trigger: "continuous", effects: [{ type: "callCostReduce", value: 1, redName: "", redAttr: "" }] } },
   { label: "เมื่อการ์ดนี้ออกจาก Soul: คอลลงช่องใดก็ได้ (ไม่จ่าย Call Cost)", skill: { trigger: "onLeaveSoul", effects: [{ type: "callSelf", value: 1, payCallCost: false }] } },
   { label: "เมื่อการ์ดนี้ออกจาก Soul: คอลลงช่องใดก็ได้ (จ่าย Call Cost)", skill: { trigger: "onLeaveSoul", effects: [{ type: "callSelf", value: 1, payCallCost: true }] } },

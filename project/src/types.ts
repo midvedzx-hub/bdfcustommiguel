@@ -72,6 +72,7 @@ export type AutoEffectType =
   | "requireOnField"          // เงื่อนไข: ต้องมีการ์ดที่กำหนด (refName) อยู่ในสนามของเรา จึงทำเอฟเฟกต์ถัดไปของสกิลนี้ ถ้าไม่มีก็ข้าม
   | "chooseAddSoul"           // เลือกการ์ดบนสนามของเรา แล้วนำการ์ดจากสุสาน/บนกองเด็คเข้า Soul ของการ์ดที่เลือก (เช่น ตอนร่ายเวท)
   | "noStandOpponentMonster"  // เลือกมอนสเตอร์ศัตรู N ตัว: ไม่สามารถ Stand ได้ในเทิร์นนี้ (Stand กลับจาก Double Attack / เอฟเฟกต์ Stand ไม่ได้)
+  | "callCostAura"            // ถาวร: ขณะการ์ดนี้อยู่ในสนามของเรา Call Cost ของการ์ดอื่น (ในมือ) ที่มีชื่อ/คุณสมบัติตามกำหนด ลดลง value หน่วย (ไม่ต่ำกว่า 0)
   | "callCostReduce"          // ถาวร: ถ้ามีการ์ดชื่อ ... หรือการ์ดที่มีคุณสมบัติ ... อยู่ในสนาม → Call Cost ของการ์ดใบนี้ลดลง value หน่วย (ไม่ต่ำกว่า 0)
   | "callSelf"                // (Counter จากมือ) คอลมอนสเตอร์ใบนี้จากมือลงช่องที่เลือก (จ่าย / ไม่จ่าย Call Cost ตามที่ตั้ง)
   | "condBuff";                // ถาวร: ถ้าในสนามมีการ์ดที่มีคุณสมบัติ/ชื่อที่กำหนด → การ์ดนี้ (หรือการ์ดที่ชื่อ ...) ได้ Power/Critical/Defense เพิ่ม และ/หรือได้คีย์เวิร์ด (grantKw)
@@ -128,6 +129,7 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "restAttacker", label: "[Counter] Rest ผู้โจมตี", hint: "ใส่ 1" },
   { value: "negateSpell", label: "[Counter] ยกเลิกเวทที่ศัตรูร่าย", hint: "ใส่ 1" },
   { value: "noStandOpponentMonster", label: "ห้ามมอนสเตอร์ศัตรู Stand ในเทิร์นนี้", hint: "จำนวนตัว" },
+  { value: "callCostAura", label: "ถาวร: ขณะการ์ดนี้อยู่ในสนาม ลด Call Cost ของการ์ดที่มีชื่อ/คุณสมบัติที่กำหนด", hint: "ลดกี่หน่วย" },
   { value: "callCostReduce", label: "ถาวร: ลด Call Cost ของการ์ดนี้ เมื่อมีการ์ด/คุณสมบัติที่กำหนดอยู่ในสนาม", hint: "ลดกี่หน่วย" },
   { value: "callSelf", label: "คอลการ์ดใบนี้ลงช่องใดก็ได้ (Counter จากมือ / เมื่อออกจาก Soul) เฉพาะมอนสเตอร์", hint: "ใส่ 1" },
   { value: "set", label: "Set (อยู่ในช่อง Set คงผลต่อเนื่อง)", hint: "Set ชื่อเดียวกันได้กี่ใบ" },
