@@ -371,6 +371,11 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const autoShuffleRef = useRef(true);
   const closeMenuRef = useRef<() => void>(() => {});
   const [sandbox, setSandbox] = useState(false);
+  const histRef = useRef<{ before: GameState; label: string; by: Side }[]>([]);
+  const turnStartsRef = useRef<Map<number, GameState>>(new Map());
+  const undoFnRef = useRef<() => void>(() => {});
+  const [histN, setHistN] = useState(0);
+  const [undoAsk, setUndoAsk] = useState<null | "last" | "turn">(null);
   const [atkSels, setAtkSels] = useState<string[]>([]);
   const [linkMode, setLinkMode] = useState(false);
   const [moveSel, setMoveSel] = useState<string | null>(null);
@@ -426,9 +431,71 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const moveWindowMine = game.moveWindow === mySide;
 
   function commit(next: GameState) {
+    // จำสถานะ "ต้นเทิร์น" ของทุกเทิร์น (ใช้กับปุ่มกลับไปต้นเทิร์น) — ตอนย้อนกลับใช้ restoreState แทน จึงไม่ทับค่านี้
+    const prev = gameRef.current;
+    const mDone = (s: GameState) => !!(s.mulligan?.host && s.mulligan?.guest);
+    if (next.turn !== prev.turn || (mDone(next) && !mDone(prev))) turnStartsRef.current.set(next.turn, next);
     gameRef.current = next;
     setGame(next);
   }
+
+  /* ---------------- Undo: ย้อนการกระทำล่าสุด / กลับไปต้นเทิร์น ---------------- */
+  // ประวัติเก็บเฉพาะ "การกระทำของผู้เล่น" (บอท/ระบบอัตโนมัติ/Mulligan ไม่นับ) จึงย้อนครั้งเดียวคืนถึงจุดก่อนกดจริงๆ
+  function pushHist(before: GameState, after: GameState, by: Side) {
+    const list = histRef.current;
+    list.push({ before, label: after.turn !== before.turn ? `จบเทิร์น ${before.turn}` : (after.log[after.log.length - 1] ?? "การกระทำ"), by });
+    if (list.length > 120) list.shift();
+    setHistN(list.length);
+  }
+  function restoreState(snapshot: GameState, kind: "last" | "turn", label: string, byMe: boolean, remoteInc?: GameState) {
+    const cur = gameRef.current;
+    const next: GameState = remoteInc ? remoteInc : structuredClone(snapshot);
+    if (!remoteInc) {
+      next.rev = (cur.rev ?? 0) + 1;
+      next.fxSeq = cur.fxSeq ?? 0; // ตัวนับอนิเมชันไม่ถอยกลับ จะได้ไม่เล่นเอฟเฟกต์เก่าซ้ำ
+      next.fx = [];
+      next.log = [...cur.log, `↩ ${mySide === "host" ? "ผู้สร้างห้อง" : "ผู้เข้าร่วม"} ${kind === "turn" ? "กลับไปต้นเทิร์น" : "ย้อนการกระทำล่าสุด"}: ${label}`].slice(-80);
+      recalcAuras(next);
+    }
+    setAtkSels([]); setHandSel(null); setChargePick(false); setMenuTarget(null); setMoveSel(null); setLinkMode(false); setInspect(null);
+    gameRef.current = next;
+    setGame(next);
+    setHistN(histRef.current.length);
+    if (byMe && mode === "multiplayer") mp.send({ type: "state", state: next, undo: kind, undoNote: label });
+  }
+  function canUndoLast(): string | null {
+    if (game.winner) return "เกมจบแล้ว";
+    if (mode === "multiplayer" && !syncedRef.current) return "ยังไม่ได้เชื่อมต่อกับเพื่อน";
+    if (histRef.current.length === 0) return "ยังไม่มีการกระทำให้ย้อน";
+    return null;
+  }
+  function canUndoTurn(): string | null {
+    if (game.winner) return "เกมจบแล้ว";
+    if (mode === "multiplayer" && !syncedRef.current) return "ยังไม่ได้เชื่อมต่อกับเพื่อน";
+    if (!turnStartsRef.current.get(game.turn)) return "ไม่มีข้อมูลต้นเทิร์นนี้";
+    if (!histRef.current.some(h => h.before.turn === game.turn)) return "ตอนนี้อยู่ที่ต้นเทิร์นอยู่แล้ว";
+    return null;
+  }
+  function doUndo(kind: "last" | "turn") {
+    const why = kind === "last" ? canUndoLast() : canUndoTurn();
+    if (why) { setNotice({ title: kind === "last" ? "ย้อนไม่ได้" : "กลับไปต้นเทิร์นไม่ได้", msg: why }); return; }
+    if (kind === "last") {
+      const e = histRef.current.pop()!;
+      restoreState(e.before, "last", e.label, true);
+    } else {
+      const ts = turnStartsRef.current.get(game.turn)!;
+      histRef.current = histRef.current.filter(h => h.before.turn < game.turn);
+      restoreState(ts, "turn", `เทิร์น ${game.turn}`, true);
+    }
+    setUndoAsk(null);
+  }
+  // ขอย้อน: ออนไลน์/กลับต้นเทิร์นให้ยืนยันก่อน (กันกดพลาด), โหมดบอทย้อนการกระทำล่าสุดได้ทันที
+  function askUndo(kind: "last" | "turn") {
+    const why = kind === "last" ? canUndoLast() : canUndoTurn();
+    if (why) { setNotice({ title: kind === "last" ? "ย้อนไม่ได้" : "กลับไปต้นเทิร์นไม่ได้", msg: why }); return; }
+    if (mode === "bot" && kind === "last") doUndo("last"); else setUndoAsk(kind);
+  }
+  undoFnRef.current = () => askUndo("last");
 
   /* ---------------- Multiplayer messages ---------------- */
   useEffect(() => {
@@ -474,6 +541,16 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         const accept = (inc.rev ?? 0) > (cur.rev ?? 0) ||
           ((inc.rev ?? 0) === (cur.rev ?? 0) && roleRef.current === "guest") || !syncedRef.current;
         if (!accept) return;
+        if (msg.undo && syncedRef.current) {
+          // อีกฝั่งกดย้อน: ถอยประวัติของเราตามให้ตรงกัน แล้วใช้สถานะที่ส่งมา
+          if (msg.undo === "last") histRef.current.pop();
+          else histRef.current = histRef.current.filter(h => h.before.turn < inc.turn);
+          restoreState(inc, msg.undo, msg.undoNote ?? "", false, inc);
+          setNotice({ title: msg.undo === "turn" ? "เพื่อนกลับไปต้นเทิร์น" : "เพื่อนย้อนการกระทำล่าสุด", msg: msg.undoNote ? `ย้อนกลับไปก่อน: ${msg.undoNote}` : "สถานะเกมถูกย้อนกลับ" });
+          return;
+        }
+        // การกระทำของอีกฝั่ง (ไม่ใช่ระบบอัตโนมัติ) ก็นับเป็นขั้นที่ย้อนได้ — ใครกดพลาดก็ย้อนได้
+        if (syncedRef.current && !msg.auto && (inc.rev ?? 0) > (cur.rev ?? 0) && !cur.winner && cur.mulligan?.host && cur.mulligan?.guest) pushHist(cur, inc, roleRef.current === "host" ? "guest" : "host");
         commit(inc);
         if (roleRef.current === "guest") {
           syncedRef.current = true;
@@ -501,6 +578,12 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) closeMenuRef.current();
     }
     function handleKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z" && tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") {
+        e.preventDefault();
+        undoFnRef.current();
+        return;
+      }
       if (e.key === "Escape") {
         setAtkSels([]); setHandSel(null); setChargePick(false); closeMenuRef.current(); setMoveSel(null); setNotice(null); setLinkMode(false); setInspect(null);
       }
@@ -520,28 +603,31 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     if (ok.length !== atkSels.length) setAtkSels(ok);
   }, [game, atkSels, me]);
 
-  function doAction(fn: (s: GameState) => GameState) {
+  // opts.auto = การกระทำของระบบ (บอท / Draw อัตโนมัติ) — ไม่บันทึกลงประวัติ Undo
+  function doAction(fn: (s: GameState) => GameState, opts?: { auto?: boolean }) {
     if (mode === "multiplayer" && !syncedRef.current) {
       setNotice({ title: "ยังเล่นไม่ได้", msg: "ยังไม่ได้เชื่อมต่อกับเพื่อน กรุณารอให้เพื่อนเข้าห้องหรือกดปุ่ม 'ซิงค์'" });
       return;
     }
-    const next = fn(gameRef.current);
-    if (next === gameRef.current) return;
+    const prev = gameRef.current;
+    const next = fn(prev);
+    if (next === prev) return;
     recalcAuras(next); // ผลต่อเนื่องจากการ์ด Set ให้ตรงกับสถานะล่าสุดเสมอ
-    next.rev = (gameRef.current.rev ?? 0) + 1;
+    next.rev = (prev.rev ?? 0) + 1;
+    if (!opts?.auto && !prev.winner && prev.mulligan?.host && prev.mulligan?.guest) pushHist(prev, next, mySide); // Mulligan ไม่นับเป็นขั้นที่ย้อนได้
     commit(next);
-    if (mode === "multiplayer") mp.send({ type: "state", state: next });
+    if (mode === "multiplayer") mp.send({ type: "state", state: next, auto: !!opts?.auto });
   }
 
   // ทำ action ที่อาจล้มเหลว: ถ้าไม่ผ่านจะแสดง popup บอกเหตุผล (ไม่ส่งอะไรไปให้เพื่อน)
-  function act(title: string, fn: (s: GameState) => Result): boolean {
+  function act(title: string, fn: (s: GameState) => Result, auto = false): boolean {
     if (mode === "multiplayer" && !syncedRef.current) {
       setNotice({ title: "ยังเล่นไม่ได้", msg: "ยังไม่ได้เชื่อมต่อกับเพื่อน กรุณารอให้เพื่อนเข้าห้องหรือกดปุ่ม 'ซิงค์'" });
       return false;
     }
     const r = fn(gameRef.current);
     if (!r.ok) { setNotice({ title, msg: r.msg }); return false; }
-    doAction(() => r.state);
+    doAction(() => r.state, { auto });
     return true;
   }
 
@@ -596,7 +682,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   useEffect(() => {
     if (game.winner || !started || game.phase !== "draw" || game.battle) return;
     if (game.currentTurn !== mySide) return; // ฝั่งตรงข้าม/บอทจัดการเอง
-    const t = setTimeout(() => act("จั่วไม่ได้", s => (s.phase === "draw" && s.currentTurn === mySide ? drawPhase(s, mySide) : { state: s, ok: true, msg: "" })), 900);
+    const t = setTimeout(() => act("จั่วไม่ได้", s => (s.phase === "draw" && s.currentTurn === mySide ? drawPhase(s, mySide) : { state: s, ok: true, msg: "" }), true), 900);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.phase, game.currentTurn, game.turn, started]);
@@ -624,7 +710,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     const botLook = game.pendingLook?.side === "guest" || game.pendingSoul?.side === "guest" || game.pendingTarget?.side === "guest";
     const botTurn = game.currentTurn === "guest" && !game.battle && !game.spellWindow && !game.pendingLook && !game.pendingSoul && !game.pendingTarget && game.mulligan.host && game.mulligan.guest;
     if (!botMull && !botDefending && !botTurn && !botLook) return;
-    const t = setTimeout(() => doAction(s => botStep(s)), botMull ? 100 : botDefending ? 900 : 850);
+    const t = setTimeout(() => doAction(s => botStep(s), { auto: true }), botMull ? 100 : botDefending ? 900 : 850);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, game]);
@@ -2198,7 +2284,9 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               <span className="chip !text-emerald-300 !border-emerald-500/40">● ห้อง {roomId}</span>
               <button onClick={requestSync} title="ซิงค์เกมกับเพื่อนใหม่" className="btn !py-1.5 !px-2.5 !text-xs"><RefreshCw size={14} /></button>
             </>)}
-            <button onClick={() => setInspectMode(v => !v)} title="โหมดดูการ์ด: คลิกการ์ดใบไหนก็ได้เพื่อดูความสามารถ (หรือคลิกขวา/ดับเบิลคลิก)" className={`btn !py-1.5 !px-2.5 !text-xs ${inspectMode ? "btn-primary" : ""}`}><Eye size={14} /> <span className="hidden md:inline">ดูการ์ด</span></button>
+            <button onClick={() => askUndo("last")} disabled={histN === 0 || !!game.winner} title="ย้อนการกระทำล่าสุด (Ctrl+Z) — ย้อนได้ทั้งของเราและของเพื่อน" className="btn !py-1.5 !px-2.5 !text-xs disabled:opacity-40 disabled:cursor-not-allowed">↩ ย้อน{histN > 0 ? ` (${histN})` : ""}</button>
+          <button onClick={() => askUndo("turn")} disabled={histN === 0 || !!game.winner} title="กลับไปต้นเทิร์นนี้ (ล้างทุกการกระทำในเทิร์นนี้)" className="btn !py-1.5 !px-2.5 !text-xs disabled:opacity-40 disabled:cursor-not-allowed">⏮ ต้นเทิร์น</button>
+          <button onClick={() => setInspectMode(v => !v)} title="โหมดดูการ์ด: คลิกการ์ดใบไหนก็ได้เพื่อดูความสามารถ (หรือคลิกขวา/ดับเบิลคลิก)" className={`btn !py-1.5 !px-2.5 !text-xs ${inspectMode ? "btn-primary" : ""}`}><Eye size={14} /> <span className="hidden md:inline">ดูการ์ด</span></button>
             <button onClick={() => setSandbox(v => !v)} title="Sandbox: เครื่องมือแก้เกมด้วยมือ" className={`btn !py-1.5 !px-2.5 !text-xs ${sandbox ? "!bg-fuchsia-700 !border-fuchsia-400/60" : ""}`}><Wrench size={14} /> <span className="hidden md:inline">Sandbox</span></button>
             <AudioControl variant="inline" />
           </div>
@@ -2272,6 +2360,23 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       {renderSoulView()}
       {renderInspect()}
       {renderNotice()}
+      {undoAsk && (
+        <div className="fixed inset-0 bg-black/60 z-[65] flex items-center justify-center p-4" onClick={() => setUndoAsk(null)}>
+          <div className="bg-slate-900 border-2 border-amber-500 rounded-2xl p-5 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="font-display text-lg font-bold text-amber-300 mb-2">{undoAsk === "turn" ? "กลับไปต้นเทิร์นนี้?" : "ย้อนการกระทำล่าสุด?"}</h3>
+            <p className="text-sm text-slate-200 mb-4 leading-relaxed">
+              {undoAsk === "turn"
+                ? `ทุกการกระทำในเทิร์น ${game.turn} จะถูกยกเลิก และสถานะเกมกลับไปเหมือนตอนเริ่มเทิร์นนี้`
+                : `ย้อนกลับไปก่อน: ${histRef.current[histRef.current.length - 1]?.label ?? "การกระทำล่าสุด"}`}
+              {mode === "multiplayer" ? " (เพื่อนจะเห็นการย้อนนี้ด้วย)" : ""}
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => doUndo(undoAsk)} className="flex-1 py-2 bg-amber-600 hover:bg-amber-500 rounded-xl font-bold">ยืนยัน</button>
+              <button onClick={() => setUndoAsk(null)} className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl">ยกเลิก</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showRoomDialog && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setShowRoomDialog(false)}>

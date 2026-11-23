@@ -508,6 +508,9 @@ export interface SyncMessage {
   deck?: Deck;
   cards?: { [id: string]: Card };
   flags?: { [id: string]: Flag };
+  auto?: boolean;                 // state: เปลี่ยนจากระบบอัตโนมัติ (บอท / Draw อัตโนมัติ) — ไม่นับเป็นขั้นที่ย้อนได้
+  undo?: "last" | "turn";         // state: ผลจากการกดย้อนกลับ (ให้อีกฝั่งดึงประวัติของตัวเองถอยตาม)
+  undoNote?: string;              // ข้อความบอกอีกฝั่งว่าย้อนอะไร
 }
 
 // รายการสกิลอิสระของการ์ด (รองรับการ์ดเก่าที่มีแต่ customText)
