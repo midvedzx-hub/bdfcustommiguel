@@ -2,6 +2,7 @@ import { Trash2 } from "lucide-react";
 import type { AutoEffect, AutoEffectType, AutoSkill, CardFilter, CounterCost, CounterTiming } from "@/types";
 import { EFFECT_LABELS, DROP_FILTERS, SOUL_GRANT_KEYWORDS, condBuffAmounts } from "@/types";
 import { KEYWORD_DEFS } from "@/game/keywords";
+import { EffectSelect } from "@/components/EffectPicker";
 
 const sel = "bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm";
 const num = "bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm";
@@ -10,9 +11,7 @@ const num = "bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm
 export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChange: (e: AutoEffect) => void; onRemove: () => void }) {
   return (
     <div className="flex items-center gap-2 mb-2 flex-wrap">
-      <select value={eff.type} onChange={e => onChange({ ...eff, type: e.target.value as AutoEffectType })} className={`${sel} flex-1 min-w-[10rem]`}>
-        {EFFECT_LABELS.map(et => <option key={et.value} value={et.value}>{et.label}</option>)}
-      </select>
+      <EffectSelect value={eff.type} onChange={t => onChange({ ...eff, type: t })} className="flex-1 min-w-[10rem]" />
       {eff.type === "kw" && (
         <select value={eff.name ?? ""} onChange={e => onChange({ ...eff, name: e.target.value })} className={sel}>
           <option value="">เลือกคีย์เวิร์ด…</option>

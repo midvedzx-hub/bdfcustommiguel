@@ -10,6 +10,7 @@ import { TransferDialog } from "@/components/TransferDialog";
 import { ImageUpload } from "@/components/ImageUpload";
 import { CardView } from "@/components/CardView";
 import { SKILL_TEMPLATES } from "@/game/helpers";
+import { AddEffectButton, TemplateChips, newEffect } from "@/components/EffectPicker";
 import { EffectRow, CounterOptions, NullifyProofToggle } from "@/components/SkillEditor";
 import { CustomKeywordPanel } from "@/components/CustomKeywords";
 import { KEYWORD_DEFS, KW_CATEGORIES, type KeywordDef } from "@/game/keywords";
@@ -182,10 +183,10 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
     setEditing({ ...editing, autoSkills: editing.autoSkills.filter((_, i) => i !== idx) });
   }
 
-  function addEffect(skillIdx: number) {
+  function addEffect(skillIdx: number, type: AutoEffectType = "draw") {
     if (!editing) return;
     const skills = [...editing.autoSkills];
-    skills[skillIdx] = { ...skills[skillIdx], effects: [...skills[skillIdx].effects, { type: "draw", value: 1 }] };
+    skills[skillIdx] = { ...skills[skillIdx], effects: [...skills[skillIdx].effects, newEffect(type)] };
     setEditing({ ...editing, autoSkills: skills });
   }
 
@@ -560,14 +561,7 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                   <button onClick={addSkill} className="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm flex items-center gap-1"><Plus size={14} /> เพิ่มสกิล</button>
                 </div>
 
-                <div className="mb-3">
-                  <p className="text-xs text-slate-500 mb-1">เทมเพลตสกิล (กดเพื่อเพิ่มทันที):</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {SKILL_TEMPLATES.map((t, i) => (
-                      <button key={i} onClick={() => addTemplate(i)} className="px-2.5 py-1 bg-slate-800 hover:bg-cyan-700 border border-slate-700 rounded-full text-xs">{t.label}</button>
-                    ))}
-                  </div>
-                </div>
+                <TemplateChips templates={SKILL_TEMPLATES} onAdd={addTemplate} />
 
                 {editing.autoSkills.map((skill, si) => (
                   <div key={si} className="bg-slate-900 border border-slate-800 rounded-lg p-3 mb-3">
@@ -582,7 +576,7 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                     {skill.effects.map((eff, ei) => (
                       <EffectRow key={ei} eff={eff} onChange={e2 => updateEffect(si, ei, e2)} onRemove={() => removeEffect(si, ei)} />
                     ))}
-                    <button onClick={() => addEffect(si)} className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1"><Plus size={12} /> เพิ่มผลลัพธ์</button>
+                    <AddEffectButton onPick={t => addEffect(si, t)} label="เพิ่มผลลัพธ์ (ค้นหาได้)" />
                   </div>
                 ))}
               </div>

@@ -5,6 +5,7 @@ import { TRIGGER_LABELS } from "@/types";
 import { getCustomKeywords, saveCustomKeywords, getCards, saveCards, uid } from "@/storage";
 import { effectText } from "@/game/helpers";
 import { EffectRow, CounterOptions } from "@/components/SkillEditor";
+import { AddEffectButton, newEffect } from "@/components/EffectPicker";
 
 const QUICK: { label: string; eff: AutoEffect }[] = [
   { label: "+ ได้รับ Life", eff: { type: "addLife", value: 1 } },
@@ -101,7 +102,8 @@ export function CustomKeywordPanel({ skills, onChange }: { skills: AutoSkill[]; 
                 onChange={e2 => setEditing({ ...editing, effects: editing.effects.map((x, j) => (j === i ? e2 : x)) })}
                 onRemove={() => setEditing({ ...editing, effects: editing.effects.filter((_, j) => j !== i) })} />
             ))}
-            <div className="flex flex-wrap gap-1.5 mt-1">
+            <div className="flex flex-wrap items-center gap-1.5 mt-1">
+              <AddEffectButton onPick={t => setEditing({ ...editing, effects: [...editing.effects, newEffect(t)] })} label="เพิ่มผลลัพธ์ (ค้นหาได้)" className="px-2.5 py-1 text-xs rounded-lg bg-cyan-700 hover:bg-cyan-600 text-white flex items-center gap-1" />
               {QUICK.map(q => (
                 <button type="button" key={q.label} onClick={() => setEditing({ ...editing, effects: [...editing.effects, structuredClone(q.eff)] })} className="px-2 py-0.5 text-[11px] rounded-full bg-slate-800 hover:bg-fuchsia-700 border border-slate-700">{q.label}</button>
               ))}
