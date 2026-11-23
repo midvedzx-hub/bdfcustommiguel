@@ -37,7 +37,7 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
           <label className="flex items-center gap-1 text-xs text-slate-300"><input type="checkbox" checked={!!eff.shuffleAfter} onChange={e => onChange({ ...eff, shuffleAfter: e.target.checked || undefined })} /> สับเด็คหลังใส่</label>
         </>
       )}
-      {eff.type !== "condBuff" && eff.type !== "soulGrant" && eff.type !== "soulCond" && eff.type !== "destroyWeaker" && eff.type !== "callSelf" && eff.type !== "shuffleDeck" && !(eff.type === "dropToDeckBottom" && eff.allCards) && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
+      {eff.type !== "condBuff" && eff.type !== "soulGrant" && eff.type !== "soulCond" && eff.type !== "destroyWeaker" && eff.type !== "callSelf" && eff.type !== "nullifyProofSelf" && eff.type !== "shuffleDeck" && !(eff.type === "dropToDeckBottom" && eff.allCards) && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
       <button onClick={onRemove} className="p-1 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={12} /></button>
       {(eff.type === "nullifyOpponentMonster" || eff.type === "restOpponent") && (
         <label className="basis-full flex items-center gap-1.5 text-xs text-slate-300 pl-1 cursor-pointer">
@@ -62,6 +62,9 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
       )}
       {eff.type === "noStandOpponentMonster" && (
         <p className="basis-full text-xs text-slate-500 pl-1">เลือกมอนสเตอร์ศัตรู (ถ้ามีมากกว่าจำนวนที่ระบุ จะให้ผู้เล่นเลือกเอง) · ตัวที่ถูกห้ามจะ Stand กลับไม่ได้จนจบเทิร์นนี้ เช่น Stand กลับจาก Double Attack หรือจากเอฟเฟกต์ Stand · ถ้าอยากให้พ่วงกับ Nullify / Rest ตัวเดียวกัน ให้ติ๊กช่อง “ไม่สามารถ Stand ได้” ในเอฟเฟกต์นั้นแทน</p>
+      )}
+      {eff.type === "nullifyProofSelf" && (
+        <p className="basis-full text-xs text-slate-500 pl-1">ใส่ในสกิลเดียวกับเอฟเฟกต์ที่ต้องการป้องกัน — สกิลนี้ทั้งสกิลจะไม่ถูก Nullify (ต่างจาก “ไม่สามารถถูกยกเลิกความสามารถได้” ของหมวดป้องกันที่คุ้มครองทั้งการ์ด) · ทำงานเหมือนช่องติ๊ก “ความสามารถนี้ไม่สามารถถูกยกเลิกด้วยความสามารถได้” ที่หัวสกิล</p>
       )}
       {eff.type === "callCostAura" && (
         <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">

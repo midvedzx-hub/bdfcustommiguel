@@ -59,6 +59,7 @@ const META: Record<string, { g: Group; q: string }> = {
   soulguard: { g: G_DEF, q: "soulguard กันออกจากสนาม ถอด soul" },
   indestructibleBattle: { g: G_DEF, q: "ไม่ถูกทำลาย ในการต่อสู้ indestructible battle" },
   indestructible: { g: G_DEF, q: "ไม่ถูกทำลาย จากความสามารถ indestructible" },
+  nullifyProofSelf: { g: G_DEF, q: "ความสามารถนี้ไม่สามารถถูกยกเลิกด้วยความสามารถได้ กัน nullify เฉพาะสกิลนี้ nullify proof ไม่ถูกยกเลิก" },
   unnullifiable: { g: G_DEF, q: "ไม่ถูกยกเลิก nullify proof กัน nullify" },
 
   destroyWeaker: { g: G_ENEMY, q: "ทำลาย destroy ที่ค่าน้อยกว่า เทียบ power defense" },

@@ -185,7 +185,8 @@ export function hasKeyword(card: Card, type: AutoEffectType): boolean {
 }
 
 // สกิลนี้ยังทำงานอยู่ไหม: ปกติทำงานเมื่อการ์ดไม่ถูก Nullify แต่สกิลที่ติดธง "ไม่สามารถถูกยกเลิกได้" ทำงานเสมอ
-const skillWorks = (fc: FieldCard | null | undefined, sk: AutoSkill) => !fc?.nullified || !!sk.nullifyProof;
+// สกิลที่กัน Nullify: ติ๊กช่อง nullifyProof หรือมีเอฟเฟกต์ "ความสามารถนี้ไม่สามารถถูกยกเลิกด้วยความสามารถได้" อยู่ในสกิล
+const skillWorks = (fc: FieldCard | null | undefined, sk: AutoSkill) => !fc?.nullified || !!sk.nullifyProof || sk.effects.some(e => e.type === "nullifyProofSelf");
 // คีย์เวิร์ด (สกิลถาวร / เมื่อโจมตี) ที่ยังมีผลอยู่ — คำนึงถึง Nullify รายสกิล
 function hasKeywordActive(fc: FieldCard | null | undefined, card: Card, type: AutoEffectType): boolean {
   return !!card.autoSkills?.some(s => (s.trigger === "continuous" || s.trigger === "onAttack") && skillWorks(fc, s) && s.effects.some(e => e.type === type));
@@ -1935,7 +1936,7 @@ function actSkillIdxs(card: Card, timing: CounterTiming | null, anytime: boolean
   const out: number[] = [];
   (card.autoSkills ?? []).forEach((sk, i) => {
     if (sk.trigger !== "onCounterAct") return;
-    if (anytime ? !sk.effects.some(e => !WINDOW_ONLY_EFFECTS.has(e.type)) : !(timing === null || timingOk(sk, timing))) return;
+    if (anytime ? !sk.effects.some(e => e.type !== "nullifyProofSelf" && !WINDOW_ONLY_EFFECTS.has(e.type)) : !(timing === null || timingOk(sk, timing))) return;
     out.push(i);
   });
   return out;
@@ -2348,7 +2349,7 @@ export function counterAct(state: GameState, side: Side, opt: CounterOption): Re
 // เอฟเฟกต์ที่มีความหมายเฉพาะตอนมีการโจมตี/เวทกำลังรอ — ใช้นอกจังหวะไม่ได้ผล จึงไม่เสนอให้กดใช้ลอย ๆ
 const WINDOW_ONLY_EFFECTS = new Set<string>(["negateAttack", "destroyAttacker", "restAttacker", "negateSpell"]);
 const usableAnytime = (card: Card, trig: AutoTrigger) =>
-  counterSkills(card, trig, null).some(sk => sk.effects.some(e => !WINDOW_ONLY_EFFECTS.has(e.type)));
+  counterSkills(card, trig, null).some(sk => sk.effects.some(e => e.type !== "nullifyProofSelf" && !WINDOW_ONLY_EFFECTS.has(e.type)));
 
 export function freeCounterOptions(state: GameState, side: Side): CounterOption[] {
   if (!state.rules.enableCounter || state.winner || !mulliganDone(state)) return [];
