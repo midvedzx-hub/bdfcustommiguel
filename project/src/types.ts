@@ -198,6 +198,7 @@ export interface AutoEffect {
   lifePerKill?: number;                             // ยิงดาเมจตรงใส่ผู้เล่นศัตรู N ต่อการ์ดที่ถูกทำลายได้จริง 1 ใบ (0/ไม่ใส่ = ไม่ยิง)
   redName?: string;                        // callCostReduce: ชื่อการ์ดบนสนาม (พิมพ์บางส่วนได้ หลายชื่อคั่น ,) — เจอใบใดใบหนึ่งก็ลด
   redAttr?: string;                        // callCostReduce: คุณสมบัติของการ์ดบนสนาม (หลายค่าคั่น ,) — เจอใบใดใบหนึ่งก็ลด (ใช้ "หรือ" กับชื่อ)
+  noStandMode?: "turn" | "next";           // ระยะเวลาห้าม Stand: turn = จนจบเทิร์นนี้ (ค่าเริ่มต้น) · next = รวมถึงช่วง Stand ต้นเทิร์นถัดไปของเจ้าของการ์ด (Stand ไม่ได้ 1 รอบ)
   noStand?: boolean;                       // ใช้กับ Rest / Nullify: การ์ดที่เลือกนั้นไม่สามารถ Stand ได้ในเทิร์นนี้ด้วย (ใช้ตัวที่เลือกเดียวกัน ไม่ต้องเลือกซ้ำ)
   payCallCost?: boolean;                   // callSelf: true = ต้องจ่าย Call Cost ของการ์ดตอนคอล · ไม่ใส่/false = คอลฟรีไม่ต้องจ่าย
   allCards?: boolean;                      // dropToDeckBottom: นำการ์ดในสุสานทั้งหมด (ตามตัวกรองชนิดการ์ด) ไม่สนจำนวน
@@ -364,7 +365,8 @@ export interface PendingTarget {
   candidates: string[];    // uid ของมอนสเตอร์ศัตรูที่เลือกได้
   cont: { skills: AutoSkill[]; fcUid?: string } | null; // เอฟเฟกต์ที่เหลือหลังเลือกเสร็จ
   resumeCounter?: boolean;
-  noStand?: boolean;       // ตัวที่เลือกจะถูกห้าม Stand ในเทิร์นนี้ด้วย
+  noStand?: boolean;       // ตัวที่เลือกจะถูกห้าม Stand ด้วย
+  noStandMode?: "turn" | "next";
 }
 
 export interface BattleState {
@@ -397,6 +399,7 @@ export interface FieldCard {
   tempDefense: number;
   attacks: number; // จำนวนครั้งที่โจมตีแล้วในเทิร์นนี้
   soul: string[]; // การ์ดใต้การ์ดนี้ (Soul)
+  noStandNext?: boolean; // ห้าม Stand ในช่วง Stand ต้นเทิร์นถัดไปของเจ้าของ (ใช้ครั้งเดียวแล้วหมด)
   noStandTurn?: number; // เทิร์นที่ถูกห้าม Stand (ไม่สามารถ Stand ได้จนจบเทิร์นนั้น)
   movedTurn?: number; // เทิร์นที่ใช้ Move ไปแล้ว
   counterUsedTurn?: number; // เทิร์นที่ใช้ Counter Act จากสนามไปแล้ว (ใช้ได้ 1 ครั้งต่อเทิร์น)

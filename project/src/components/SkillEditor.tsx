@@ -43,8 +43,23 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
       {(eff.type === "nullifyOpponentMonster" || eff.type === "restOpponent") && (
         <label className="basis-full flex items-center gap-1.5 text-xs text-slate-300 pl-1 cursor-pointer">
           <input type="checkbox" checked={!!eff.noStand} onChange={e => onChange({ ...eff, noStand: e.target.checked })} />
-          และการ์ดที่เลือกนั้นไม่สามารถ Stand ได้ในเทิร์นนี้ (ใช้ตัวเดียวกับที่เลือก ไม่ต้องเลือกซ้ำ)
+          และการ์ดที่เลือกนั้นไม่สามารถ Stand ได้ (ใช้ตัวเดียวกับที่เลือก ไม่ต้องเลือกซ้ำ)
+          {eff.noStand && (
+            <select value={eff.noStandMode ?? "turn"} onClick={e => e.stopPropagation()} onChange={e => onChange({ ...eff, noStandMode: e.target.value as "turn" | "next" })} className={`${sel} !py-0.5 text-xs`}>
+              <option value="turn">ในเทิร์นนี้</option>
+              <option value="next">รวมช่วง Stand ของเทิร์นถัดไป</option>
+            </select>
+          )}
         </label>
+      )}
+      {eff.type === "noStandOpponentMonster" && (
+        <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
+          <span>ห้าม Stand</span>
+          <select value={eff.noStandMode ?? "turn"} onChange={e => onChange({ ...eff, noStandMode: e.target.value as "turn" | "next" })} className={`${sel} !py-0.5 text-xs`}>
+            <option value="turn">ในเทิร์นนี้ (Stand กลับจาก Double Attack / เอฟเฟกต์ Stand ไม่ได้)</option>
+            <option value="next">รวมช่วง Stand ต้นเทิร์นถัดไปของเจ้าของ (ค้าง Rest 1 รอบ)</option>
+          </select>
+        </div>
       )}
       {eff.type === "noStandOpponentMonster" && (
         <p className="basis-full text-xs text-slate-500 pl-1">เลือกมอนสเตอร์ศัตรู (ถ้ามีมากกว่าจำนวนที่ระบุ จะให้ผู้เล่นเลือกเอง) · ตัวที่ถูกห้ามจะ Stand กลับไม่ได้จนจบเทิร์นนี้ เช่น Stand กลับจาก Double Attack หรือจากเอฟเฟกต์ Stand · ถ้าอยากให้พ่วงกับ Nullify / Rest ตัวเดียวกัน ให้ติ๊กช่อง “ไม่สามารถ Stand ได้” ในเอฟเฟกต์นั้นแทน</p>
