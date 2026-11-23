@@ -70,6 +70,7 @@ export type AutoEffectType =
   | "soulCond"                // ถาวร: ถ้าโซลของการ์ดนี้มีการ์ด (คุณสมบัติ/ชื่อที่กำหนด) อย่างน้อย X ใบ → การ์ดนี้ได้ Power/Critical/Defense เพิ่ม และ/หรือได้คีย์เวิร์ด (Penetrate / Double Attack ...)
   | "namedToHand"             // นำการ์ดที่ชื่อตรง (refName) จากสุสาน / บนกองเด็ค ขึ้นมือ N ใบ (เช่น หลังร่าย)
   | "requireOnField"          // เงื่อนไข: ต้องมีการ์ดที่กำหนด (refName) อยู่ในสนามของเรา จึงทำเอฟเฟกต์ถัดไปของสกิลนี้ ถ้าไม่มีก็ข้าม
+  | "selfToSoul"              // Counter Act ฯลฯ: นำการ์ดใบนี้ (บนสนาม) เข้า Soul ของการ์ดอื่นของเราที่มีคุณสมบัติ/ชื่อที่กำหนด
   | "chooseAddSoul"           // เลือกการ์ดบนสนามของเรา แล้วนำการ์ดจากสุสาน/บนกองเด็คเข้า Soul ของการ์ดที่เลือก (เช่น ตอนร่ายเวท)
   | "noStandOpponentMonster"  // เลือกมอนสเตอร์ศัตรู N ตัว: ไม่สามารถ Stand ได้ในเทิร์นนี้ (Stand กลับจาก Double Attack / เอฟเฟกต์ Stand ไม่ได้)
   | "nullifyProofSelf"        // ตัวทำเครื่องหมาย: สกิลที่มีเอฟเฟกต์นี้ "ไม่สามารถถูกยกเลิกด้วยความสามารถ (Nullify) ได้" — การ์ดถูก Nullify แล้วสกิลนี้ยังทำงาน (ไม่ทำอะไรเพิ่ม)
@@ -154,6 +155,7 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "soulCond", label: "บัฟ/คีย์เวิร์ดตามโซล (ถ้าโซลมีการ์ด X ใบ…)", hint: "จำนวนการ์ดในโซลขั้นต่ำ (X)" },
   { value: "requireOnField", label: "เงื่อนไข: ถ้ามีการ์ดที่กำหนด (ในสนาม/มือ/สุสาน) จึงทำเอฟเฟกต์ถัดไป", hint: "ไม่ต้องใส่ (ใส่ชื่อด้านล่าง)" },
   { value: "namedToHand", label: "นำการ์ดที่กำหนด (ตามชื่อ) จากสุสาน/เด็คขึ้นมือ", hint: "จำนวนใบ" },
+  { value: "selfToSoul", label: "นำการ์ดใบนี้เข้า Soul ของการ์ดอื่นที่มีคุณสมบัติ…", hint: "ไม่ต้องใส่ค่า" },
   { value: "chooseAddSoul", label: "เลือกการ์ดบนสนาม → นำการ์ดจากมือ/สุสาน/บนกองเข้า Soul", hint: "จำนวนใบที่นำเข้า" },
   { value: "condBuff", label: "บัฟถาวรแบบมีเงื่อนไข (ถ้าบนสนามมีการ์ด…)", hint: "ค่าที่เพิ่ม เช่น 1 หรือ 5000" },
 ];
@@ -356,7 +358,8 @@ export interface PendingSoul {
   n: number;               // ถอดกี่ใบ
   candidates: string[];    // uid ของการ์ดของเรา (มอนสเตอร์/ไอเทม) ที่มี Soul พอ
   cont: { skills: AutoSkill[]; fcUid?: string; firstIsRest: boolean } | null; // เอฟเฟกต์ที่เหลือ (firstIsRest = รายการแรกคือส่วนที่เหลือของสกิลเดียวกัน ซึ่งจะไม่ทำถ้าไม่ถอด)
-  mode?: "add";             // ถ้ามี = กำลังเลือกการ์ดที่จะ "รับ" Soul (chooseAddSoul) แทนการถอด
+  mode?: "add" | "self";    // add = เลือกการ์ดที่จะ "รับ" Soul (chooseAddSoul) · self = เลือกการ์ดที่จะรับ "การ์ดใบนี้" เข้า Soul (selfToSoul)
+  selfUid?: string;         // mode self: uid ของการ์ดที่จะย้ายตัวเองเข้า Soul
   src?: "drop" | "deck" | "hand" | "handDrop";    // แหล่งที่นำการ์ดเข้า Soul (mode add) · hand / handDrop = ผู้เล่นเลือกใบเอง
   filter?: string;          // ชนิดการ์ดที่ดึงจากสุสาน (mode add, src drop)
   resumeCounter?: boolean;

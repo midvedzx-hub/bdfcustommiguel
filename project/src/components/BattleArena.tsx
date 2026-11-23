@@ -1206,7 +1206,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     else if (!started) hint = "รอทั้งสองฝั่งเลือก Mulligan...";
     else if (myTargetPick) hint = "เลือกมอนสเตอร์ศัตรูเป้าหมาย แล้วกดยืนยัน";
     else if (oppTargetPick) hint = "รอฝั่งตรงข้ามเลือกเป้าหมายมอนสเตอร์...";
-    else if (mySoulPick) hint = mySoulPick.mode === "add" ? "เลือกการ์ดของคุณที่จะรับ Soul (หรือเลือกไม่ใส่)" : "เลือกการ์ดของคุณที่จะถอด Soul (หรือเลือกไม่ถอด)";
+    else if (mySoulPick) hint = mySoulPick.mode === "self" ? "เลือกการ์ดของคุณที่จะรับการ์ดนี้เข้า Soul (หรือเลือกไม่นำเข้า)" : mySoulPick.mode === "add" ? "เลือกการ์ดของคุณที่จะรับ Soul (หรือเลือกไม่ใส่)" : "เลือกการ์ดของคุณที่จะถอด Soul (หรือเลือกไม่ถอด)";
     else if (oppSoulPick) hint = "รอฝั่งตรงข้ามเลือกการ์ดเกี่ยวกับ Soul...";
     else if (myLook) hint = "เลือกการ์ดจากการดูกอง แล้วกดยืนยัน";
     else if (oppLooking) hint = "รอฝั่งตรงข้ามเลือกการ์ดหลังดูกอง...";
@@ -1566,6 +1566,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     const src = cardOf(ps.cardId);
     const cands = [...me.monsters, ...(me.item ? [me.item] : [])].filter(m => ps.candidates.includes(m.uid));
     const adding = ps.mode === "add";
+    const selfMode = ps.mode === "self"; // เลือกการ์ดที่จะรับ "การ์ดใบนี้" เข้า Soul
     const fromTxt = ps.src === "deck" ? "บนกองเด็ค" : ps.src === "hand" ? "มือ" : ps.src === "handDrop" ? "มือหรือสุสาน" : "สุสาน";
     const manual = adding && (ps.src === "hand" || ps.src === "handDrop"); // ผู้เล่นเลือกใบเองจากมือ/สุสาน
     if (manual && soulTarget) {
@@ -1607,8 +1608,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     return (
       <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
         <div className="bg-slate-900 border-2 border-violet-400 rounded-2xl p-5 max-w-3xl w-full max-h-[94vh] overflow-y-auto">
-          <h3 className="font-display text-xl font-bold text-violet-300 mb-1">{adding ? `เลือกการ์ดที่จะรับ Soul ${ps.n} ใบจาก${fromTxt}` : `เลือกการ์ดที่จะถอด Soul ${ps.n} ใบ`}{src ? ` — ${src.name}` : ""}</h3>
-          {adding ? <p className="text-sm text-slate-400 mb-4">เลือกการ์ดบนสนามของคุณ 1 ใบ เพื่อนำการ์ด {ps.n} ใบจาก{fromTxt}เข้า Soul ของการ์ดใบนั้น ถ้าไม่ต้องการให้กด "ไม่ใส่ Soul"</p> : <p className="text-sm text-slate-400 mb-4">เลือกการ์ดของคุณ 1 ใบที่มี Soul พอ ถ้าถอดได้ เอฟเฟกต์ถัดไปของการ์ดนี้ (เช่น Life / Attack / Defense / จั่ว) จะทำงานกับการ์ดใบที่เลือก ถ้าไม่ต้องการให้กด "ไม่ถอด"</p>}
+          <h3 className="font-display text-xl font-bold text-violet-300 mb-1">{selfMode ? `เลือกการ์ดที่จะรับ ${src?.name ?? "การ์ดนี้"} เข้า Soul` : adding ? `เลือกการ์ดที่จะรับ Soul ${ps.n} ใบจาก${fromTxt}` : `เลือกการ์ดที่จะถอด Soul ${ps.n} ใบ`}{src && !selfMode ? ` — ${src.name}` : ""}</h3>
+          {selfMode ? <p className="text-sm text-slate-400 mb-4">เลือกการ์ดบนสนามของคุณ 1 ใบที่มีคุณสมบัติตามที่กำหนด เพื่อนำ {src?.name ?? "การ์ดนี้"} ออกจากสนามเข้า Soul ของการ์ดใบนั้น ถ้าไม่ต้องการให้กด "ไม่นำเข้า Soul"</p> : adding ? <p className="text-sm text-slate-400 mb-4">เลือกการ์ดบนสนามของคุณ 1 ใบ เพื่อนำการ์ด {ps.n} ใบจาก{fromTxt}เข้า Soul ของการ์ดใบนั้น ถ้าไม่ต้องการให้กด "ไม่ใส่ Soul"</p> : <p className="text-sm text-slate-400 mb-4">เลือกการ์ดของคุณ 1 ใบที่มี Soul พอ ถ้าถอดได้ เอฟเฟกต์ถัดไปของการ์ดนี้ (เช่น Life / Attack / Defense / จั่ว) จะทำงานกับการ์ดใบที่เลือก ถ้าไม่ต้องการให้กด "ไม่ถอด"</p>}
           <div className="flex flex-wrap gap-4 justify-center mb-5">
             {cands.map(m => {
               const c = cardOf(m.cardId);
@@ -1617,12 +1618,12 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 <div key={m.uid} className="flex flex-col items-center gap-2">
                   <CardView card={c} flag={flagOf(me.flagId)} size="md" stats={statsOf(m)} onClick={() => manual ? setSoulTarget(m.uid) : act("ถอด Soul ไม่ได้", st => resolveSoulChoice(st, mySide, m.uid))} onInspect={() => openInspect(c, me.flagId, m)} className="hover:ring-4 hover:ring-violet-400" />
                   <span className="chip !text-violet-300">SOUL {m.soul.length}</span>
-                  <button onClick={() => manual ? setSoulTarget(m.uid) : act(adding ? "ใส่ Soul ไม่ได้" : "ถอด Soul ไม่ได้", st => resolveSoulChoice(st, mySide, m.uid))} className="btn btn-primary !py-1 !text-xs">{adding ? (manual ? "เลือกการ์ดใบนี้ → เลือกใบที่จะนำเข้า" : "ใส่ Soul ให้การ์ดใบนี้") : "ถอด Soul การ์ดใบนี้"}</button>
+                  <button onClick={() => manual ? setSoulTarget(m.uid) : act(selfMode ? "นำเข้า Soul ไม่ได้" : adding ? "ใส่ Soul ไม่ได้" : "ถอด Soul ไม่ได้", st => resolveSoulChoice(st, mySide, m.uid))} className="btn btn-primary !py-1 !text-xs">{selfMode ? "นำเข้า Soul ของการ์ดใบนี้" : adding ? (manual ? "เลือกการ์ดใบนี้ → เลือกใบที่จะนำเข้า" : "ใส่ Soul ให้การ์ดใบนี้") : "ถอด Soul การ์ดใบนี้"}</button>
                 </div>
               );
             })}
           </div>
-          <button onClick={() => act("ผิดพลาด", st => resolveSoulChoice(st, mySide, null))} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">{adding ? "ไม่ใส่ Soul" : "ไม่ถอด Soul"}</button>
+          <button onClick={() => act("ผิดพลาด", st => resolveSoulChoice(st, mySide, null))} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">{selfMode ? "ไม่นำเข้า Soul" : adding ? "ไม่ใส่ Soul" : "ไม่ถอด Soul"}</button>
         </div>
       </div>
     );

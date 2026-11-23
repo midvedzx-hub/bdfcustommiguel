@@ -784,6 +784,22 @@ function runSkills(
           log(g, `${card.name}: มี ${names.map(x => `“${x}”`).join(", ")} (${zoneTxt}) — ทำเอฟเฟกต์ถัดไปได้`);
           break;
         }
+        case "selfToSoul": {
+          const self = ctx.fc;
+          if (!self) { log(g, `${card.name}: นำตัวเองเข้า Soul ได้เฉพาะการ์ดที่อยู่บนสนาม`); break; }
+          const cands = selfToSoulCandidates(g, side, self, eff);
+          if (cands.length === 0) { log(g, `${card.name}: ไม่มีการ์ดอื่นบนสนาม${(eff.condText ?? "").trim() ? `ที่มี${eff.condMatch === "name" ? "ชื่อ" : "คุณสมบัติ"} “${eff.condText}”` : ""}ให้นำเข้า Soul`); break; }
+          if (cands.length === 1) { moveSelfToSoul(g, side, self, cands[0]); break; }
+          const restOfSkillS = skill.effects.slice(ei + 1);
+          const restSkillsS: AutoSkill[] = [...(restOfSkillS.length > 0 ? [{ ...skill, effects: restOfSkillS }] : []), ...skills.slice(si + 1)];
+          g.pendingSoul = {
+            side, cardId: card.id, n: 1, mode: "self", selfUid: self.uid,
+            candidates: cands.map(c => c.uid),
+            cont: restSkillsS.length > 0 ? { skills: restSkillsS, fcUid: undefined, firstIsRest: false } : null,
+          };
+          log(g, `${card.name}: ${nameOf(side)} เลือกการ์ดที่จะรับ ${card.name} เข้า Soul`);
+          return;
+        }
         case "chooseAddSoul": {
           // เลือกการ์ดบนสนามของเรา แล้วนำการ์ดจากสุสาน/บนกองเด็คเข้า Soul ของใบที่เลือก
           const srcKind: "drop" | "deck" | "hand" | "handDrop" = eff.soulSrc === "deck" ? "deck" : eff.soulSrc === "hand" ? "hand" : eff.soulSrc === "handDrop" ? "handDrop" : "drop";
@@ -1451,6 +1467,32 @@ function soulCondTargets(p: PlayerState, self: FieldCard | null, e: AutoEffect):
 // ---- condBuff: เงื่อนไข "ถ้าบนสนามมีการ์ดใบอื่นที่มีคุณสมบัติ/ชื่อ ..." และผู้ได้รับบัฟ ----
 const fieldCardsOf = (q: PlayerState): FieldCard[] => [...q.monsters, ...(q.item ? [q.item] : [])];
 const textHas = (hay: string | undefined, needle: string) => !!hay && hay.toLowerCase().includes(needle);
+
+// selfToSoul: การ์ดอื่นบนสนามของเราที่ตรงคุณสมบัติ/ชื่อ (ไม่นับตัวเอง) — ว่าง = การ์ดอื่นใดก็ได้
+function selfToSoulCandidates(g: GameState, side: Side, self: FieldCard, e: AutoEffect): FieldCard[] {
+  const need = (e.condText ?? "").trim().toLowerCase();
+  return fieldCardsOf(g[side]).filter(t => {
+    if (t.uid === self.uid) return false;
+    if (!need) return true;
+    const c = getCard(t.cardId);
+    return !!c && (e.condMatch === "name" ? textHas(c.name, need) : textHas(c.attribute, need));
+  });
+}
+// สกิลนี้ใช้ไม่ได้ถ้ามีเอฟเฟกต์ selfToSoul ที่ไม่มีการ์ดเป้าหมายบนสนาม
+function selfToSoulBlocked(g: GameState, side: Side, fc: FieldCard, sk: AutoSkill | undefined): boolean {
+  return !!sk && sk.effects.some(e => e.type === "selfToSoul" && selfToSoulCandidates(g, side, fc, e).length === 0);
+}
+// ย้ายการ์ดบนสนามเข้า Soul ของอีกใบ (Soul เดิมของใบที่ย้ายลงสุสาน)
+function moveSelfToSoul(g: GameState, side: Side, self: FieldCard, host: FieldCard) {
+  const p = g[side];
+  p.monsters = p.monsters.filter(m => m.uid !== self.uid);
+  if (p.item && p.item.uid === self.uid) p.item = null;
+  if (self.soul.length > 0) p.dropZone.push(...self.soul);
+  host.soul.push(self.cardId);
+  log(g, `${getCard(self.cardId)?.name ?? "การ์ด"} นำตัวเองเข้า Soul ของ ${cardOfFc(host)?.name ?? "การ์ด"} (รวม Soul ${host.soul.length})`);
+  fx(g, { k: "soulIn", side, uid: host.uid, pos: posOf(g, side, host), n: 1 });
+  recalcAuras(g);
+}
 
 function condBuffMet(g: GameState, side: Side, e: AutoEffect, self: FieldCard | null): boolean {
   const need = (e.condText ?? "").trim().toLowerCase();
@@ -2168,6 +2210,7 @@ export function counterOptions(state: GameState, side: Side): CounterOption[] {
     if (!c) return;
     actSkillIdxs(c, timing, false).filter(idx => skillWorks(fc, c.autoSkills![idx])).forEach(idx => {
       if (actUsed(fc, state.turn, idx)) return;
+      if (selfToSoulBlocked(state, side, fc, c.autoSkills![idx])) return; // ไม่มีการ์ดที่จะรับตัวเองเข้า Soul
       if (fc.soul.length < skillNeedsSoul(c, timing, idx)) return;
       if (!canAffordExtra(p, c, "onCounterAct", timing, false, idx)) return;
       out.push({ zone: "field", uid: fc.uid, skill: idx });
@@ -2329,6 +2372,7 @@ function runCounterOption(g: GameState, side: Side, opt: CounterOption, timing: 
     if (only === undefined || !counterSkills(card, "onCounterAct", timing, only).length) return "ไม่พบ Counter 【Act】 ที่เลือก";
     if (actUsed(fc, g.turn, only)) return "Counter 【Act】 นี้ใช้ครบจำนวนครั้งของเทิร์นนี้แล้ว";
     if (fc.soul.length < skillNeedsSoul(card, timing, only)) return "Soul ไม่พอสำหรับ Counter 【Act】 นี้";
+    if (selfToSoulBlocked(g, side, fc, card.autoSkills?.[only])) return "ไม่มีการ์ดอื่นบนสนามที่ตรงเงื่อนไขให้นำการ์ดนี้เข้า Soul";
     if (!canAffordExtra(p, card, "onCounterAct", timing, false, only)) return "ค่าใช้จ่ายของ Counter 【Act】 นี้ไม่พอ (เกจ / Life / การ์ดบนเด็ค / การ์ดบนมือ)";
     const dis = pickDiscard(p, extraCostOf(card, "onCounterAct", timing, only).hand, opt);
     if ("err" in dis) return dis.err;
@@ -2393,6 +2437,7 @@ export function freeCounterOptions(state: GameState, side: Side): CounterOption[
     actSkillIdxs(c, null, true).filter(idx => skillWorks(fc, c.autoSkills![idx])).forEach(idx => {
       if (actUsed(fc, state.turn, idx)) return;
       if (fc.soul.length < skillNeedsSoul(c, null, idx)) return;
+      if (selfToSoulBlocked(state, side, fc, c.autoSkills![idx])) return;
       if (!canAffordExtra(p, c, "onCounterAct", null, false, idx)) return;
       out.push({ zone: "field", uid: fc.uid, skill: idx });
     });
@@ -2437,11 +2482,14 @@ export function resolveSoulChoice(state: GameState, side: Side, targetUid: strin
   let chosen: FieldCard | undefined;
   let skills = ps.cont?.skills ?? [];
   if (targetUid === null) {
-    log(g, ps.mode === "add" ? `${nameOf(side)} เลือกไม่ใส่ Soul` : `${nameOf(side)} เลือกไม่ถอด Soul`);
+    log(g, ps.mode === "self" ? `${nameOf(side)} เลือกไม่นำการ์ดเข้า Soul` : ps.mode === "add" ? `${nameOf(side)} เลือกไม่ใส่ Soul` : `${nameOf(side)} เลือกไม่ถอด Soul`);
     if (ps.cont?.firstIsRest) skills = skills.slice(1);
   } else {
     chosen = findFc(p, targetUid) ?? undefined;
-    if (chosen && ps.mode === "add") {
+    if (chosen && ps.mode === "self") {
+      const selfFc = ps.selfUid ? findFc(p, ps.selfUid) : null;
+      if (selfFc && selfFc.uid !== chosen.uid) moveSelfToSoul(g, side, selfFc, chosen);
+    } else if (chosen && ps.mode === "add") {
       // นำการ์ดจากสุสาน/บนกองเด็คเข้า Soul ของการ์ดที่เลือก
       let got: string[] = [];
       if (ps.src === "deck") { for (let i = 0; i < ps.n && p.deck.length > 0; i++) got.push(p.deck.shift()!); }

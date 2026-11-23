@@ -87,6 +87,10 @@ export function effectText(e: AutoEffect): string {
     case "noStandOpponentMonster": return `มอนสเตอร์ศัตรู ${v} ตัวที่เลือกไม่สามารถ Stand ได้${e.noStandMode === "next" ? " (รวมช่วง Stand ของเทิร์นถัดไป)" : "ในเทิร์นนี้"}`;
     case "powerPerSoul": return `Power +${v} ต่อการ์ด 1 ใบใน Soul`;
     case "criticalPerSoul": return `Critical +${v} ต่อการ์ด 1 ใบใน Soul`;
+    case "selfToSoul": {
+      const need = (e.condText ?? "").trim();
+      return `นำการ์ดใบนี้เข้า Soul ของการ์ดอื่นบนสนามของเรา${need ? `ที่มี${e.condMatch === "name" ? "ชื่อ" : "คุณสมบัติ"} “${need}”` : ""}`;
+    }
     case "soulGrant": {
       const tn = (e.targetName ?? "").trim();
       return `ถ้าการ์ดใบนี้อยู่ใน Soul ของการ์ด${tn ? `ที่ชื่อหรือคุณสมบัติ “${tn}”` : "ใบใดก็ได้"} การ์ดนั้นจะได้รับความสามารถทั้งหมดของการ์ดใบนี้`;

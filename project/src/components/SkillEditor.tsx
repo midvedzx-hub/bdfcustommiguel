@@ -18,6 +18,17 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
           {KEYWORD_DEFS.filter(k => !k.engine).map(k => <option key={k.id} value={k.id}>{k.id}</option>)}
         </select>
       )}
+      {eff.type === "selfToSoul" && (
+        <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
+          <span>นำการ์ดใบนี้เข้า Soul ของการ์ดอื่นบนสนามของเราที่</span>
+          <select value={eff.condMatch ?? "attr"} onChange={e => onChange({ ...eff, condMatch: e.target.value as "attr" | "name" })} className={`${sel} !py-0.5 text-xs`}>
+            <option value="attr">มีคุณสมบัติ</option>
+            <option value="name">ชื่อ</option>
+          </select>
+          <input value={eff.condText ?? ""} onChange={e => onChange({ ...eff, condText: e.target.value })} placeholder="เช่น Aerufaria Magika (ว่าง = การ์ดอื่นใดก็ได้)" className={`${num} !py-0.5 text-xs w-60`} />
+          <p className="basis-full text-slate-500">ใช้กับสกิล “Counter 【Act】” (หรือตัวกระตุ้นอื่นของการ์ดบนสนาม) · มีการ์ดเป้าหมายใบเดียว = นำเข้าทันที หลายใบ = ให้เลือก · ไม่มีการ์ดที่ตรงเงื่อนไข = ใช้ Counter นี้ไม่ได้ · Soul เดิมของการ์ดนี้ลงสุสาน</p>
+        </div>
+      )}
       {eff.type === "chooseAddSoul" && (
         <select value={eff.soulSrc ?? "drop"} onChange={e => onChange({ ...eff, soulSrc: e.target.value as "drop" | "deck" | "hand" | "handDrop" })} className={sel} title="แหล่งที่นำการ์ดเข้า Soul">
           <option value="drop">จากสุสาน (ใบล่าสุดก่อน)</option>
@@ -37,7 +48,7 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
           <label className="flex items-center gap-1 text-xs text-slate-300"><input type="checkbox" checked={!!eff.shuffleAfter} onChange={e => onChange({ ...eff, shuffleAfter: e.target.checked || undefined })} /> สับเด็คหลังใส่</label>
         </>
       )}
-      {eff.type !== "condBuff" && eff.type !== "soulGrant" && eff.type !== "soulCond" && eff.type !== "destroyWeaker" && eff.type !== "callSelf" && eff.type !== "nullifyProofSelf" && eff.type !== "shuffleDeck" && !(eff.type === "dropToDeckBottom" && eff.allCards) && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
+      {eff.type !== "condBuff" && eff.type !== "selfToSoul" && eff.type !== "soulGrant" && eff.type !== "soulCond" && eff.type !== "destroyWeaker" && eff.type !== "callSelf" && eff.type !== "nullifyProofSelf" && eff.type !== "shuffleDeck" && !(eff.type === "dropToDeckBottom" && eff.allCards) && <input type="number" min={1} title={EFFECT_LABELS.find(x => x.value === eff.type)?.hint} value={eff.value} onChange={e => onChange({ ...eff, value: parseInt(e.target.value) || 1 })} className={`${num} w-16`} />}
       <button onClick={onRemove} className="p-1 bg-red-900 hover:bg-red-800 rounded-lg"><Trash2 size={12} /></button>
       {(eff.type === "nullifyOpponentMonster" || eff.type === "restOpponent") && (
         <label className="basis-full flex items-center gap-1.5 text-xs text-slate-300 pl-1 cursor-pointer">
