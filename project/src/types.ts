@@ -272,6 +272,8 @@ export interface Card {
   critical: number;
   callCost: number;
   callCostType: "Gauge" | "Life";
+  castTiming?: "own" | "opponent" | "both"; // เฉพาะ Impact: ร่ายได้ใน Final Phase ของใคร (own = ของเรา [ค่าเริ่มต้น] · opponent = ของคู่แข่ง · both = ทั้งสองฝั่ง)
+  castOppLifeMax?: number;         // เฉพาะ Impact: ร่ายได้เมื่อ Life ของศัตรูเหลือเท่านี้หรือต่ำกว่า (ไม่ใส่ = ไม่มีเงื่อนไข)
   monsterImpact?: boolean;         // มอนสเตอร์ไม้ตาย (Impact Monster): ลงสนามด้วยการ "Impact Call" ใน Final Phase เท่านั้น (เทิร์นละ 1 ใบ, จ่าย Call Cost ปกติ, นับเป็นการร่าย Impact) หรือถูกเอฟเฟกต์เรียกลงสนามได้ทุกเฟส
   transformCost?: number;          // มีค่า = มอนสเตอร์ใบนี้ Transform ได้ (จ่ายแล้วกลายเป็นไอเทมของเรา) ไม่ใส่ = Transform ไม่ได้
   transformCostType?: "Gauge" | "Life";
@@ -594,4 +596,14 @@ export function callSelfEffect(card: Pick<Card, "type" | "autoSkills"> | undefin
 // Call Cost หลังหักตัวลด (ลดจากค่าหลัก: เกจหรือ Life ตามชนิด Call Cost ของการ์ด ต่ำสุด 0)
 export function withCallCostReduced<T extends { callCost: number }>(card: T, n: number): T {
   return n > 0 ? { ...card, callCost: Math.max(0, (card.callCost || 0) - n) } : card;
+}
+
+// เงื่อนไขการร่าย Impact: คืนข้อความอธิบายเป็นภาษาไทย (ใช้แสดงบนการ์ด/ตัวแก้ไข) หรือ "" ถ้าไม่มีเงื่อนไขพิเศษ
+export function impactCastCondText(card: Pick<Card, "type" | "castTiming" | "castOppLifeMax"> | undefined | null): string {
+  if (!card || card.type !== "Impact") return "";
+  const t = card.castTiming ?? "own";
+  const when = t === "both" ? "Final Phase ของเราหรือของคู่แข่ง" : t === "opponent" ? "Final Phase ของคู่แข่ง" : "";
+  const life = card.castOppLifeMax !== undefined && card.castOppLifeMax !== null ? `เมื่อ Life ของศัตรูเหลือ ${card.castOppLifeMax} หรือต่ำกว่า` : "";
+  if (!when && !life) return "";
+  return `ร่ายได้ใน ${when || "Final Phase ของเรา"}${life ? ` ${life}` : ""}`;
 }

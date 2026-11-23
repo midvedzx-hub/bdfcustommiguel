@@ -1,6 +1,6 @@
 import type { Flag, Card, AutoSkill, AutoEffect } from "@/types";
 import { getCustomKeywords } from "@/storage";
-import { TRIGGER_LABELS, callCostLabel, canTransform, transformCostLabel, condBuffAmounts, SOUL_GRANT_KEYWORDS, isMonsterImpact } from "@/types";
+import { TRIGGER_LABELS, callCostLabel, canTransform, transformCostLabel, condBuffAmounts, SOUL_GRANT_KEYWORDS, isMonsterImpact, impactCastCondText } from "@/types";
 import { KEYWORD_DEFS } from "@/game/keywords";
 
 export function getFlagColor(flag?: Flag | null): string {
@@ -208,6 +208,7 @@ export function keywordBadges(card: Card): string[] {
 export function costText(card: Card): string {
   const parts: string[] = [];
   if (card.callCost > 0 || (card.callCostExtra ?? 0) > 0 || card.type === "Monster") parts.push(`จ่าย ${callCostLabel(card)}`);
+  { const ic = impactCastCondText(card); if (ic) parts.push(`[เงื่อนไขการร่าย] ${ic}`); }
   if (isMonsterImpact(card)) parts.push(`[มอนสเตอร์ไม้ตาย] ลงสนามได้เฉพาะ Impact Call ใน Final Phase (เทิร์นละ 1 ใบ · นับเป็นการร่าย Impact) โจมตีได้ทั้งใน Attack Phase และ Final Phase`);
   if (canTransform(card)) parts.push(`[Transform] จ่าย ${transformCostLabel(card)} เพื่อแปลงเป็นไอเทม (ใช้ได้จากมือหรือบนสนาม)`);
   if ((card.callSoulFromDeck ?? 0) > 0) parts.push(`นำการ์ดบนเด็ค ${card.callSoulFromDeck} ใบเข้า Soul ของการ์ดนี้`);

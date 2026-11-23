@@ -1018,14 +1018,14 @@ export function totalMonsterSize(player: PlayerState): number {
 /* ------------------------------------------------------------------ */
 /* Turn flow                                                           */
 /* ------------------------------------------------------------------ */
-function baseGuard(state: GameState, side: Side): string | null {
+function baseGuard(state: GameState, side: Side, ignoreTurn = false): string | null {
   if (state.winner) return "เกมจบแล้ว";
   if (!mulliganDone(state)) return "ต้องรอให้ทั้งสองฝั่งเลือก Mulligan ให้เสร็จก่อน";
   if (state.pendingLook) return `กำลังรอ${nameOf(state.pendingLook.side)}เลือกการ์ดหลังดูกอง`;
   if (state.pendingSoul) return `กำลังรอ${nameOf(state.pendingSoul.side)}เลือกการ์ดที่จะถอด Soul`;
   if (state.pendingTarget) return `กำลังรอ${nameOf(state.pendingTarget.side)}เลือกเป้าหมายมอนสเตอร์`;
   if (state.spellWindow) return "กำลังรอฝั่งตรงข้ามตัดสินใจ Counter ต่อเวทที่ร่าย";
-  if (state.currentTurn !== side) return "ยังไม่ใช่เทิร์นของคุณ";
+  if (!ignoreTurn && state.currentTurn !== side) return "ยังไม่ใช่เทิร์นของคุณ";
   return null;
 }
 
@@ -1606,10 +1606,30 @@ function castTrigger(card: Card): AutoTrigger | null {
 const isCounterOnly = (card: Card) =>
   !hasSetKeyword(card) && (card.autoSkills ?? []).some(s => s.trigger === "onCounter") && castTrigger(card) === null;
 
+// เงื่อนไขการร่าย Impact (ตั้งในการ์ด): ใน Final Phase ของเรา/คู่แข่ง/ทั้งสองฝั่ง และ Life ศัตรูต้องเหลือไม่เกินที่กำหนด
+// คืนข้อความอธิบายถ้าตอนนี้ร่ายไม่ได้ · null = ร่ายได้ (UI ใช้ฟังก์ชันนี้เช็กปุ่มด้วย)
+export function impactCastProblem(state: GameState, side: Side, card: Card): string | null {
+  const t = card.castTiming ?? "own";
+  const opp = other(side);
+  if (card.castOppLifeMax !== undefined && card.castOppLifeMax !== null && state[opp].life > card.castOppLifeMax)
+    return `${card.name} ร่ายได้เมื่อ Life ของศัตรูเหลือ ${card.castOppLifeMax} หรือต่ำกว่า (ตอนนี้ศัตรูมี Life ${state[opp].life})`;
+  const myTurn = state.currentTurn === side;
+  if (myTurn) {
+    if (t === "opponent") return `${card.name} ร่ายได้เฉพาะ Final Phase ของคู่แข่ง`;
+    return guardTurn(state, side, "final");
+  }
+  if (t === "own") return `${card.name} ร่ายได้เฉพาะ Final Phase ของเรา (ยังไม่ใช่เทิร์นของคุณ)`;
+  const bg = baseGuard(state, side, true);
+  if (bg) return bg;
+  if (state.battle) return "กำลังมีการต่อสู้อยู่ — รอให้จบก่อน";
+  if (state.moveWindow) return "กำลังรอเลือก Move — รอให้จบก่อน";
+  if (state.phase !== "final") return `${card.name} ร่ายได้เฉพาะตอน Final Phase ของคู่แข่ง`;
+  return null;
+}
 export function castSpell(state: GameState, side: Side, handIndex: number): Result {
   const card0 = getCard(state[side].hand[handIndex]);
   if (card0 && isMonsterImpact(card0)) return { state, ok: false, msg: `${card0.name} เป็นมอนสเตอร์ไม้ตาย — ใช้ Impact Call ลงช่องมอนสเตอร์ใน Final Phase แทนการร่าย` };
-  const err = guardTurn(state, side, card0?.type === "Impact" ? "final" : "main");
+  const err = card0?.type === "Impact" ? impactCastProblem(state, side, card0) : guardTurn(state, side, "main");
   if (err) return { state, ok: false, msg: err };
 
   // เวท Counter ล้วน: ห้ามแค่ทิ้งลงสุสานเฉย ๆ — ใช้ผลทันทีถ้าทำได้ ไม่งั้นแจ้งและไม่เสียการ์ด

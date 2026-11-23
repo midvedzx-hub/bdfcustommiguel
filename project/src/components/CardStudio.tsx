@@ -407,6 +407,27 @@ export function CardStudio({ onBack, startEditing }: { onBack: () => void; start
                 </div>
               )}
 
+              {editing.type === "Impact" && (
+                <div className="rounded-xl border border-rose-700/60 bg-slate-800/50 p-3 space-y-2">
+                  <div className="text-sm font-semibold text-slate-100">เงื่อนไขการร่ายไม้ตาย (Impact)</div>
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-slate-300">
+                    <span>ร่ายได้ใน Final Phase ของ</span>
+                    <select value={editing.castTiming ?? "own"} onChange={e => setEditing({ ...editing, castTiming: e.target.value === "own" ? undefined : e.target.value as "opponent" | "both" })} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm">
+                      <option value="own">เราเท่านั้น (ปกติ)</option>
+                      <option value="opponent">คู่แข่งเท่านั้น</option>
+                      <option value="both">ทั้งของเราและของคู่แข่ง</option>
+                    </select>
+                  </div>
+                  <label className="flex flex-wrap items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                    <input type="checkbox" checked={editing.castOppLifeMax !== undefined} onChange={e => setEditing({ ...editing, castOppLifeMax: e.target.checked ? 5 : undefined })} />
+                    ร่ายได้เมื่อ Life ของศัตรูเหลือ
+                    <input type="number" min={0} disabled={editing.castOppLifeMax === undefined} value={editing.castOppLifeMax ?? ""} onChange={e => setEditing({ ...editing, castOppLifeMax: Math.max(0, parseInt(e.target.value) || 0) })} className="w-16 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm disabled:opacity-40" />
+                    หรือต่ำกว่า
+                  </label>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">ถ้าเลือก “คู่แข่ง/ทั้งสองฝั่ง” จะร่ายไม้ตายในช่วง Final Phase ของเทิร์นคู่แข่งได้ (กดเลือกการ์ดในมือได้ทั้งที่ยังไม่ใช่เทิร์นเรา) · ฝั่งตรงข้ามยังใช้ Counter ตอบโต้ได้ตามปกติ · ถ้าไม่ติ๊กเงื่อนไข Life จะไม่เช็ก Life ของศัตรู</p>
+                </div>
+              )}
+
               {editing.type === "Monster" && (
                 <div className="rounded-xl border border-rose-700/60 bg-slate-800/50 p-3">
                   <label className="flex items-center gap-2 text-sm font-semibold text-slate-100 cursor-pointer">

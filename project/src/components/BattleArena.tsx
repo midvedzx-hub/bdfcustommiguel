@@ -5,13 +5,13 @@ import {
   Copy, LogIn, Users, RefreshCw, Wrench, X, Shield, Star, AlertTriangle, Link2, Eye,
 } from "lucide-react";
 import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet, FieldCard } from "@/types";
-import { TRIGGER_LABELS, customTextList, callCostLabel, canTransform, transformCostLabel, isMonsterImpact, matchesType, callSelfEffect } from "@/types";
+import { TRIGGER_LABELS, customTextList, callCostLabel, canTransform, transformCostLabel, isMonsterImpact, matchesType, callSelfEffect, impactCastCondText } from "@/types";
 import { DEFAULT_RULES, deckBuddies } from "@/types";
 import type { SoulPick } from "@/game/engine";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
   callMonster, impactCall, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
-  goToAttack, goToFinal, mulligan, transformCard, legalTargets, statsOf, counterOptions, callSelfSlots, effCostCard, soulCallOffers, useSoulCall, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
+  goToAttack, goToFinal, mulligan, transformCard, legalTargets, statsOf, counterOptions, callSelfSlots, impactCastProblem, effCostCard, soulCallOffers, useSoulCall, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxSetPhase, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, cardOfFc, matchCallRequires, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
@@ -1119,6 +1119,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                   if (inspectMode) return openInspect(card, p.flagId);
                   // การ์ด Counter ในมือที่ใช้ได้ตอนนี้: เลือกได้ทุกเฟส ทั้งเทิร์นเราและเทิร์นคู่ต่อสู้
                   if (freeOpts.some(o => o.zone === "hand" && o.index === i) && !(isMyTurn && game.phase === "charge" && chargePick)) { setHandSel(sel ? null : i); return; }
+                  // Impact ที่ตั้งให้ร่ายได้ใน Final Phase ของคู่แข่ง (และเงื่อนไข Life ครบ): เลือกได้ในเทิร์นคู่ต่อสู้
+                  if (!isMyTurn && card.type === "Impact" && !impactCastProblem(game, mySide, card)) { setHandSel(sel ? null : i); return; }
                   if (!isMyTurn) return openInspect(card, p.flagId, null, whyBlocked() ?? "ยังไม่ใช่เทิร์นของคุณ");
                   if (game.phase === "draw") return openInspect(card, p.flagId, null, "ตอนนี้เป็น Draw Phase — กำลังจั่วการ์ดประจำเทิร์น (กดปุ่ม 'Draw' ถ้ายังไม่จั่ว) จากนั้นจึงถึง Charge & Draw");
                   if (game.phase === "charge" && chargePick) return doCharge(i);
@@ -1140,7 +1142,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     const card = cardOf(me.hand[handSel] ?? "");
     if (!card) return null;
     const counterNow = freeOpts.some(o => o.zone === "hand" && o.index === handSel);
-    if (!isMyTurn && !counterNow) return null;
+    const impactNow = card.type === "Impact" && !isMyTurn && !impactCastProblem(game, mySide, card);
+    if (!isMyTurn && !counterNow && !impactNow) return null;
     const cs = callSelfEffect(card);
     const csSlots = cs && counterNow ? callSelfSlots(game, mySide, card) : [];
     // การ์ดที่ต้องมีการ์ดเงื่อนไขบนสนามก่อน (callRequires): ลงทับช่องของการ์ดเงื่อนไขได้ เพราะการ์ดเหล่านั้นจะเข้า Soul
@@ -1169,7 +1172,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             {card.type === "Spell" && <button onClick={() => tryCast(handSel)} className={`${btn} ${counterOnly ? "bg-slate-700" : "bg-sky-600 hover:bg-sky-500"}`}>{hasSetKeyword(card) ? "ร่าย → วางลงช่อง Set" : "ร่ายเวท"}</button>}
             {canTransform(card) && <button onClick={() => tryTransform({ zone: "hand", index: handSel })} className={`${btn} bg-fuchsia-600 hover:bg-fuchsia-500`}>🔄 Transform (จ่าย {transformCostLabel(card)})</button>}
             {card.type === "Item" && <button onClick={() => tryEquip(handSel)} className={`${btn} bg-emerald-600 hover:bg-emerald-500`}>ติดตั้งไอเทม</button>}
-            {card.type === "Impact" && <button onClick={() => tryCast(handSel)} className={`${btn} bg-rose-600 hover:bg-rose-500`}>ใช้ Impact (Final Phase)</button>}
+            {card.type === "Impact" && (isMyTurn || impactNow) && <button onClick={() => tryCast(handSel)} title={impactCastCondText(card)} className={`${btn} ${impactCastProblem(game, mySide, card) ? "bg-rose-900 hover:bg-rose-800" : "bg-rose-600 hover:bg-rose-500"}`}>ใช้ Impact ({impactCastCondText(card) || "Final Phase"})</button>}
             {counterNow && !cs && <button onClick={() => { const o = freeOpts.find(x => x.zone === "hand" && x.index === handSel); if (o) { doFreeCounter(o); setHandSel(null); } }} className={`${btn} bg-sky-600 hover:bg-sky-500`}>⚡ ใช้ Counter ทันที</button>}
             {counterNow && cs && csSlots.map(pos => (
               <button key={`cs${pos}`} onClick={() => { const o = freeOpts.find(x => x.zone === "hand" && x.index === handSel); if (o) { requestCounter({ ...o, position: pos }, true); setHandSel(null); } }} className={`${btn} bg-sky-600 hover:bg-sky-500`}>⚡ Counter คอลลงช่อง{POSITION_NAMES[pos]}{cs.payCallCost ? ` (จ่าย ${callCostLabel(effCostCard(game, mySide, card))})` : " (ฟรี)"}</button>
