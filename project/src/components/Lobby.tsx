@@ -1,5 +1,7 @@
 import { Flag, Layers, Swords, Gamepad2, Download, Upload, BookOpen, Check, ChevronRight, Sparkles } from "lucide-react";
-import { getFlags, getCards, getDecks, exportAll, importAll, downloadJSON } from "@/storage";
+import { getFlags, getCards, getDecks, importAll, backupAll } from "@/storage";
+import { ResumePanel, BackupBanner, BackupStatusLine } from "@/components/SaveBackupPanels";
+import type { SavedGame } from "@/game/savegame";
 import { useRef, useState } from "react";
 import { CardView } from "@/components/CardView";
 
@@ -8,9 +10,12 @@ interface Props {
   onCardStudio: () => void;
   onDeckBuilder: () => void;
   onPlay: () => void;
+  saved?: SavedGame | null;
+  onResume?: () => void;
+  onDiscardSave?: () => void;
 }
 
-export function Lobby({ onFlagMaker, onCardStudio, onDeckBuilder, onPlay }: Props) {
+export function Lobby({ onFlagMaker, onCardStudio, onDeckBuilder, onPlay, saved, onResume, onDiscardSave }: Props) {
   const flags = getFlags();
   const cards = getCards();
   const decks = getDecks();
@@ -60,6 +65,9 @@ export function Lobby({ onFlagMaker, onCardStudio, onDeckBuilder, onPlay }: Prop
       <div className="absolute bottom-0 right-0 w-[30rem] h-[30rem] bg-fuchsia-600/10 rounded-full blur-3xl pointer-events-none" />
 
       <div className="relative z-10 max-w-6xl mx-auto px-5 md:px-8 py-8 md:py-12 page-in">
+        {saved && onResume && onDiscardSave && <ResumePanel saved={saved} onResume={onResume} onDiscard={onDiscardSave} />}
+        <BackupBanner key={importMsg} />
+
         {/* Hero */}
         <section className="grid lg:grid-cols-[1.1fr_1fr] gap-10 items-center mb-14">
           <div>
@@ -137,11 +145,12 @@ export function Lobby({ onFlagMaker, onCardStudio, onDeckBuilder, onPlay }: Prop
         </section>
 
         <div className="flex justify-center gap-3 mt-10">
-          <button onClick={() => downloadJSON(exportAll(), "custom-buddyfight-all.json")} className="btn"><Upload size={14} /> Export ทั้งหมด</button>
+          <button onClick={() => { backupAll(); setImportMsg(`สำรองข้อมูลแล้ว ${new Date().toLocaleTimeString("th-TH")} — เก็บไฟล์ไว้ในที่ปลอดภัย (เช่น Google Drive)`); }} className="btn"><Upload size={14} /> Export / สำรองทั้งหมด</button>
           <button onClick={() => fileRef.current?.click()} className="btn"><Download size={14} /> Import ทั้งหมด</button>
           <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
         </div>
         {importMsg && <p className="text-center text-sm text-cyan-400 mt-3">{importMsg}</p>}
+        <BackupStatusLine />
       </div>
     </div>
   );

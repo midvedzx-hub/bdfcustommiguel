@@ -255,6 +255,7 @@ export interface CounterCost {
 }
 
 export interface AutoSkill {
+  grantedBy?: string;   // ชื่อการ์ดที่ให้สกิลนี้มา (ผ่าน Soul / เงื่อนไข) — ใส่โดยเกมตอนคำนวณ ไม่ต้องตั้งเอง
   trigger: AutoTrigger;
   effects: AutoEffect[];
   name?: string;          // ชื่อคีย์เวิร์ดกำหนดเอง (แสดงเป็น 【ชื่อ】)
@@ -401,6 +402,9 @@ export interface Deck {
 
 export type CardState = "stand" | "rest";
 
+// ที่มาของตัวเลขสถานะก้อนหนึ่ง (ใช้แสดง "8000 = พื้นฐาน 5000 + …")
+export type StatSrc = { stat: "power" | "defense" | "critical" | "size"; v: number; label: string };
+
 export interface FieldCard {
   uid: string; // unique instance id
   cardId: string;
@@ -425,6 +429,8 @@ export interface FieldCard {
   manualDefense?: number;
   grantedSkills?: AutoSkill[]; // ความสามารถที่ได้รับจากการ์ดใน Soul (soulGrant) — คำนวณใหม่ทุก action
   tempGrantedSkills?: AutoSkill[]; // ความสามารถที่ได้รับชั่วคราวจนจบเทิร์น (เช่น condBuff ที่ตั้งทริกเกอร์ไม่ใช่ "ถาวร")
+  auraSrc?: StatSrc[];     // ที่มาของค่า aura แต่ละก้อน (Set / เงื่อนไข / โซล) — ไว้แสดงตอนวางเมาส์ที่ตัวเลข
+  tempSrc?: StatSrc[];     // ที่มาของบัฟชั่วคราวจนจบเทิร์น
   auraSize?: number;       // Size ที่เปลี่ยนจากสกิลถาวรแบบมีเงื่อนไข (คำนวณใหม่ทุก action)
   tempSize?: number;       // Size ที่เปลี่ยนชั่วคราวจนจบเทิร์น (จากสกิลแบบมีเงื่อนไขที่ทำงานตอนลงสนาม/โจมตี ฯลฯ)
   manualSize?: number;     // Sandbox: ปรับ Size ด้วยมือ (บวก/ลบจาก Size ของการ์ด) คงอยู่ตราบที่การ์ดอยู่บนสนาม

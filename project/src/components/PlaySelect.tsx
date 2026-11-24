@@ -5,13 +5,18 @@ import { DEFAULT_RULES, deckBuddies } from "@/types";
 import { getDecks, getFlags, getCards, getRules, saveRules } from "@/storage";
 import { ScreenShell, Switch } from "@/components/ui";
 import { CardView } from "@/components/CardView";
+import { ResumePanel } from "@/components/SaveBackupPanels";
+import type { SavedGame } from "@/game/savegame";
 
 interface Props {
   onExit: () => void;
   onPlay: (mode: "bot" | "multiplayer", deck: Deck, rules: RuleSet) => void;
+  saved?: SavedGame | null;
+  onResume?: () => void;
+  onDiscardSave?: () => void;
 }
 
-export function PlaySelect({ onExit, onPlay }: Props) {
+export function PlaySelect({ onExit, onPlay, saved, onResume, onDiscardSave }: Props) {
   const decks = getDecks();
   const flags = getFlags();
   const cards = getCards();
@@ -58,6 +63,8 @@ export function PlaySelect({ onExit, onPlay }: Props) {
 
   return (
     <ScreenShell title="เข้าสนามแข่ง" subtitle="เลือกเด็ค เลือกโหมด แล้วลุยเลย" icon={Swords} accent="#fb7185" onBack={onExit} maxW="max-w-4xl">
+      {saved && onResume && onDiscardSave && <ResumePanel saved={saved} onResume={onResume} onDiscard={onDiscardSave} />}
+      {saved && <p className="text-xs text-amber-300 -mt-3 mb-5">การเริ่มเกมใหม่ด้านล่างจะเขียนทับเกมที่เซฟค้างไว้ (เซฟใหม่เกิดขึ้นเมื่อเริ่มเกมจริง)</p>}
       {/* 1. เลือกเด็ค */}
       <section className="mb-7">
         <h3 className="font-display font-bold text-slate-300 mb-3 flex items-center gap-2"><span className="w-6 h-6 rounded-full bg-cyan-600 text-xs flex items-center justify-center">1</span> เลือกเด็ค</h3>

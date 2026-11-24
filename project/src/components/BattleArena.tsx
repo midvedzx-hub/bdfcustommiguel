@@ -4,14 +4,15 @@ import {
   Swords, Heart, Zap, Skull, LogOut, Plus, Minus, Hand, Trash2, RotateCw, Crown,
   Copy, LogIn, Users, RefreshCw, Wrench, X, Shield, Star, AlertTriangle, Link2, Eye,
 } from "lucide-react";
-import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet, FieldCard } from "@/types";
+import type { GameState, Card, Flag, Deck, SyncMessage, RuleSet, FieldCard, AutoSkill } from "@/types";
 import { TRIGGER_LABELS, customTextList, callCostLabel, canTransform, transformCostLabel, isMonsterImpact, matchesType, callSelfEffect, impactCastCondText } from "@/types";
 import { DEFAULT_RULES, deckBuddies } from "@/types";
-import type { SoulPick } from "@/game/engine";
+import type { SoulPick, StatExplain } from "@/game/engine";
+import { explainFc } from "@/game/engine";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
   callMonster, impactCall, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
-  goToAttack, goToFinal, mulligan, freeCallPositions, resolveFreeCall, transformCard, legalTargets, statsOf, counterOptions, callSelfSlots, impactCastProblem, effCostCard, soulCallOffers, useSoulCall, counterCardOf, counterAct, counterExtraCostLabel, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
+  goToAttack, goToFinal, mulligan, freeCallPositions, resolveFreeCall, transformCard, legalTargets, statsOf, counterOptions, callSelfSlots, impactCastProblem, effCostCard, soulCallOffers, useSoulCall, counterCardOf, counterAct, counterExtraCostLabel, handPlayability, counterBlockedHand, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxSetPhase, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, cardOfFc, matchCallRequires, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
@@ -26,12 +27,14 @@ import { CardView } from "@/components/CardView";
 import { FxLayer, Banner } from "@/components/FxLayer";
 import { playSfx } from "@/game/sfx";
 import { AudioControl } from "@/components/AudioControl";
+import { buildSave, saveGame, clearSavedGame, type SavedGame } from "@/game/savegame";
 
 interface Props {
   mode: "bot" | "multiplayer";
   hostDeck: Deck;
   rules?: RuleSet;
   initialState?: GameState; // ใช้ทดสอบ/แสดงตัวอย่าง
+  resume?: SavedGame;       // เล่นต่อเกมที่เซฟไว้ (บอท / ออนไลน์: ต่อห้องเดิม)
   onExit: () => void;
 }
 
@@ -45,6 +48,17 @@ type MenuTarget =
   | { kind: "deckView"; side: Side; mode: "search" | "top"; n: number; soulUid?: string }
   | null;
 type Drag = { kind: "hand"; index: number } | { kind: "unit"; uid: string } | null;
+
+// แคชผลเช็กว่าการ์ดในมือเล่นได้ไหม (ผูกกับอ็อบเจ็กต์สถานะ — เปลี่ยนสถานะเมื่อไหร่ก็คำนวณใหม่) กันคำนวณซ้ำทุกครั้งที่เลื่อนเมาส์
+const playCache = new WeakMap<object, Map<string, { ok: boolean; reason: string }>>();
+function playOf(g: GameState, side: "host" | "guest", i: number) {
+  let m = playCache.get(g);
+  if (!m) { m = new Map(); playCache.set(g, m); }
+  const k = `${side}:${i}`;
+  let v = m.get(k);
+  if (!v) { v = handPlayability(g, side, i); m.set(k, v); }
+  return v;
+}
 
 function shuffled<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -333,7 +347,7 @@ export function botStep(s: GameState): GameState {
 }
 
 /* ------------------------------------------------------------------ */
-export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialState, onExit }: Props) {
+export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialState, resume, onExit }: Props) {
   const [allCards] = useState<Card[]>(() => getCards());
   const [allFlags] = useState<Flag[]>(() => getFlags());
   const [allDecks] = useState<Deck[]>(() => getDecks());
@@ -341,25 +355,35 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   useState(() => {
     setCardCache(allCards);
     setCardSizeCache(allCards);
+    if (resume) {
+      // การ์ดที่ไม่มีในคลังเครื่องนี้ (เช่น การ์ดของเพื่อน) เอามาจากเซฟ — รูปจะมาจากคลัง/ที่เพื่อนส่งให้ทีหลัง
+      registerCards(Object.values(resume.cards));
+      Object.values(resume.flags).forEach(f => { _remoteFlagCache[f.id] = f; });
+    }
     return true;
   });
 
   const hostFlag = allFlags.find(f => f.id === hostDeck.flagId) ?? allFlags[0];
-  const [guestDeckId, setGuestDeckId] = useState<string>(allDecks[0]?.id ?? hostDeck.id);
+  const [guestDeckId, setGuestDeckId] = useState<string>(resume?.guestDeckId ?? allDecks[0]?.id ?? hostDeck.id);
   const guestDeck = allDecks.find(d => d.id === guestDeckId) ?? hostDeck;
   const guestFlag = allFlags.find(f => f.id === guestDeck.flagId) ?? hostFlag;
 
-  const [game, setGame] = useState<GameState>(() => initialState ?? makeGame(hostDeck, guestDeck, hostFlag, guestFlag, allCards, rules));
+  const [game, setGame] = useState<GameState>(() => initialState ?? resume?.state ?? makeGame(hostDeck, guestDeck, hostFlag, guestFlag, allCards, rules));
   const gameRef = useRef<GameState>(game);
 
   const [menuTarget, setMenuTarget] = useState<MenuTarget>(null);
   const [hovered, setHovered] = useState<{ card: Card; flagId?: string; stats?: { power: number; defense: number; critical: number }; soul?: number } | null>(null);
-  const [showRoomDialog, setShowRoomDialog] = useState(mode === "multiplayer");
-  const [roomId, setRoomId] = useState("");
-  const [joinId, setJoinId] = useState("");
+  const [showRoomDialog, setShowRoomDialog] = useState(mode === "multiplayer" && !resume);
+  const [roomId, setRoomId] = useState(resume?.roomId ?? "");
+  const [joinId, setJoinId] = useState(resume?.roomId ?? "");
   const [mpStatus, setMpStatus] = useState("");
-  const [role, setRole] = useState<Side>("host");
-  const roleRef = useRef<Side>("host");
+  const [role, setRole] = useState<Side>(resume?.role ?? "host");
+  const roleRef = useRef<Side>(resume?.role ?? "host");
+  const persistRef = useRef<() => void>(() => {});
+  const roomIdRef = useRef(resume?.roomId ?? "");
+  const liveGameRef = useRef(!!resume);            // มีเกมที่กำลังเล่นอยู่แล้ว (เล่นต่อ / เคยเริ่มเกมแล้ว) — เพื่อนกลับเข้าห้องแล้วไม่สร้างเกมใหม่ทับ
+  const [dropped, setDropped] = useState(false);   // การเชื่อมต่อกับเพื่อนหลุดระหว่างเล่น
+  const [exitAsk, setExitAsk] = useState(false);
   const [connected, setConnected] = useState(false);
   const [synced, setSynced] = useState(mode !== "multiplayer");
   const syncedRef = useRef(mode !== "multiplayer");
@@ -391,6 +415,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const [inspectMode, setInspectMode] = useState(false);
   const [soulTarget, setSoulTarget] = useState<string | null>(null); // เลือกการ์ดที่จะรับ Soul แล้ว (ขั้นที่ 2: เลือกใบจากมือ/สุสาน)
   const [soulPicks, setSoulPicks] = useState<SoulPick[]>([]);
+  const [statTip, setStatTip] = useState<{ uid: string; stat: "power" | "defense" | "critical" | "size"; x: number; y: number } | null>(null); // ป้ายอธิบายที่มาของตัวเลขสถานะ
   const [soulView, setSoulView] = useState<{ title: string; ids: string[]; flagId?: string } | null>(null); // หน้าต่างดูการ์ดใน Soul
   const [flagInfo, setFlagInfo] = useState<Flag | null>(null);
   const [hidden, setHidden] = useState<string[]>([]);
@@ -517,10 +542,24 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       });
 
       if (msg.type === "hello" && roleRef.current === "host" && msg.deck) {
+        // เพื่อนกลับเข้าห้องเดิมระหว่างเกมที่กำลังเล่น/เซฟไว้: ส่งสถานะเดิมให้ ไม่สร้างเกมใหม่ทับ
+        const live = gameRef.current;
+        if (liveGameRef.current && live.mulligan?.host && live.mulligan?.guest) {
+          syncedRef.current = true;
+          setSynced(true);
+          setConnected(true);
+          setDropped(false);
+          setShowRoomDialog(false);
+          mp.send({ type: "state", state: live, cards: collectCards(hostDeck, allCards), flags: stripFlags(hostFlag) });
+          sendImages(hostDeck, allCards, hostFlag);
+          setNotice({ title: "เพื่อนกลับเข้าห้องแล้ว", msg: "เล่นต่อจากสถานะเดิมได้เลย" });
+          return;
+        }
         const gDeck = msg.deck;
         const gFlag = msg.flags?.[gDeck.flagId] ?? Object.values(msg.flags ?? {})[0] ?? hostFlag;
         const gs = makeGame(hostDeck, gDeck, hostFlag, gFlag, allCards, rules);
         commit(gs);
+        liveGameRef.current = true;
         syncedRef.current = true;
         setSynced(true);
         setConnected(true);
@@ -538,6 +577,12 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       if (msg.type === "state" && msg.state) {
         const cur = gameRef.current;
         const inc = msg.state;
+        // ผู้เข้าร่วมที่ต่อกลับเข้ามา แล้วสถานะของตัวเองใหม่กว่าของเจ้าของห้อง (เช่น เพิ่งทำอะไรไปตอนเน็ตหลุด): ส่งของเราให้เจ้าของห้องใช้แทน
+        if (roleRef.current === "guest" && !syncedRef.current && liveGameRef.current && (inc.rev ?? 0) < (cur.rev ?? 0)) {
+          mp.send({ type: "state", state: cur });
+          syncedRef.current = true; setSynced(true); setConnected(true); setDropped(false); setShowRoomDialog(false);
+          return;
+        }
         const accept = (inc.rev ?? 0) > (cur.rev ?? 0) ||
           ((inc.rev ?? 0) === (cur.rev ?? 0) && roleRef.current === "guest") || !syncedRef.current;
         if (!accept) return;
@@ -553,15 +598,32 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         if (syncedRef.current && !msg.auto && (inc.rev ?? 0) > (cur.rev ?? 0) && !cur.winner && cur.mulligan?.host && cur.mulligan?.guest) pushHist(cur, inc, roleRef.current === "host" ? "guest" : "host");
         commit(inc);
         if (roleRef.current === "guest") {
+          liveGameRef.current = true;
           syncedRef.current = true;
           setSynced(true);
           setConnected(true);
+          setDropped(false);
           setShowRoomDialog(false);
         }
       }
     };
     mp.onStatus = (s) => setMpStatus(s);
-    return () => { mp.disconnect(); };
+    mp.onClose = () => {
+      // เน็ตหลุด / เพื่อนปิดแท็บ: หยุดเล่นชั่วคราว เกมถูกเซฟอัตโนมัติไว้แล้ว — เพื่อนต่อกลับเข้ามาห้องเดิมแล้วเล่นต่อได้
+      syncedRef.current = false;
+      setSynced(false);
+      setConnected(false);
+      setDropped(true);
+    };
+    // เล่นต่อเกมออนไลน์ที่เซฟไว้: เจ้าของห้องเปิดห้องเดิม / ผู้เข้าร่วมต่อห้องเดิมให้อัตโนมัติ
+    if (resume && mode === "multiplayer") {
+      if (resume.role === "host") {
+        mp.hostRoom(resume.roomId, true).catch(() => { /* สถานะแสดงใน mpStatus ผู้เล่นกดเชื่อมต่อใหม่เองได้ */ });
+      } else {
+        joinRoomWith(resume.roomId);
+      }
+    }
+    return () => { mp.onClose = null; mp.disconnect(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -682,13 +744,15 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   useEffect(() => {
     if (game.winner || !started || game.phase !== "draw" || game.battle) return;
     if (game.currentTurn !== mySide) return; // ฝั่งตรงข้าม/บอทจัดการเอง
+    if (mode === "multiplayer" && !synced) return; // ออนไลน์: รอเชื่อมต่อกับเพื่อนก่อนค่อยจั่ว (เช่น เล่นต่อเกมที่เซฟไว้)
     const t = setTimeout(() => act("จั่วไม่ได้", s => (s.phase === "draw" && s.currentTurn === mySide ? drawPhase(s, mySide) : { state: s, ok: true, msg: "" }), true), 900);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game.phase, game.currentTurn, game.turn, started]);
+  }, [game.phase, game.currentTurn, game.turn, started, synced]);
 
   /* ---------------- แจ้งเตือนการ์ดที่ถูกลบแต่ยังค้างในเด็ค ---------------- */
   useEffect(() => {
+    if (resume) return; // เล่นต่อเกมเดิม: ไม่ต้องตรวจเด็ค
     const miss = (d: Deck) => d.cardIds.filter(id => !getCard(id)).length;
     const mine = miss(hostDeck);
     const bot = mode === "bot" ? miss(guestDeck) : 0;
@@ -793,8 +857,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     mp.hostRoom(id).catch(() => setRoomId(""));
   }
 
-  function joinRoom() {
-    const id = joinId.trim().toUpperCase();
+  function joinRoom() { joinRoomWith(joinId.trim().toUpperCase()); }
+  function joinRoomWith(id: string) {
     if (!id) return;
     roleRef.current = "guest";
     setRole("guest");
@@ -804,7 +868,56 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         mp.send({ type: "hello", deck: hostDeck, cards: collectCards(hostDeck, allCards), flags: stripFlags(hostFlag) });
         sendImages(hostDeck, allCards, hostFlag);
       })
-      .catch(() => { roleRef.current = "host"; setRole("host"); });
+      .catch(() => { if (!liveGameRef.current) { roleRef.current = "host"; setRole("host"); } }); // เล่นต่อ/ต่อกลับ: ห้ามสลับบทบาท
+  }
+
+  // ต่อห้องเดิมใหม่หลังหลุด: เจ้าของห้องเปิดห้องเดิมรอเพื่อน / ผู้เข้าร่วมเข้าห้องเดิมอีกครั้ง
+  function reconnect() {
+    const id = roomId || resume?.roomId || "";
+    if (!id) { setShowRoomDialog(true); return; }
+    setMpStatus("กำลังเชื่อมต่อห้อง " + id + " ใหม่...");
+    if (roleRef.current === "host") mp.hostRoom(id, true).catch(() => { /* สถานะแสดงใน mpStatus */ });
+    else joinRoomWith(id);
+  }
+
+  /* ---------------- เซฟเกมอัตโนมัติ ---------------- */
+  // บันทึกทุกครั้งที่สถานะเปลี่ยน (หลังเริ่มเกมจริง ๆ) — ปิดแท็บ/เน็ตหลุด/รีเฟรช แล้วกด "เล่นต่อ" ที่หน้าแรกได้
+  const inProgress = started && !game.winner && !initialState;
+  function persistNow() {
+    const g = gameRef.current;
+    if (initialState || !g.mulligan?.host || !g.mulligan?.guest || g.winner) return;
+    saveGame(buildSave({
+      mode, role: roleRef.current, roomId: mode === "multiplayer" ? roomIdRef.current : "",
+      hostDeck, guestDeckId: mode === "bot" ? guestDeckId : undefined, rules: g.rules ?? rules, state: g,
+      flagOf: id => allFlags.find(f => f.id === id) ?? _remoteFlagCache[id],
+    }));
+  }
+  persistRef.current = persistNow;
+  roomIdRef.current = roomId;
+  useEffect(() => {
+    if (initialState) return;
+    if (game.winner) { clearSavedGame(); return; }
+    if (!started) return;
+    const t = window.setTimeout(() => persistRef.current(), 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game, roomId]);
+  useEffect(() => {
+    const flush = () => persistRef.current();
+    const warn = (e: BeforeUnloadEvent) => {
+      flush();
+      // ออนไลน์: ปิดแท็บแล้วเพื่อนหลุด จึงถามก่อน (เซฟไว้แล้ว กลับมาเล่นต่อห้องเดิมได้)
+      if (mode === "multiplayer" && gameRef.current.mulligan?.host && gameRef.current.mulligan?.guest && !gameRef.current.winner) { e.preventDefault(); e.returnValue = ""; }
+    };
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", warn);
+    return () => { window.removeEventListener("pagehide", flush); window.removeEventListener("beforeunload", warn); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  function requestExit() {
+    if (inProgress) { setExitAsk(true); return; }
+    if (game.winner) clearSavedGame();
+    onExit();
   }
 
   function changeBotDeck(id: string) {
@@ -969,7 +1082,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               >
                 <SoulStack n={m.soul.length} />
                 <CardView
-                  card={card} flag={flag} width="var(--cw)" hideText stats={statsOf(m)} soul={m.soul.length} sizeValue={sizeOfFc(m)}
+                  card={card} flag={flag} width="var(--cw)" hideText stats={statsOf(m)} soul={m.soul.length} sizeValue={sizeOfFc(m)} onStatHover={(stat, ev) => setStatTip(stat && ev ? { uid: m.uid, stat, x: ev.clientX, y: ev.clientY } : null)}
                   onInspect={() => openInspect(card, p.flagId, m)}
                   draggable={isMine && (canAtk(m) || canMoveThis)}
                   onDragStart={() => { dragRef.current = { kind: "unit", uid: m.uid }; if (canAttackNow && !atkSels.includes(m.uid)) setAtkSels([m.uid]); }}
@@ -1139,7 +1252,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                 )}
                 <div className="transition-transform duration-500 relative" style={{ transform: p.item.state === "rest" ? "rotate(90deg)" : "none" }} onMouseEnter={() => setHovered({ card: cardOfFc(p.item!)!, flagId: p.flagId, stats: statsOf(p.item!), soul: p.item!.soul.length })}>
                   <SoulStack n={p.item.soul.length} />
-                  <CardView card={cardOfFc(p.item)!} flag={flag} width="calc(var(--mh) * 0.22)" hideText stats={statsOf(p.item)} soul={p.item.soul.length}
+                  <CardView card={cardOfFc(p.item)!} flag={flag} width="calc(var(--mh) * 0.22)" hideText stats={statsOf(p.item)} soul={p.item.soul.length} onStatHover={(stat, ev) => setStatTip(stat && ev ? { uid: p.item!.uid, stat, x: ev.clientX, y: ev.clientY } : null)}
                     onInspect={() => openInspect(cardOfFc(p.item!)!, p.flagId, p.item)}
                     draggable={isMine && canAtk(p.item, true)}
                     onDragStart={() => { dragRef.current = { kind: "unit", uid: p.item!.uid }; if (!atkSels.includes(p.item!.uid)) setAtkSels([p.item!.uid]); }}
@@ -1198,9 +1311,22 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           const card = cardOf(cid);
           if (!card) return <CardView key={i} faceDown width={hw} style={style} />;
           const sel = handSel === i;
-          const glow = chargePick ? "ring-2 ring-amber-400" : sel ? "ring-4 ring-cyan-400 -translate-y-3" : "";
+          const play = !game.winner && !chargePick ? playOf(game, mySide, i) : { ok: false, reason: "" };
+          const isCounterNow = freeOpts.some(o => o.zone === "hand" && o.index === i);
+          const turnActive = isMyTurn && (game.phase === "main" || game.phase === "final") && !busy;
+          const hint = play.ok || !isMyTurn ? "" : (play.reason || ""); // เหตุผลที่เล่นไม่ได้ แสดงเฉพาะเทิร์นของเรา
+          const glow = chargePick ? "ring-2 ring-amber-400"
+            : sel ? "ring-4 ring-cyan-400 -translate-y-3"
+            : play.ok ? "hand-playable"
+            : isCounterNow ? "hand-counter"
+            : turnActive && hint ? "opacity-70" : "";
           return (
-            <div key={i} className={`hand-card anim-draw ${glow} rounded-lg`} style={{ ...style, animationDelay: `${Math.min(i, 8) * 45}ms` }} onMouseEnter={() => setHovered({ card, flagId: p.flagId })}>
+            <div key={i} className={`hand-card anim-draw group relative ${glow} rounded-lg`} style={{ ...style, animationDelay: `${Math.min(i, 8) * 45}ms` }} onMouseEnter={() => setHovered({ card, flagId: p.flagId })} title={hint || undefined}>
+              {(hint || play.ok || isCounterNow) && !sel && (
+                <div className={`pointer-events-none hidden group-hover:block absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-40 w-max max-w-[16rem] rounded-lg px-2.5 py-1.5 text-xs leading-snug shadow-xl border ${play.ok ? "bg-emerald-900/95 border-emerald-400 text-emerald-100" : isCounterNow && !hint ? "bg-sky-900/95 border-sky-400 text-sky-100" : "bg-slate-900/95 border-amber-500 text-amber-200"}`}>
+                  {play.ok ? "✓ เล่นการ์ดใบนี้ได้ตอนนี้" : isCounterNow && !hint ? "⚡ ใช้เป็น Counter ได้ตอนนี้" : `✗ ${hint}${isCounterNow ? " (แต่ใช้เป็น Counter ได้)" : ""}`}
+                </div>
+              )}
               <CardView
                 card={card} flag={flag} width={hw} hideText
                 draggable={canPlayNow || (isMyTurn && game.phase === "final") || freeOpts.some(o => o.zone === "hand" && o.index === i)}
@@ -1625,7 +1751,10 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               if (!c) return null;
               return (
                 <div key={k} className="flex flex-col items-center gap-1">
-                  <CardView card={c} flag={flagOf(me.flagId)} size="md" onClick={() => doCounter(o)} onInspect={() => openInspect(c, me.flagId)} className="hover:ring-4 hover:ring-sky-400" />
+                  <div className="relative">
+                    <CardView card={c} flag={flagOf(me.flagId)} size="md" onClick={() => doCounter(o)} onInspect={() => openInspect(c, me.flagId)} className="counter-glow hover:scale-105 transition-transform" />
+                    <span className="absolute -top-2 -right-2 z-10 px-1.5 py-0.5 rounded-full bg-sky-500 text-white text-[10px] font-bold shadow">✓ ใช้ได้</span>
+                  </div>
                   <span className="text-[11px] text-sky-300">{zoneLabel(o)}</span>
                   {counterSkillLabel(c, o) && <span className="text-[11px] text-slate-200 max-w-[180px] text-center leading-snug bg-slate-800 rounded px-2 py-1">{counterSkillLabel(c, o)}</span>}
                   <button onClick={() => doCounter(o)} className="px-3 py-1 bg-sky-600 hover:bg-sky-500 rounded-lg text-xs font-bold">ใช้ Counter{o.zone === "hand" ? ` (Cost ${callCostLabel(c)})` : ""}</button>
@@ -1634,6 +1763,24 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
               );
             })}
           </div>
+          {opts.length === 0 && <div className="text-sm text-slate-400 mb-3">ตอนนี้ไม่มี Counter ที่ใช้ได้</div>}
+          {counterBlockedHand(game, mySide).length > 0 && (
+            <div className="mb-4">
+              <div className="text-xs font-bold text-slate-400 mb-2">Counter ในมือที่ใช้ไม่ได้ตอนนี้</div>
+              <div className="flex flex-wrap gap-3">
+                {counterBlockedHand(game, mySide).map(bk => {
+                  const bc = cardOf(me.hand[bk.index]);
+                  if (!bc) return null;
+                  return (
+                    <div key={bk.index} className="flex flex-col items-center gap-1 opacity-60" title={bk.reason}>
+                      <CardView card={bc} flag={flagOf(me.flagId)} size="sm" onInspect={() => openInspect(bc, me.flagId)} />
+                      <span className="text-[11px] text-amber-300 max-w-[140px] text-center leading-snug">✗ {bk.reason}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <button onClick={doPassCounter} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">ไม่ใช้ Counter — {b ? "ต่อสู้เลย" : "ให้เวทมีผล"}</button>
         </div>
       </div>
@@ -1802,6 +1949,65 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     );
   }
 
+  // ---- อธิบายที่มาของตัวเลข: "8000 = พื้นฐาน 5000 + Fruzel 3000 (โซล 3 ใบ)" ----
+  const STAT_NAMES = { power: "Power", defense: "Defense", critical: "Critical", size: "Size" } as const;
+  const fmtExplain = (ex: StatExplain) => `${ex.total} = ` + ex.lines.map((l, i) => `${i === 0 ? "" : l.value < 0 ? " − " : " + "}${l.label} ${Math.abs(l.value)}`).join("");
+  const liveFc = (uid: string): FieldCard | null => {
+    for (const sd of ["host", "guest"] as const) {
+      const pl = game[sd];
+      const f = [...pl.monsters, ...(pl.item ? [pl.item] : [])].find(x => x.uid === uid);
+      if (f) return f;
+    }
+    return null;
+  };
+  const abilityTextOf = (base: Card, sk: AutoSkill) => {
+    const l = skillLines({ ...base, callRequires: undefined, autoSkills: [sk] } as Card);
+    return l[0] ?? (keywordBadges({ ...base, autoSkills: [sk] } as Card).join(", ") || "สกิล");
+  };
+  // รายการความสามารถพร้อมที่มา และจำนวนครั้งที่ใช้ Counter 【Act】 ไปแล้วในเทิร์นนี้
+  function renderAbilityList(fc: FieldCard, max = 99) {
+    const ex = explainFc(fc, game.turn);
+    const base = getCard(fc.cardId);
+    if (!ex || !base || ex.abilities.length === 0) return null;
+    return (
+      <div className="space-y-1">
+        {ex.abilities.slice(0, max).map(a => (
+          <div key={a.idx} className="leading-snug">
+            <span className="text-amber-100">▪ {abilityTextOf(base, a.skill)}</span>
+            <span className={a.source ? "text-violet-300" : "text-slate-500"}> ← {a.source ? `ได้จาก ${a.source}${a.temp ? "" : ""}` : "ของการ์ดนี้เอง"}</span>
+            {a.act && <span className={a.act.used >= a.act.max ? "text-rose-300" : "text-emerald-300"}> · Counter Act ใช้แล้ว {a.act.used}/{a.act.max} ครั้งในเทิร์นนี้</span>}
+          </div>
+        ))}
+        {ex.abilities.length > max && <div className="text-slate-500">…และอีก {ex.abilities.length - max} สกิล (ดูทั้งหมดในหน้ารายละเอียดการ์ด)</div>}
+      </div>
+    );
+  }
+  function renderStatTip() {
+    if (!statTip) return null;
+    const fc = liveFc(statTip.uid);
+    const ex = fc ? explainFc(fc, game.turn) : null;
+    if (!fc || !ex) return null;
+    const st = ex[statTip.stat];
+    const color = statTip.stat === "power" ? "text-rose-300" : statTip.stat === "defense" ? "text-sky-300" : statTip.stat === "size" ? "text-amber-300" : "text-white";
+    const left = Math.max(8, Math.min(statTip.x + 16, window.innerWidth - 372));
+    const top = Math.max(8, Math.min(statTip.y + 16, window.innerHeight - 340));
+    return (
+      <div className="fixed z-[70] pointer-events-none w-[356px] max-h-[80vh] overflow-hidden rounded-xl border border-cyan-500 bg-slate-950/95 p-3 text-xs shadow-2xl" style={{ left, top }}>
+        <div className={`font-bold text-sm mb-1 ${color}`}>{STAT_NAMES[statTip.stat]} {st.total}</div>
+        <div className="text-slate-100 font-semibold leading-snug mb-1.5">{fmtExplain(st)}</div>
+        <div className="space-y-0.5 text-slate-300">
+          {st.lines.map((l, i) => (
+            <div key={i} className="flex justify-between gap-3"><span className="min-w-0">{i === 0 ? "" : "• "}{l.label}</span><b className={l.value < 0 ? "text-rose-300" : "text-emerald-300"}>{i === 0 ? l.value : `${l.value > 0 ? "+" : "−"}${Math.abs(l.value)}`}</b></div>
+          ))}
+        </div>
+        <div className="mt-2 pt-2 border-t border-slate-700 text-[11px]">
+          <div className="font-bold text-cyan-300 mb-1">ความสามารถของการ์ดนี้ และที่มา</div>
+          {renderAbilityList(fc, 6)}
+        </div>
+      </div>
+    );
+  }
+
   // หน้าต่างดูการ์ดใน Soul ของการ์ดใบหนึ่ง (เปิดจากปุ่ม ◆ ที่การ์ด หรือจากหน้าดูการ์ด) กดการ์ดเพื่อดูรายละเอียด
   function renderSoulView() {
     if (!soulView) return null;
@@ -1884,6 +2090,21 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
                   {maxAttacks(card) > 1 ? <> · โจมตีแล้ว <b className="text-white">{fc.attacks}/{maxAttacks(card)}</b></> : null}
                 </div>
               )}
+              {fc && (() => {
+                const lf = liveFc(fc.uid) ?? fc;
+                const ex = explainFc(lf, game.turn);
+                if (!ex) return null;
+                return (
+                  <div className="bg-slate-800/60 rounded-lg px-3 py-2 text-xs space-y-1.5">
+                    <div className="font-bold text-cyan-300">ที่มาของค่าสถานะ</div>
+                    {(["power", "critical", "defense", "size"] as const).map(k => (
+                      <div key={k} className="leading-snug"><b className="text-slate-200">{STAT_NAMES[k]}</b> <span className="text-slate-300">{fmtExplain(ex[k])}</span></div>
+                    ))}
+                    <div className="font-bold text-cyan-300 pt-1">ความสามารถและที่มา</div>
+                    {renderAbilityList(lf)}
+                  </div>
+                );
+              })()}
               {cost && <div><div className="text-xs font-bold text-slate-400 mb-1">Call Cost</div><div className="text-slate-200">{cost}</div></div>}
               {(card.autoSkills.length > 0 || customTextList(card).length > 0) ? (
                 <div>
@@ -2250,7 +2471,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
           <Crown size={84} className="mx-auto mb-4 crown-float" style={{ color: myWin ? "#fbbf24" : "#64748b", filter: myWin ? "drop-shadow(0 0 22px #fbbf24)" : "none" }} />
           <h2 className="result-in font-display text-6xl font-extrabold mb-3" style={{ color: col, textShadow: `0 0 30px ${col}` }}>{myWin ? "ชนะ!" : "แพ้!"}</h2>
           <p className="text-slate-300 mb-2">{game.log[game.log.length - 1]}</p>
-          <button onClick={onExit} className="mt-4 px-8 py-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl transition font-bold hover:scale-105">กลับเมนู</button>
+          <button onClick={() => { clearSavedGame(); onExit(); }} className="mt-4 px-8 py-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl transition font-bold hover:scale-105">กลับเมนู</button>
         </div>
       </div>
     );
@@ -2264,7 +2485,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       <div className="flex-1 min-w-0 p-2 flex flex-col items-center gap-2">
         <div className="panel !rounded-2xl flex items-center justify-between gap-2 flex-wrap w-full px-3 py-2" style={{ maxWidth: "min(100%, max(var(--mw), 760px))" }}>
           <div className="flex items-center gap-2 min-w-0">
-            <button onClick={onExit} title="ออกจากเกม" className="btn !py-1.5 !px-3 !text-xs"><LogOut size={14} /> ออก</button>
+            <button onClick={requestExit} title="ออกจากเกม" className="btn !py-1.5 !px-3 !text-xs"><LogOut size={14} /> ออก</button>
             <div className="hidden sm:flex items-center gap-2 text-sm font-display font-bold min-w-0">
               <button className="truncate max-w-[10rem] hover:underline" title="ดูความสามารถของ Flag" onClick={() => { const f = flagOf(me.flagId); if (f) setFlagInfo(f); }} style={{ color: getFlagColor(flagOf(me.flagId)) }}>{flagOf(me.flagId)?.name ?? "คุณ"}</button>
               <span className="text-slate-500 text-xs">VS</span>
@@ -2293,8 +2514,13 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         </div>
 
         {mode === "multiplayer" && !synced && (
-          <div className="text-center text-sm text-amber-300 bg-amber-900/20 border border-amber-700 rounded-lg py-2 w-full" style={{ maxWidth: "var(--mw)" }}>
-            {role === "host" ? "รอเพื่อนเข้าห้องก่อน จึงจะเริ่มเล่นได้" : "กำลังเชื่อมต่อกับเจ้าของห้อง..."}
+          <div className="text-center text-sm text-amber-300 bg-amber-900/20 border border-amber-700 rounded-lg py-2 px-3 w-full flex items-center justify-center gap-3 flex-wrap" style={{ maxWidth: "var(--mw)" }}>
+            <span>
+              {dropped || (started && liveGameRef.current)
+                ? `การเชื่อมต่อหลุด — เกมถูกบันทึกไว้อัตโนมัติแล้ว ${role === "host" ? `รอเพื่อนกลับเข้าห้องเดิม ${roomId}` : `กดเชื่อมต่อใหม่เพื่อกลับเข้าห้อง ${roomId}`}`
+                : role === "host" ? "รอเพื่อนเข้าห้องก่อน จึงจะเริ่มเล่นได้" : "กำลังเชื่อมต่อกับเจ้าของห้อง..."}
+            </span>
+            {(dropped || (started && liveGameRef.current)) && <button onClick={reconnect} className="btn btn-primary !py-1 !px-3 !text-xs"><RefreshCw size={12} /> เชื่อมต่อใหม่</button>}
           </div>
         )}
         {mode === "multiplayer" && mpStatus && <div className="text-center text-xs text-slate-500">{mpStatus}</div>}
@@ -2358,6 +2584,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[44] panel !rounded-2xl px-4 py-2 text-sm text-amber-200 border-amber-500/50">ศัตรูกำลังดูการ์ดบนกองและเลือกการ์ด...</div>
       )}
       {renderSoulView()}
+      {renderStatTip()}
       {renderInspect()}
       {renderNotice()}
       {undoAsk && (
@@ -2373,6 +2600,23 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             <div className="flex gap-2">
               <button onClick={() => doUndo(undoAsk)} className="flex-1 py-2 bg-amber-600 hover:bg-amber-500 rounded-xl font-bold">ยืนยัน</button>
               <button onClick={() => setUndoAsk(null)} className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl">ยกเลิก</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {exitAsk && (
+        <div className="fixed inset-0 bg-black/75 z-[70] flex items-center justify-center p-4" onClick={() => setExitAsk(false)}>
+          <div className="bg-slate-900 border-2 border-cyan-600 rounded-2xl p-5 max-w-md w-full" onClick={e => e.stopPropagation()}>
+            <h3 className="font-display text-xl font-bold text-cyan-300 mb-1">ออกจากเกมที่กำลังเล่นอยู่?</h3>
+            <p className="text-sm text-slate-300 mb-4">
+              เกมถูกบันทึกอัตโนมัติทุกครั้งที่ทำอะไร จึงออกไปแล้วกลับมา <b>“เล่นต่อ”</b> ที่หน้าแรกได้
+              {mode === "multiplayer" && <span className="block mt-1 text-amber-300">ออนไลน์: เพื่อนจะหลุดจากห้อง ต้องรอคุณกลับเข้าห้องเดิม ({roomId}) แล้วเล่นต่อจากสถานะนี้</span>}
+            </p>
+            <div className="space-y-2">
+              <button onClick={() => { persistNow(); onExit(); }} className="w-full py-2.5 bg-cyan-600 hover:bg-cyan-500 rounded-xl font-bold">ออกและเก็บเซฟไว้เล่นต่อ</button>
+              <button onClick={() => { clearSavedGame(); onExit(); }} className="w-full py-2.5 bg-rose-700 hover:bg-rose-600 rounded-xl font-bold">ออกและทิ้งเกมนี้ (ลบเซฟ)</button>
+              <button onClick={() => setExitAsk(false)} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">อยู่ในเกมต่อ</button>
             </div>
           </div>
         </div>

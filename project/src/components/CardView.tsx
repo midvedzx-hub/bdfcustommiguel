@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import type { Card, Flag } from "@/types";
 import { isMonsterImpact } from "@/types";
 import { customTextList } from "@/types";
@@ -13,6 +13,7 @@ interface Props {
   sizeValue?: number; // Size ที่ใช้แสดง (มอนสเตอร์บนสนามที่ถูกปรับ Size) ถ้าไม่ส่ง = Size ของการ์ด
   width?: string; // ความกว้างเอง (CSS length) เช่น "var(--cw)"
   stats?: { power: number; defense: number; critical: number }; // ค่ารวมบัฟแล้ว (ในสนาม)
+  onStatHover?: (stat: "power" | "defense" | "critical" | "size" | null, e?: ReactMouseEvent) => void; // วางเมาส์ที่ตัวเลขสถานะ (ไว้แสดงที่มาของตัวเลข)
   soul?: number; // จำนวน Soul ใต้การ์ด (ส่งมาเฉพาะการ์ดบนสนาม) — แสดงเป็นลูกแก้ว + โล่ Soulguard
   faceDown?: boolean;
   hideText?: boolean;
@@ -100,7 +101,7 @@ export function SoulRail({ count, guardCost }: { count: number; guardCost: numbe
 //  - Impact: เป็นการ์ดแนวนอน (88:63) กล่องข้อความซ้าย ป้าย Tag ขวา
 // ทุกอย่างใช้หน่วย em และ font-size = ความกว้าง/16 จึงย่อ-ขยายได้ทุกขนาด
 export function CardView({
-  card, flag, size = "md", sizeValue, width, stats, soul, faceDown, hideText, onClick, className = "", style,
+  card, flag, size = "md", sizeValue, width, stats, onStatHover, soul, faceDown, hideText, onClick, className = "", style,
   draggable, onDragStart, onDragEnd, onInspect, children,
 }: Props) {
   const w = width ?? WIDTHS[size];
@@ -138,6 +139,10 @@ export function CardView({
     ) : null;
 
   const st = stats ?? { power: card.power, defense: card.defense, critical: card.critical };
+  // ถ้ามีตัวจัดการ onStatHover ใช้แทน title ปกติ (ป้ายแสดงที่มาของตัวเลขจะเปิดจากภายนอก)
+  const hv = (stat: "power" | "defense" | "critical" | "size") => onStatHover
+    ? { onMouseEnter: (e: ReactMouseEvent) => onStatHover(stat, e), onMouseMove: (e: ReactMouseEvent) => onStatHover(stat, e), onMouseLeave: () => onStatHover(null) }
+    : {};
   const lines = skillLines(card);
   const badges = keywordBadges(card);
   const cost = costText(card);
@@ -159,14 +164,14 @@ export function CardView({
         {/* พื้นที่ด้านบน: Size + แถบสถิติ (ยืดหดตามความสูงของส่วนล่าง จึงไม่ทับกัน) */}
         <div className="relative flex-1 min-h-0 z-10">
           <div className="absolute top-0 left-0 flex flex-col items-center text-center" style={{ width: "4.4em", padding: "0.2em 0 0.5em", background: "linear-gradient(180deg, rgba(8,12,24,.92), rgba(8,12,24,.7))", clipPath: "polygon(0 0, 100% 0, 100% 78%, 78% 100%, 0 100%)" }}>
-            <span className="font-display font-bold text-amber-300 leading-none" style={{ fontSize: "2.5em", ...stroke }}>{sizeValue ?? card.size}</span>
+            <span className="font-display font-bold text-amber-300 leading-none" style={{ fontSize: "2.5em", ...stroke }} {...hv("size")}>{sizeValue ?? card.size}</span>
             <span className="text-white font-semibold leading-none" style={{ fontSize: "0.58em" }}>{TYPE_LABEL.Monster}</span>
           </div>
           {/* Defense (ฟ้า) บน · Critical กลาง · Power (แดง) ล่าง */}
           <div className="absolute left-0 flex flex-col items-center justify-between font-display font-bold overflow-hidden" style={{ top: "4.9em", bottom: "0.3em", width: "2.3em", padding: "0.15em 0", background: "linear-gradient(90deg, rgba(0,0,0,.6), rgba(0,0,0,0))" }}>
-            <span style={vert("#7dd3fc", st.defense)} title="Defense">{st.defense}</span>
-            <span className="text-white" style={{ fontSize: compact ? "2.2em" : "1.9em", lineHeight: 1, ...stroke }} title="Critical">{st.critical}</span>
-            <span style={vert("#fb7185", st.power)} title="Power">{st.power}</span>
+            <span style={vert("#7dd3fc", st.defense)} title={onStatHover ? undefined : "Defense"} {...hv("defense")}>{st.defense}</span>
+            <span className="text-white" style={{ fontSize: compact ? "2.2em" : "1.9em", lineHeight: 1, ...stroke }} title={onStatHover ? undefined : "Critical"} {...hv("critical")}>{st.critical}</span>
+            <span style={vert("#fb7185", st.power)} title={onStatHover ? undefined : "Power"} {...hv("power")}>{st.power}</span>
           </div>
         </div>
 
@@ -283,15 +288,15 @@ export function CardView({
         {/* Item: Defense (ฟ้า, แสดงเมื่อ > 0) บน · Critical กลาง · Power (แดง) ล่าง เรียงแนวตั้งด้านซ้ายแบบเดียวกับมอนสเตอร์ */}
         {isItem && showStat && (
           <div className="absolute left-0 flex flex-col items-center justify-between font-display font-bold overflow-hidden" style={{ top: "4.9em", bottom: "0.3em", width: "2.3em", padding: "0.15em 0", background: "linear-gradient(90deg, rgba(0,0,0,.6), rgba(0,0,0,0))" }}>
-            {st.defense > 0 && <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: vertSize(st.defense, compact), lineHeight: 1, whiteSpace: "nowrap", color: "#7dd3fc", ...stroke }} title="Defense">{st.defense}</span>}
-            <span className="text-white" style={{ fontSize: compact ? "2.2em" : "1.9em", lineHeight: 1, ...stroke }} title="Critical">{st.critical}</span>
-            <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: vertSize(st.power, compact), lineHeight: 1, whiteSpace: "nowrap", color: "#fb7185", ...stroke }} title="Power">{st.power}</span>
+            {st.defense > 0 && <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: vertSize(st.defense, compact), lineHeight: 1, whiteSpace: "nowrap", color: "#7dd3fc", ...stroke }} title={onStatHover ? undefined : "Defense"} {...hv("defense")}>{st.defense}</span>}
+            <span className="text-white" style={{ fontSize: compact ? "2.2em" : "1.9em", lineHeight: 1, ...stroke }} title={onStatHover ? undefined : "Critical"} {...hv("critical")}>{st.critical}</span>
+            <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: vertSize(st.power, compact), lineHeight: 1, whiteSpace: "nowrap", color: "#fb7185", ...stroke }} title={onStatHover ? undefined : "Power"} {...hv("power")}>{st.power}</span>
           </div>
         )}
         {isImpact && showStat && (
           <div className="absolute flex items-baseline font-display font-bold" style={{ top: "0.5em", right: "0.8em", gap: "0.3em" }}>
-            <span style={{ fontSize: "1.2em", color: "#fb7185", ...stroke }} title="Power">{st.power}</span>
-            <span style={{ fontSize: "1.8em", lineHeight: 1, color: "#fff", ...stroke }} title="Critical">{st.critical}</span>
+            <span style={{ fontSize: "1.2em", color: "#fb7185", ...stroke }} title={onStatHover ? undefined : "Power"} {...hv("power")}>{st.power}</span>
+            <span style={{ fontSize: "1.8em", lineHeight: 1, color: "#fff", ...stroke }} title={onStatHover ? undefined : "Critical"} {...hv("critical")}>{st.critical}</span>
           </div>
         )}
         {/* Spell: ตราโลกใต้ป้าย */}

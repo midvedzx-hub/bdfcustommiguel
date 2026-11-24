@@ -9,6 +9,7 @@ export class MultiplayerManager {
   conn: DataConnection | null = null;
   onMessage: Handler | null = null;
   onStatus: StatusHandler | null = null;
+  onClose: (() => void) | null = null; // การเชื่อมต่อกับเพื่อนหลุด (เน็ตหลุด / เพื่อนปิดแท็บ)
   roomId: string = "";
 
   generateRoomId(): string {
@@ -22,8 +23,28 @@ export class MultiplayerManager {
     this.onStatus?.(status);
   }
 
-  hostRoom(roomId: string): Promise<void> {
+  // reuse = เปิดห้องเดิมซ้ำ (หลังรีเฟรช/ปิดแท็บ): เซิร์ฟเวอร์อาจยังจำรหัสเดิมอยู่สักครู่ จึงลองใหม่อัตโนมัติ
+  async hostRoom(roomId: string, reuse = false): Promise<void> {
+    const tries = reuse ? 8 : 1;
+    let lastErr: unknown = null;
+    for (let i = 0; i < tries; i++) {
+      try {
+        if (i > 0) this.setStatus(`รหัสห้อง ${roomId} ยังถูกจองอยู่ รอสักครู่แล้วลองเปิดห้องเดิมอีกครั้ง (${i}/${tries - 1})...`);
+        await this.hostRoomOnce(roomId);
+        return;
+      } catch (e) {
+        lastErr = e;
+        if (!(reuse && (e as Error)?.message?.includes("ถูกใช้แล้ว"))) break;
+        await new Promise(r => setTimeout(r, 2500));
+      }
+    }
+    throw lastErr;
+  }
+
+  private hostRoomOnce(roomId: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (this.peer) { try { this.peer.destroy(); } catch { /* ignore */ } this.peer = null; }
+      this.conn = null;
       this.roomId = roomId;
       this.peer = new Peer(`cbf-${roomId}`, { debug: 1 });
 
@@ -33,7 +54,7 @@ export class MultiplayerManager {
       });
 
       this.peer.on("connection", (conn) => {
-        if (this.conn && this.conn.open) { conn.close(); return; }
+        if (this.conn && this.conn.open) { conn.close(); return; } // ห้องเต็ม (ถ้าสายเก่าหลุดแล้ว เพื่อนต่อกลับเข้ามาใหม่ได้)
         this.conn = conn;
         this.setupConnection();
         this.setStatus("เพื่อนเข้าร่วมแล้ว! เชื่อมต่อสำเร็จ");
@@ -52,6 +73,8 @@ export class MultiplayerManager {
 
   joinRoom(roomId: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (this.peer) { try { this.peer.destroy(); } catch { /* ignore */ } this.peer = null; }
+      this.conn = null;
       this.roomId = roomId;
       const tempId = `cbf-${roomId}-guest-${Math.random().toString(36).slice(2, 8)}`;
       this.peer = new Peer(tempId, { debug: 1 });
@@ -89,8 +112,11 @@ export class MultiplayerManager {
         // ignore malformed
       }
     });
+    const myConn = this.conn;
     this.conn.on("close", () => {
+      if (this.conn !== myConn) return; // สายเก่าที่ถูกแทนที่แล้ว
       this.setStatus("การเชื่อมต่อถูกตัด");
+      this.onClose?.();
     });
   }
 

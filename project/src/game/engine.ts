@@ -1,6 +1,6 @@
 import { condBuffAmounts, deckBuddies, SOUL_GRANT_KEYWORDS } from "@/types";
 import type {
-  GameState, PlayerState, Card, Flag, Deck, FieldCard, AutoEffectType, AutoTrigger, RuleSet, AttackTarget, FxEvent, FxInput, AutoSkill, CounterTiming, AutoEffect,
+  StatSrc, GameState, PlayerState, Card, Flag, Deck, FieldCard, AutoEffectType, AutoTrigger, RuleSet, AttackTarget, FxEvent, FxInput, AutoSkill, CounterTiming, AutoEffect,
 } from "@/types";
 import { DEFAULT_RULES, callCostAmounts, canTransform, transformCostAmounts, isMonsterImpact, matchesType, callSelfEffect, withCallCostReduced } from "@/types";
 import { uid } from "@/storage";
@@ -164,6 +164,53 @@ export function statsOf(fc: FieldCard): { power: number; defense: number; critic
     power: c.power + fc.tempPower + (fc.manualPower ?? 0) + (fc.auraPower ?? 0) + continuousSum(c, "buffPower") + continuousSum(c, "powerPerSoul") * fc.soul.length,
     defense: c.defense + (fc.tempDefense ?? 0) + (fc.manualDefense ?? 0) + (fc.auraDefense ?? 0) + continuousSum(c, "buffDefense"),
     critical: c.critical + (fc.tempCritical ?? 0) + (fc.manualCritical ?? 0) + (fc.auraCritical ?? 0) + continuousSum(c, "buffCritical") + continuousSum(c, "criticalPerSoul") * fc.soul.length,
+  };
+}
+
+// ---- อธิบายที่มาของตัวเลข (วางเมาส์ที่ Power/Defense/Critical/Size) ----
+export type StatLine = { label: string; value: number };
+export type StatExplain = { total: number; lines: StatLine[] };
+export type AbilityInfo = { skill: AutoSkill; idx: number; source: string | null; temp: boolean; act?: { used: number; max: number } };
+export type FcExplain = { power: StatExplain; defense: StatExplain; critical: StatExplain; size: StatExplain; abilities: AbilityInfo[] };
+
+export function explainFc(fc: FieldCard, turn: number): FcExplain | null {
+  const base = getCard(fc.cardId);
+  const merged = cardOfFc(fc);
+  if (!base || !merged) return null;
+  const st = statsOf(fc);
+  const ownN = base.autoSkills?.length ?? 0;
+  const grantedN = fc.grantedSkills?.length ?? 0;
+  const skills = merged.autoSkills ?? [];
+  const build = (stat: "power" | "defense" | "critical" | "size", total: number, baseVal: number, buffType?: AutoEffectType, perType?: AutoEffectType, manual?: number): StatExplain => {
+    const lines: StatLine[] = [{ label: "พื้นฐาน", value: baseVal }];
+    skills.forEach((sk, i) => {
+      if (sk.trigger !== "continuous") return;
+      const who = sk.grantedBy ? `${sk.grantedBy} (ความสามารถที่ได้จากโซล)` : i >= ownN ? "ความสามารถที่ได้รับ" : `${base.name} (ความสามารถของการ์ดนี้)`;
+      sk.effects.forEach(e => {
+        if (buffType && e.type === buffType && e.value) lines.push({ label: who, value: e.value });
+        if (perType && e.type === perType && e.value && fc.soul.length > 0) lines.push({ label: `${who} · ${e.value} ต่อโซล ${fc.soul.length} ใบ`, value: e.value * fc.soul.length });
+      });
+    });
+    (fc.auraSrc ?? []).filter(x => x.stat === stat).forEach(x => lines.push({ label: x.label, value: x.v }));
+    (fc.tempSrc ?? []).filter(x => x.stat === stat).forEach(x => lines.push({ label: `${x.label} (จนจบเทิร์น)`, value: x.v }));
+    if (manual) lines.push({ label: "Sandbox ปรับเอง", value: manual });
+    const sum = lines.reduce((a, l) => a + l.value, 0);
+    if (sum !== total) lines.push({ label: "ส่วนอื่น/ปรับให้ไม่ต่ำกว่า 0", value: total - sum });
+    return { total, lines };
+  };
+  const abilities: AbilityInfo[] = skills.map((sk, idx) => ({
+    skill: sk,
+    idx,
+    source: sk.grantedBy ?? (idx >= ownN ? "ความสามารถที่ได้รับชั่วคราว" : null),
+    temp: idx >= ownN + grantedN,
+    act: sk.trigger === "onCounterAct" ? { used: actUses(fc, turn, idx), max: maxUses(sk) } : undefined,
+  }));
+  return {
+    power: build("power", st.power, base.power, "buffPower", "powerPerSoul", fc.manualPower),
+    defense: build("defense", st.defense, base.defense, "buffDefense", undefined, fc.manualDefense),
+    critical: build("critical", st.critical, base.critical, "buffCritical", "criticalPerSoul", fc.manualCritical),
+    size: build("size", sizeOfFc(fc), base.size, undefined, undefined, fc.manualSize),
+    abilities,
   };
 }
 
@@ -589,6 +636,7 @@ function runSkills(
             if (eff.type === "buffPower") target.tempPower += eff.value;
             if (eff.type === "buffCritical") target.tempCritical += eff.value;
             if (eff.type === "buffDefense") target.tempDefense += eff.value;
+            noteTemp(target, eff.type === "buffPower" ? "power" : eff.type === "buffCritical" ? "critical" : "defense", eff.value, card.name);
           });
           log(g, `${card.name} ${eff.type === "buffPower" ? "Power" : eff.type === "buffCritical" ? "Critical" : "Defense"} +${eff.value}`);
           break;
@@ -603,7 +651,9 @@ function runSkills(
           const grantKws: AutoEffect[] = (eff.grantKw ?? []).map(k => ({ type: k, value: 1 }));
           ts.forEach(t => {
             t.tempPower += amt.power; t.tempCritical += amt.critical; t.tempDefense += amt.defense; t.tempSize = (t.tempSize ?? 0) + amt.size;
-            if (grantKws.length > 0) t.tempGrantedSkills = [...(t.tempGrantedSkills ?? []), { trigger: "continuous", effects: grantKws }];
+            noteTemp(t, "power", amt.power, `${card.name} (เงื่อนไขครบ)`); noteTemp(t, "critical", amt.critical, `${card.name} (เงื่อนไขครบ)`);
+            noteTemp(t, "defense", amt.defense, `${card.name} (เงื่อนไขครบ)`); noteTemp(t, "size", amt.size, `${card.name} (เงื่อนไขครบ)`);
+            if (grantKws.length > 0) t.tempGrantedSkills = [...(t.tempGrantedSkills ?? []), { trigger: "continuous", effects: grantKws, grantedBy: card.name }];
           });
           const parts = [amt.power ? `Power +${amt.power}` : "", amt.critical ? `Critical +${amt.critical}` : "", amt.defense ? `Defense +${amt.defense}` : "", amt.size ? `Size ${amt.size > 0 ? "+" : ""}${amt.size}` : ""].filter(Boolean).join(" ");
           log(g, `${card.name}: เงื่อนไขครบ — ${ts.map(t => cardOfFc(t)?.name ?? "การ์ด").join(", ")} ได้รับ ${[parts, ...grantKws.map(k => SOUL_GRANT_KEYWORDS.find(x => x.value === k.type)?.label ?? String(k.type))].filter(Boolean).join(" ")} จนจบเทิร์น`);
@@ -1184,7 +1234,7 @@ export function endTurn(state: GameState): GameState {
   if (g.winner) return g;
   (["host", "guest"] as Side[]).forEach(s => {
     [...g[s].monsters, ...(g[s].item ? [g[s].item!] : [])].forEach(m => {
-      m.tempPower = 0; m.tempCritical = 0; m.tempDefense = 0; m.tempSize = 0; m.nullified = false; m.tempGrantedSkills = undefined;
+      m.tempPower = 0; m.tempCritical = 0; m.tempDefense = 0; m.tempSize = 0; m.tempSrc = undefined; m.nullified = false; m.tempGrantedSkills = undefined;
     });
   });
   g.currentTurn = other(g.currentTurn);
@@ -1407,6 +1457,16 @@ function ownSetSoul(g: GameState, side: Side, card: Card, ctx?: { fc?: FieldCard
 }
 
 // ผลต่อเนื่องจากการ์ด Set: บัฟ Power/Defense/Critical ให้มอนสเตอร์และไอเทมของเจ้าของ (คำนวณใหม่ทุกครั้งที่ Set เปลี่ยน)
+// บันทึกที่มาของบัฟชั่วคราว/ค่า aura (ไว้อธิบายตัวเลขตอนวางเมาส์)
+function noteTemp(t: FieldCard, stat: StatSrc["stat"], v: number, label: string) {
+  if (!v) return;
+  t.tempSrc = [...(t.tempSrc ?? []), { stat, v, label }];
+}
+function noteAura(t: FieldCard, stat: StatSrc["stat"], v: number, label: string) {
+  if (!v) return;
+  t.auraSrc = [...(t.auraSrc ?? []), { stat, v, label }];
+}
+
 export function recalcAuras(g: GameState) {
   (["host", "guest"] as Side[]).forEach(side => {
     const p = g[side];
@@ -1429,17 +1489,27 @@ export function recalcAuras(g: GameState) {
         }));
         if (!ok) return;
         seen.add(id); // การ์ดชื่อ/ใบเดียวกันหลายใบใน Soul นับครั้งเดียว กันสกิลทำงานซ้ำ
-        (sc.autoSkills ?? []).forEach(sk => { if (!isGrant(sk)) granted.push(sk); });
+        (sc.autoSkills ?? []).forEach(sk => { if (!isGrant(sk)) granted.push({ ...sk, grantedBy: sc.name }); });
       });
       fc.grantedSkills = granted.length > 0 ? granted : undefined;
     });
     let pw = 0, df = 0, cr = 0, pps = 0, cps = 0;
+    const setParts: { name: string; pw: number; df: number; cr: number; pps: number; cps: number }[] = [];
     activeSetCards(p).forEach(c => {
-      pw += continuousSum(c, "buffPower"); df += continuousSum(c, "buffDefense"); cr += continuousSum(c, "buffCritical");
-      pps += continuousSum(c, "powerPerSoul"); cps += continuousSum(c, "criticalPerSoul");
+      const part = { name: c.name, pw: continuousSum(c, "buffPower"), df: continuousSum(c, "buffDefense"), cr: continuousSum(c, "buffCritical"), pps: continuousSum(c, "powerPerSoul"), cps: continuousSum(c, "criticalPerSoul") };
+      pw += part.pw; df += part.df; cr += part.cr; pps += part.pps; cps += part.cps;
+      setParts.push(part);
     });
     [...p.monsters, ...(p.item ? [p.item] : [])].forEach(fc => {
       fc.auraPower = pw + pps * fc.soul.length; fc.auraDefense = df; fc.auraCritical = cr + cps * fc.soul.length; fc.auraSize = 0;
+      fc.auraSrc = undefined;
+      setParts.forEach(sp => {
+        noteAura(fc, "power", sp.pw, `Set: ${sp.name}`); noteAura(fc, "defense", sp.df, `Set: ${sp.name}`); noteAura(fc, "critical", sp.cr, `Set: ${sp.name}`);
+        if (fc.soul.length > 0) {
+          noteAura(fc, "power", sp.pps * fc.soul.length, `Set: ${sp.name} · ${sp.pps} ต่อโซล ${fc.soul.length} ใบ`);
+          noteAura(fc, "critical", sp.cps * fc.soul.length, `Set: ${sp.name} · ${sp.cps} ต่อโซล ${fc.soul.length} ใบ`);
+        }
+      });
     });
 
     // บัฟถาวรแบบมีเงื่อนไข (condBuff ในสกิล "ถาวร"): มีผลตราบที่เงื่อนไขครบ
@@ -1449,13 +1519,16 @@ export function recalcAuras(g: GameState) {
         sk.effects.forEach(e => {
           if (e.type !== "condBuff" || !condBuffMet(g, side, e, self)) return;
           const amt = condBuffAmounts(e);
+          const srcName = sk.grantedBy ? `${sk.grantedBy} (ผ่านโซล)` : card.name;
           condBuffTargets(g, side, e, self).forEach(t => {
+            noteAura(t, "power", amt.power, `${srcName} · เงื่อนไขครบ`); noteAura(t, "critical", amt.critical, `${srcName} · เงื่อนไขครบ`);
+            noteAura(t, "defense", amt.defense, `${srcName} · เงื่อนไขครบ`); noteAura(t, "size", amt.size, `${srcName} · เงื่อนไขครบ`);
             t.auraPower = (t.auraPower ?? 0) + amt.power;
             t.auraCritical = (t.auraCritical ?? 0) + amt.critical;
             t.auraDefense = (t.auraDefense ?? 0) + amt.defense;
             t.auraSize = (t.auraSize ?? 0) + amt.size;
             const kws: AutoEffect[] = (e.grantKw ?? []).map(k => ({ type: k, value: 1 }));
-            if (kws.length > 0) t.grantedSkills = [...(t.grantedSkills ?? []), { trigger: "continuous", effects: kws }]; // ได้คีย์เวิร์ดตราบที่เงื่อนไขครบ
+            if (kws.length > 0) t.grantedSkills = [...(t.grantedSkills ?? []), { trigger: "continuous", effects: kws, grantedBy: srcName }]; // ได้คีย์เวิร์ดตราบที่เงื่อนไขครบ
           });
         });
       });
@@ -1476,12 +1549,15 @@ export function recalcAuras(g: GameState) {
           const n = soulCondCount(soul, e);
           if (n < Math.max(1, Math.floor(e.value) || 1)) return;
           const mult = e.perSoul ? n : 1;
+          const srcName2 = sk.grantedBy ? `${sk.grantedBy} (ผ่านโซล)` : c.name;
+          const why = `${srcName2} · โซลครบ ${n} ใบ${mult > 1 ? ` (คูณ ${mult})` : ""}`;
           soulCondTargets(p, self, e).forEach(t => {
+            noteAura(t, "power", (e.bPower ?? 0) * mult, why); noteAura(t, "critical", (e.bCritical ?? 0) * mult, why); noteAura(t, "defense", (e.bDefense ?? 0) * mult, why);
             t.auraPower = (t.auraPower ?? 0) + (e.bPower ?? 0) * mult;
             t.auraCritical = (t.auraCritical ?? 0) + (e.bCritical ?? 0) * mult;
             t.auraDefense = (t.auraDefense ?? 0) + (e.bDefense ?? 0) * mult;
             const kws: AutoEffect[] = (e.grantKw ?? []).map(k => ({ type: k, value: 1 }));
-            if (kws.length > 0) t.grantedSkills = [...(t.grantedSkills ?? []), { trigger: "continuous", effects: kws }];
+            if (kws.length > 0) t.grantedSkills = [...(t.grantedSkills ?? []), { trigger: "continuous", effects: kws, grantedBy: srcName2 }];
           });
         });
       });
@@ -2521,6 +2597,52 @@ export function useCounterAnytime(state: GameState, side: Side, opt: CounterOpti
   const err = runCounterOption(g, side, opt, null);
   if (err) return { state, ok: false, msg: err };
   return { state: g, ok: true, msg: "ใช้ Counter" };
+}
+
+// ---- QoL: ไฮไลต์การ์ดในมือที่เล่นได้ + เหตุผลที่เล่นไม่ได้ ----
+// ลองเล่นจริงบนสำเนาสถานะ (ไม่กระทบเกม) จึงได้เหตุผลตรงกับที่เกมจะแจ้งตอนกด
+export function handPlayability(state: GameState, side: Side, handIndex: number): { ok: boolean; reason: string } {
+  const card = getCard(state[side].hand[handIndex]);
+  if (!card) return { ok: false, reason: "" };
+  let results: Result[] = [];
+  if (card.type === "Monster") {
+    const impact = isMonsterImpact(card);
+    results = [1, 0, 2].map(pos => impact ? impactCall(state, side, handIndex, pos) : callMonster(state, side, handIndex, pos));
+  } else if (card.type === "Spell" || card.type === "Impact") {
+    results = [castSpell(state, side, handIndex)];
+  } else if (card.type === "Item") {
+    results = [equipItem(state, side, handIndex)];
+  } else {
+    return { ok: false, reason: "" };
+  }
+  if (results.some(r => r.ok)) return { ok: true, reason: "" };
+  const msgs = results.map(r => r.msg).filter(Boolean);
+  // เหตุผลเรื่องค่าใช้จ่าย/เงื่อนไขอธิบายได้ดีกว่าเรื่องช่องว่าง จึงเลือกก่อน
+  const reason = msgs.find(m => /เกจ|Life|Size|ต้องมี|เงื่อนไข|Soul/.test(m)) ?? msgs[0] ?? "เล่นการ์ดใบนี้ไม่ได้ตอนนี้";
+  return { ok: false, reason };
+}
+
+// Counter ในมือที่ "มีสกิลตรงจังหวะ" แต่ใช้ไม่ได้ตอนนี้ (เช่น เกจ/Life ไม่พอ) พร้อมเหตุผล — ไว้แสดงเป็นตัวมืดในหน้าต่าง Counter
+export function counterBlockedHand(state: GameState, side: Side): { index: number; reason: string }[] {
+  const timing = counterTiming(state);
+  if (!timing) return [];
+  const p = state[side];
+  const usable = counterOptions(state, side);
+  const out: { index: number; reason: string }[] = [];
+  p.hand.forEach((id, i) => {
+    const c = getCard(id);
+    if (!c || counterSkills(c, "onCounter", timing).length === 0) return;
+    if (usable.some(o => o.zone === "hand" && o.index === i)) return;
+    const ex = extraCostOf(c, "onCounter", timing);
+    const cc = callCostAmounts(c);
+    const gNeed = ex.gauge + cc.gauge;
+    const lNeed = ex.life + cc.life;
+    let reason = "ใช้ไม่ได้ตอนนี้";
+    if (p.gaugePile.length < gNeed) reason = `เกจไม่พอ: ต้องจ่ายเกจ ${gNeed} แต่มีเกจ ${p.gaugePile.length}`;
+    else if (lNeed > 0 && p.life <= lNeed) reason = `Life ไม่พอ: ต้องจ่าย Life ${lNeed} (ต้องเหลืออย่างน้อย 1) แต่มี Life ${p.life}`;
+    out.push({ index: i, reason });
+  });
+  return out;
 }
 
 export function passCounter(state: GameState, side: Side): Result {

@@ -19,6 +19,7 @@ function load<T>(key: string): T[] {
 function save<T>(key: string, data: T[]): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(data));
+    try { localStorage.setItem("cbf_last_change", String(Date.now())); } catch { /* ignore */ }
     return true;
   } catch (e) {
     console.error("Save failed", e);
@@ -200,6 +201,57 @@ export function fileToBase64(file: File): Promise<string> {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+/* ---------------- สำรองข้อมูล ---------------- */
+// การ์ด/เด็ค/Flag ทั้งหมดอยู่ใน localStorage ของเบราว์เซอร์ — ล้างข้อมูลเว็บ/เปลี่ยนเครื่อง/พื้นที่เต็ม = หายหมด จึงเตือนให้ Export เป็นไฟล์เก็บไว้
+const num = (k: string) => { try { const v = parseInt(localStorage.getItem(k) ?? "", 10); return isNaN(v) ? 0 : v; } catch { return 0; } };
+export function backupAll(): void {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  downloadJSON(exportAll(), `custom-buddyfight-backup-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.json`);
+  try { localStorage.setItem("cbf_last_backup", String(Date.now())); localStorage.removeItem("cbf_backup_snooze"); } catch { /* ignore */ }
+}
+export function snoozeBackupReminder(days = 1): void {
+  try { localStorage.setItem("cbf_backup_snooze", String(Date.now() + days * 86400000)); } catch { /* ignore */ }
+}
+// ขนาดข้อมูลของเกมใน localStorage (ตัวอักษร ≈ ไบต์ x2; โควตามาตรฐานประมาณ 5 MB)
+export function storageUsageBytes(): number {
+  let total = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("cbf_")) total += (k.length + (localStorage.getItem(k)?.length ?? 0)) * 2;
+    }
+  } catch { /* ignore */ }
+  return total;
+}
+export const STORAGE_QUOTA_BYTES = 5 * 1024 * 1024;
+export interface BackupStatus {
+  hasData: boolean;
+  lastBackup: number;      // 0 = ไม่เคยสำรอง
+  changedSince: boolean;   // มีการแก้ข้อมูลหลังสำรองครั้งล่าสุด
+  needsReminder: boolean;
+  usageBytes: number;
+  nearFull: boolean;
+}
+export function getBackupStatus(): BackupStatus {
+  const hasData = getCards().length + getDecks().length + getFlags().length > 0;
+  const lastBackup = num("cbf_last_backup");
+  const lastChange = num("cbf_last_change");
+  const changedSince = lastBackup === 0 ? hasData : lastChange > lastBackup;
+  const snoozed = num("cbf_backup_snooze") > Date.now();
+  const stale = lastBackup === 0 || Date.now() - lastBackup > 3 * 86400000;
+  const usageBytes = storageUsageBytes();
+  const nearFull = usageBytes > STORAGE_QUOTA_BYTES * 0.8;
+  return { hasData, lastBackup, changedSince, needsReminder: hasData && changedSince && stale && !snoozed, usageBytes, nearFull };
+}
+// ขอให้เบราว์เซอร์เก็บข้อมูลแบบถาวร (ลดโอกาสโดนล้างเองตอนพื้นที่ไม่พอ) — เงียบ ๆ ไม่รบกวนผู้เล่น
+export async function requestPersistentStorage(): Promise<boolean> {
+  try { return (await navigator.storage?.persist?.()) ?? false; } catch { return false; }
+}
+export async function isStoragePersistent(): Promise<boolean> {
+  try { return (await navigator.storage?.persisted?.()) ?? false; } catch { return false; }
 }
 
 export function downloadJSON(data: string, filename: string): void {
