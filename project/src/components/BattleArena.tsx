@@ -12,7 +12,7 @@ import { explainFc } from "@/game/engine";
 import { keywordValue,
   createInitialState, setCardCache, setCardSizeCache, getCard, registerCards, setCardImage,
   callMonster, impactCall, castSpell, equipItem, setCard, moveMonster, declareAttack, endTurn, drawPhase, chargeAndDraw,
-  goToAttack, goToFinal, mulligan, freeCallPositions, resolveFreeCall, transformCard, legalTargets, statsOf, counterOptions, callSelfSlots, impactCastProblem, effCostCard, soulCallOffers, useSoulCall, counterCardOf, counterAct, counterExtraCostLabel, handPlayability, counterBlockedHand, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
+  goToAttack, goToFinal, mulligan, freeCallPositions, resolveFreeCall, zoneCallOptions, resolveZoneCall, transformCard, legalTargets, statsOf, counterOptions, callSelfSlots, impactCastProblem, effCostCard, soulCallOffers, useSoulCall, counterCardOf, counterAct, counterExtraCostLabel, handPlayability, counterBlockedHand, counterHandCost, counterSkillLabel, freeCounterOptions, useCounterAnytime,
   passCounter, maxAttacks, hasKeyword, changeLife, addGauge, addLog, POSITION_NAMES,
   sandboxMoveCard, sandboxSetPhase, sandboxFlipRest, sandboxAdjustPower, sandboxMoveToPosition, sandboxFreeDraw, sandboxPayGauge,
   sandboxAdjustStat, sandboxAdjustSize, sizeOfFc, cardOfFc, matchCallRequires, sandboxAddSoul, sandboxRemoveSoul, sandboxShuffleDeck, sandboxAddSetSoul, sandboxRemoveSetSoul, setSoulOf,
@@ -239,6 +239,12 @@ export function botStep(s: GameState): GameState {
     const best = ps.mode === "add" ? pool[0] : pool.sort((a, b) => b.soul.length - a.soul.length)[0];
     return resolveSoulChoice(s, "guest", best ? best.uid : null).state;
   }
+  if (s.pendingZoneCall) {
+    if (s.pendingZoneCall.side === "host") return s; // รอมนุษย์เลือกมอนสเตอร์ที่จะคอล
+    const opts = zoneCallOptions(s, s.pendingZoneCall);
+    const best = [...opts].sort((a, b) => (getCard(b.cardId)?.power ?? 0) - (getCard(a.cardId)?.power ?? 0))[0]; // บอทเลือกตัวที่ Power สูงสุด ช่องกลางก่อน
+    return resolveZoneCall(s, "guest", best ? { from: best.from, cardId: best.cardId, position: best.positions[0] } : null).state;
+  }
   if (s.pendingFreeCall?.queue.length) {
     const head = s.pendingFreeCall.queue[0];
     if (head.side === "host") return s; // รอมนุษย์ตัดสินใจ Call จากสุสาน
@@ -437,12 +443,16 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   const myLook = game.pendingLook && game.pendingLook.side === mySide ? game.pendingLook : null;
   const oppLooking = !!game.pendingLook && game.pendingLook.side !== mySide;
   const mySoulPick = game.pendingSoul && game.pendingSoul.side === mySide ? game.pendingSoul : null;
+  const myZoneCall = game.pendingZoneCall && game.pendingZoneCall.side === mySide ? game.pendingZoneCall : null;
+  const oppZoneCall = !!game.pendingZoneCall && game.pendingZoneCall.side !== mySide;
+  const [zcSel, setZcSel] = useState<{ from: "drop" | "deck"; cardId: string } | null>(null);
+  useEffect(() => { setZcSel(null); }, [game.pendingZoneCall?.cardId, game.pendingZoneCall?.n]);
   const oppSoulPick = !!game.pendingSoul && game.pendingSoul.side !== mySide;
   const myTargetPick = game.pendingTarget && game.pendingTarget.side === mySide ? game.pendingTarget : null;
   const oppTargetPick = !!game.pendingTarget && game.pendingTarget.side !== mySide;
   const [targetSel, setTargetSel] = useState<string[]>([]);
   useEffect(() => { setTargetSel([]); }, [game.pendingTarget?.cardId, game.pendingTarget?.effType, game.pendingTarget?.candidates.join(",")]);
-  const busy = !!game.battle || !!sw || !!game.pendingLook || !!game.pendingSoul || !!game.pendingTarget || !!game.pendingFreeCall;
+  const busy = !!game.battle || !!sw || !!game.pendingLook || !!game.pendingSoul || !!game.pendingTarget || !!game.pendingFreeCall || !!game.pendingZoneCall;
   // Final Phase: มีเฉพาะมอนสเตอร์ไม้ตายที่ Stand อยู่เท่านั้นที่โจมตีได้
   const finalAttack = isMyTurn && game.phase === "final" && !busy && me.monsters.some(m => m.state === "stand" && isMonsterImpact(cardOfFc(m)));
   const canAttackNow = isMyTurn && !busy && (game.phase === attackPhaseName || finalAttack);
@@ -771,7 +781,7 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
     if (mode !== "bot" || game.winner) return;
     const botMull = !game.mulligan.guest;
     const botDefending = (!!game.battle && game.battle.attackerSide === "host") || (!!game.spellWindow && game.spellWindow.casterSide === "host");
-    const botLook = game.pendingLook?.side === "guest" || game.pendingSoul?.side === "guest" || game.pendingTarget?.side === "guest";
+    const botLook = game.pendingLook?.side === "guest" || game.pendingSoul?.side === "guest" || game.pendingTarget?.side === "guest" || game.pendingZoneCall?.side === "guest";
     const botTurn = game.currentTurn === "guest" && !game.battle && !game.spellWindow && !game.pendingLook && !game.pendingSoul && !game.pendingTarget && game.mulligan.host && game.mulligan.guest;
     if (!botMull && !botDefending && !botTurn && !botLook) return;
     const t = setTimeout(() => doAction(s => botStep(s), { auto: true }), botMull ? 100 : botDefending ? 900 : 850);
@@ -939,6 +949,8 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
   function whyBlocked(): string | undefined {
     if (game.winner) return undefined;
     if (!started) return "ยังเริ่มเกมไม่ได้: รอทั้งสองฝั่งเลือก Mulligan ก่อน";
+    if (myZoneCall) return "กำลังเลือกมอนสเตอร์ที่จะคอลจากสุสาน/เด็ค: เลือกให้เสร็จก่อน";
+    if (oppZoneCall) return "กำลังรอฝั่งตรงข้ามเลือกมอนสเตอร์ที่จะคอล";
     if (myTargetPick) return "กำลังเลือกเป้าหมายมอนสเตอร์ศัตรู: เลือกให้เสร็จก่อน";
     if (oppTargetPick) return "กำลังรอฝั่งตรงข้ามเลือกเป้าหมายมอนสเตอร์";
     if (mySoulPick) return mySoulPick.mode === "add" ? "กำลังเลือกการ์ดที่จะรับ Soul: เลือกให้เสร็จก่อน" : "กำลังเลือกการ์ดที่จะถอด Soul: เลือกให้เสร็จก่อน";
@@ -1646,6 +1658,46 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
             <button onClick={() => setDiscardPick(null)} className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">ยกเลิก</button>
             <button disabled={sel.length !== need} onClick={confirm} className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 rounded-xl font-bold">ยืนยันและใช้ Counter</button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // เลือกมอนสเตอร์จากสุสาน/เด็คเพื่อคอลลงสนาม (callFromZone)
+  function renderZoneCallModal() {
+    const pz = myZoneCall;
+    if (!pz || game.winner) return null;
+    const src = cardOf(pz.cardId);
+    const opts = zoneCallOptions(game, pz);
+    const selOpt = zcSel ? opts.find(o => o.from === zcSel.from && o.cardId === zcSel.cardId) : undefined;
+    const zname = (z: string) => (z === "drop" ? "สุสาน" : "เด็ค");
+    const cond = pz.condText ? `ที่มี${pz.condMatch === "name" ? "ชื่อ" : "คุณสมบัติ"} “${pz.condText}” ` : "";
+    return (
+      <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+        <div className="bg-slate-900 text-slate-100 border-2 border-emerald-400 rounded-2xl p-5 max-w-3xl w-full max-h-[94vh] overflow-y-auto">
+          <h3 className="font-display text-xl font-bold text-emerald-300 mb-1">คอลมอนสเตอร์{cond}จาก{pz.zones.map(zname).join("หรือ")}{src ? ` — ${src.name}` : ""}</h3>
+          <p className="text-sm text-slate-300 mb-3">เลือกการ์ด แล้วเลือกช่องที่จะลง (คอลได้อีกสูงสุด {pz.n} ตัว · {pz.pay ? "จ่าย Call Cost" : "ไม่ต้องจ่าย Call Cost"}){pz.zones.includes("deck") && pz.shuffle ? " · สับเด็คหลังค้นจากเด็ค" : ""}</p>
+          <div className="flex flex-wrap gap-3 justify-center mb-4">
+            {opts.map(o => {
+              const c = cardOf(o.cardId);
+              if (!c) return null;
+              const on = zcSel?.from === o.from && zcSel.cardId === o.cardId;
+              return (
+                <div key={`${o.from}-${o.cardId}`} className="flex flex-col items-center gap-1">
+                  <CardView card={c} flag={flagOf(me.flagId)} size="md" onClick={() => setZcSel({ from: o.from, cardId: o.cardId })} onInspect={() => openInspect(c, me.flagId)} className={on ? "ring-4 ring-emerald-400" : "hover:ring-4 hover:ring-emerald-300"} />
+                  <span className="chip">{zname(o.from)}{o.count > 1 ? ` × ${o.count}` : ""}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {selOpt
+              ? selOpt.positions.map(pos => (
+                  <button key={pos} onClick={() => act("คอลไม่ได้", st => resolveZoneCall(st, mySide, { from: selOpt.from, cardId: selOpt.cardId, position: pos }))} className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold">Call ช่อง{POSITION_NAMES[pos]}</button>
+                ))
+              : <div className="flex-1 text-center text-sm text-slate-400 py-2.5">เลือกการ์ดด้านบนก่อน</div>}
+          </div>
+          <button onClick={() => act("ผิดพลาด", st => resolveZoneCall(st, mySide, null))} className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold">ไม่คอล / จบการเลือก</button>
         </div>
       </div>
     );
@@ -2567,6 +2619,10 @@ export function BattleArena({ mode, hostDeck, rules = DEFAULT_RULES, initialStat
       {renderCounterModal()}
       {renderFreeCounterModal()}
       {renderFreeCallModal()}
+      {renderZoneCallModal()}
+      {oppZoneCall && !game.winner && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[44] panel !rounded-2xl px-4 py-2 text-sm text-emerald-200 border-emerald-500/50">ศัตรูกำลังเลือกมอนสเตอร์ที่จะคอลลงสนาม...</div>
+      )}
       {flagInfo && <FlagInfoDialog flag={flagInfo} buddies={(flagInfo.buddyIds ?? []).map(id => cardOf(id)).filter((c): c is Card => !!c)} onClose={() => setFlagInfo(null)} />}
       {renderSoulCallModal()}
       {renderSlotPick()}

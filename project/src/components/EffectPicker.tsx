@@ -90,6 +90,7 @@ const META: Record<string, { g: Group; q: string }> = {
   dropToDeckBottom: { g: G_ZONE, q: "สุสานกลับใต้เด็ค สับเด็ค shuffle deck bottom" },
   shuffleDeck: { g: G_ZONE, q: "สับเด็ค shuffle" },
   lookTop: { g: G_ZONE, q: "ดูการ์ดบนสุด look top ค้นเด็ค" },
+  callFromZone: { g: G_ZONE, q: "คอล call มอนสเตอร์ ลงสนาม จากสุสาน เด็ค คุณสมบัติ ตอนโจมตี ค้นเด็ค ฟรี" },
   namedToHand: { g: G_ZONE, q: "ค้นการ์ดตามชื่อ ขึ้นมือ search" },
 
   standSelf: { g: G_OTHER, q: "stand ลุก ยืน ตัวเอง" },
@@ -111,7 +112,9 @@ function pushRecent(t: AutoEffectType) {
 /** สร้างเอฟเฟกต์ใหม่ของชนิดที่เลือก พร้อมค่าเริ่มต้นที่ใช้บ่อย */
 export function newEffect(type: AutoEffectType): AutoEffect {
   const defaults: Partial<Record<AutoEffectType, number>> = { buffPower: 5000, buffDefense: 5000, powerPerSoul: 1000, soulCond: 2, lookTop: 3, lifelink: 1000 };
-  return { type, value: defaults[type] ?? 1 };
+  const e: AutoEffect = { type, value: defaults[type] ?? 1 };
+  if (type === "callFromZone") { e.callZones = ["drop", "deck"]; e.shuffleAfter = true; }
+  return e;
 }
 
 const norm = (s: string) => s.toLowerCase().normalize("NFKC");

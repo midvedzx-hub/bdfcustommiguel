@@ -110,6 +110,34 @@ export function EffectRow({ eff, onChange, onRemove }: { eff: AutoEffect; onChan
           <p className="basis-full text-slate-500">ใช้กับการ์ดมอนสเตอร์ที่มีสกิล “Counter (ใช้จากมือ/ช่อง Set)” หรือ “เมื่อการ์ดนี้ออกจาก Soul” · ตอนใช้ผู้เล่นเลือกช่องที่จะลงได้เอง (ช่องไหนก็ได้ที่ว่างและ Size ไม่เกิน) การ์ดลงสนามเป็นมอนสเตอร์แทนที่จะลงสุสาน และเอฟเฟกต์ “เมื่อลงสนาม” / Buddy Call ทำงานตามปกติ · แบบ Counter ใช้ได้เฉพาะจากมือ (Set คว่ำไม่ได้) · แบบ “ออกจาก Soul” ใช้ได้ภายในเทิร์นนั้น จากมือหรือสุสานที่การ์ดไปอยู่ (ถูกถอด Soul / เจ้าของ Soul ถูกทำลายหรือออกจากสนาม) · ถ้าเป็นมอนสเตอร์ไม้ตายจะไม่นับเป็น Impact Call</p>
         </div>
       )}
+      {eff.type === "callFromZone" && (() => {
+        const zones = eff.callZones && eff.callZones.length ? eff.callZones : (["drop", "deck"] as ("drop" | "deck")[]);
+        const toggle = (z: "drop" | "deck") => {
+          const next = zones.includes(z) ? zones.filter(x => x !== z) : [...zones, z];
+          onChange({ ...eff, callZones: next.length ? next : zones });
+        };
+        return (
+          <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
+            <span>คอลจาก:</span>
+            {([["drop", "สุสาน"], ["deck", "เด็ค"]] as const).map(([z, label]) => (
+              <button key={z} type="button" onClick={() => toggle(z)} className={`px-2 py-0.5 rounded-full border ${zones.includes(z) ? "bg-emerald-700 border-emerald-400 text-white" : "bg-slate-800 border-slate-600 text-slate-300"}`}>{zones.includes(z) ? "✔ " : ""}{label}</button>
+            ))}
+            <span className="basis-full" />
+            <span>มอนสเตอร์ที่มี</span>
+            <select value={eff.condMatch ?? "attr"} onChange={e => onChange({ ...eff, condMatch: e.target.value as "attr" | "name" })} className={`${sel} !py-0.5 text-xs`}>
+              <option value="attr">คุณสมบัติ</option>
+              <option value="name">ชื่อ</option>
+            </select>
+            <input value={eff.condText ?? ""} onChange={e => onChange({ ...eff, condText: e.target.value })} placeholder="เช่น Magia Vendar, Lyzance (ว่าง = มอนสเตอร์ใดก็ได้)" className={`${num} !py-0.5 text-xs w-72`} />
+            <span className="basis-full" />
+            <label className="flex items-center gap-1"><input type="checkbox" checked={!!eff.payCallCost} onChange={e => onChange({ ...eff, payCallCost: e.target.checked || undefined })} /> ต้องจ่าย Call Cost (ปกติคอลฟรี)</label>
+            {zones.includes("deck") && (
+              <label className="flex items-center gap-1"><input type="checkbox" checked={!!eff.shuffleAfter} onChange={e => onChange({ ...eff, shuffleAfter: e.target.checked || undefined })} /> สับเด็คหลังค้นจากเด็ค</label>
+            )}
+            <p className="basis-full text-slate-500">ผู้เล่นเลือกมอนสเตอร์และช่องเองตอนความสามารถทำงาน (เลือกไม่คอลได้) · ต้องมีช่องว่างและ Size ไม่เกินจึงจะคอลได้ · ใส่ในสกิล “เมื่อโจมตี” เพื่อให้คอลตอนโจมตี · ตัวเลขด้านบน = คอลได้สูงสุดกี่ตัว · คุณสมบัติหลายค่าคั่นด้วย ,</p>
+          </div>
+        );
+      })()}
       {eff.type === "dropCallFree" && (
         <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-slate-300 pl-1">
           <span>เมื่ออยู่ในสุสาน เลือก Call ได้</span>

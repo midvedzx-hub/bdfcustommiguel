@@ -64,6 +64,11 @@ export function effectText(e: AutoEffect): string {
     case "restAttacker": return `Rest ผู้โจมตี`;
     case "addSoul": return `นำการ์ดบนเด็ค ${v} ใบเข้า Soul ของการ์ดนี้`;
     case "removeSoul": return `ถอด Soul ${v} ใบของการ์ดนี้ลงสุสาน`;
+    case "callFromZone": {
+      const zs = (e.callZones && e.callZones.length ? e.callZones : ["drop", "deck"]).map(z => (z === "drop" ? "สุสาน" : "เด็ค")).join("หรือ");
+      const txt = (e.condText ?? "").trim();
+      return `คอลมอนสเตอร์${txt ? `ที่มี${e.condMatch === "name" ? "ชื่อ" : "คุณสมบัติ"} “${txt}” ` : ""}จาก${zs}ลงสนาม ${v} ตัว${e.payCallCost ? " (จ่าย Call Cost)" : " (ไม่จ่าย Call Cost)"}${e.shuffleAfter && (!e.callZones || e.callZones.includes("deck")) ? " แล้วสับเด็ค" : ""}`;
+    }
     case "dropCallFree": {
       const w = e.dropCallTurns === "mine" ? "ตอนเริ่มเทิร์นของเรา" : e.dropCallTurns === "opp" ? "ตอนเริ่มเทิร์นของศัตรู" : "ตอนเริ่มเทิร์นของทุกฝ่าย";
       return `เมื่อการ์ดนี้อยู่ในสุสาน ${w} สามารถ Call การ์ดนี้ลงสนามโดยไม่จ่าย Call Cost ได้`;

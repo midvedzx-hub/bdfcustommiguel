@@ -69,6 +69,7 @@ export type AutoEffectType =
   | "soulGrant"               // ถาวร: ถ้าการ์ดนี้อยู่ใน Soul ของการ์ด (ชื่อ ...) การ์ดนั้นจะได้รับความสามารถทั้งหมดของการ์ดนี้
   | "soulCond"                // ถาวร: ถ้าโซลของการ์ดนี้มีการ์ด (คุณสมบัติ/ชื่อที่กำหนด) อย่างน้อย X ใบ → การ์ดนี้ได้ Power/Critical/Defense เพิ่ม และ/หรือได้คีย์เวิร์ด (Penetrate / Double Attack ...)
   | "namedToHand"             // นำการ์ดที่ชื่อตรง (refName) จากสุสาน / บนกองเด็ค ขึ้นมือ N ใบ (เช่น หลังร่าย)
+  | "callFromZone"            // คอลมอนสเตอร์ (กรองตามคุณสมบัติ/ชื่อได้) จากสุสาน และ/หรือเด็ค ลงสนาม — ผู้เล่นเลือกใบและช่อง (ไม่จ่าย Call Cost เว้นแต่ติ๊ก)
   | "dropCallFree"            // อยู่ในสุสาน: ตอนเริ่มเทิร์นของทุกฝ่าย (หรือเลือกเฉพาะเทิร์นเรา/ศัตรู) เลือก Call การ์ดนี้ลงสนามโดยไม่จ่าย Call Cost ได้
   | "requireOnField"          // เงื่อนไข: ต้องมีการ์ดที่กำหนด (refName) อยู่ในสนามของเรา จึงทำเอฟเฟกต์ถัดไปของสกิลนี้ ถ้าไม่มีก็ข้าม
   | "selfToSoul"              // Counter Act ฯลฯ: นำการ์ดใบนี้ (บนสนาม) เข้า Soul ของการ์ดอื่นของเราที่มีคุณสมบัติ/ชื่อที่กำหนด
@@ -154,6 +155,7 @@ export const EFFECT_LABELS: { value: AutoEffectType; label: string; hint: string
   { value: "criticalPerSoul", label: "Critical เพิ่มต่อ Soul 1 ใบ (ถาวร)", hint: "เช่น 1" },
   { value: "soulGrant", label: "อยู่ใน Soul → ให้ความสามารถทั้งหมดแก่เจ้าของโซล", hint: "ไม่ต้องใส่ค่า" },
   { value: "soulCond", label: "บัฟ/คีย์เวิร์ดตามโซล (ถ้าโซลมีการ์ด X ใบ…)", hint: "จำนวนการ์ดในโซลขั้นต่ำ (X)" },
+  { value: "callFromZone", label: "คอลมอนสเตอร์จากสุสาน/เด็คลงสนาม (เลือกคุณสมบัติ/ชื่อได้)", hint: "จำนวนตัวที่คอลได้สูงสุด" },
   { value: "dropCallFree", label: "เมื่ออยู่ในสุสาน: ตอนเริ่มเทิร์น Call การ์ดนี้ได้โดยไม่จ่าย Call Cost", hint: "ใส่ 1 (เลือกเทิร์นด้านล่าง)" },
   { value: "requireOnField", label: "เงื่อนไข: ถ้ามีการ์ดที่กำหนด (ในสนาม/มือ/สุสาน) จึงทำเอฟเฟกต์ถัดไป", hint: "ไม่ต้องใส่ (ใส่ชื่อด้านล่าง)" },
   { value: "namedToHand", label: "นำการ์ดที่กำหนด (ตามชื่อ) จากสุสาน/เด็คขึ้นมือ", hint: "จำนวนใบ" },
@@ -212,6 +214,7 @@ export interface AutoEffect {
   payCallCost?: boolean;                   // callSelf: true = ต้องจ่าย Call Cost ของการ์ดตอนคอล · ไม่ใส่/false = คอลฟรีไม่ต้องจ่าย
   allCards?: boolean;                      // dropToDeckBottom: นำการ์ดในสุสานทั้งหมด (ตามตัวกรองชนิดการ์ด) ไม่สนจำนวน
   shuffleAfter?: boolean;                  // dropToDeckBottom: สับเด็คหลังใส่การ์ดกลับ
+  callZones?: ("drop" | "deck")[];         // callFromZone: คอลจากโซนไหนได้ (ไม่ระบุ = สุสานและเด็ค)
   grantKw?: AutoEffectType[];              // soulCond / condBuff: คีย์เวิร์ดที่ได้รับเมื่อเงื่อนไขครบ (เช่น penetrate, doubleAttack)
 }
 
@@ -471,6 +474,11 @@ export interface GameState {
   battle: BattleState | null;
   spellWindow?: SpellWindow | null; // รอฝั่งตรงข้ามตัดสินใจ Counter ต่อเวทที่เพิ่งร่าย
   pendingLook?: PendingLook | null; // รอผู้เล่นเลือกการ์ดหลังดูกอง
+  pendingZoneCall?: {                   // รอผู้เล่นเลือกมอนสเตอร์จากสุสาน/เด็คเพื่อคอลลงสนาม (callFromZone)
+    side: "host" | "guest"; cardId: string; n: number; zones: ("drop" | "deck")[];
+    condMatch?: "attr" | "name"; condText?: string; pay?: boolean; shuffle?: boolean; usedDeck?: boolean;
+    cont: { skills: AutoSkill[]; fcUid?: string } | null; resumeCounter?: boolean;
+  } | null;
   pendingFreeCall?: { queue: { side: "host" | "guest"; cardId: string }[] } | null; // รอผู้เล่นตัดสินใจ Call การ์ดจากสุสานโดยไม่จ่าย Call Cost (dropCallFree) — คนแรกในคิวคือผู้ตัดสินใจ
   pendingSoul?: PendingSoul | null; // รอผู้เล่นเลือกการ์ดที่จะถอด Soul
   pendingTarget?: PendingTarget | null; // รอผู้เล่นเลือกเป้าหมายมอนสเตอร์ศัตรู
